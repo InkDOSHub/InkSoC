@@ -78,7 +78,8 @@
   /* shell: desktop icons, Start menu, File Explorer (a light window), Diagnostics */
   #icons{position:absolute;left:8px;top:8px;bottom:8px;display:flex;flex-direction:column;flex-wrap:wrap;align-content:flex-start;gap:6px;pointer-events:none;z-index:0}
   .ico{width:84px;padding:6px 2px;border-radius:6px;text-align:center;color:#fff;font:12px -apple-system,system-ui,sans-serif;text-shadow:0 1px 2px rgba(0,0,0,.7);overflow-wrap:anywhere;user-select:none;-webkit-user-select:none}
-  .ico i{display:block;font-style:normal;font-size:30px;line-height:38px}
+  .ico .ic{display:block;width:44px;height:44px;margin:0 auto 4px}
+  .ic{width:20px;height:20px;vertical-align:-5px;margin-right:7px}
   .ico.sel{background:rgba(255,255,255,.25)}
   #desk.drop{outline:3px dashed rgba(255,255,255,.7);outline-offset:-8px}
   #menu{width:300px;max-height:calc(100% - 70px);overflow:auto}
@@ -118,12 +119,12 @@
   <div class="mh">Installed programs</div>
   <div id="installed"></div>
   <div class="mh">Windows</div>
-  <button class="it" data-tool="files">📁 File Explorer</button>
-  <button class="it" data-tool="console">⬛ Command Prompt</button>
-  <button class="it" data-tool="diag">🩺 Diagnostics</button>
-  <button class="it" data-tool="settings">⚙️ Settings</button>
+  <button class="it" data-tool="files"><img class="ic" src="icons/system-file-manager.svg" alt="">File Explorer</button>
+  <button class="it" data-tool="console"><img class="ic" src="icons/utilities-terminal.svg" alt="">Command Prompt</button>
+  <button class="it" data-tool="diag"><img class="ic" src="icons/utilities-system-monitor.svg" alt="">Diagnostics</button>
+  <button class="it" data-tool="settings"><img class="ic" src="icons/preferences-system.svg" alt="">Settings</button>
   <hr>
-  <button class="it" id="shutdown">⏻ Shut down</button>
+  <button class="it" id="shutdown"><img class="ic" src="icons/system-shutdown.svg" alt="">Shut down</button>
 </div>
 <div class="pop" id="setp" hidden>
   <div class="mh">Settings</div>
@@ -160,6 +161,6 @@
   <div class="k s" data-vk="83" style="right:170px;bottom:190px">S</div>
 </div>
 <div class="bar"><button id="start">Start</button><div id="tasks"></div><span id="status"></span><span id="clock"></span></div>
-<script src="desktop.js?v=36"></script>
+<script src="desktop.js?v=37"></script>
 </body>
 </html>

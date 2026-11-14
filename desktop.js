@@ -37,6 +37,16 @@ function setHidden(p, h) {
   if (p.con) p.con.hidden = h || p.conAway;
 }
 
+// the shell's icons (Papirus, icons/): an <img> with a text after it
+function icon(name) {
+  const i = document.createElement('img');
+  i.className = 'ic';
+  i.src = 'icons/' + name + '.svg';
+  i.alt = '';
+  return i;
+}
+function labelled(el, name, text) { el.replaceChildren(icon(name), document.createTextNode(text)); }
+
 function consoleWindow(p, title) {
   const c = document.createElement('div');
   c.className = 'con';
@@ -150,7 +160,7 @@ function run(files, exe, args, label, home, opts = {}) {
   progs.push(p);
   p.btn = document.createElement('button');
   p.btn.className = 'task';
-  p.btn.textContent = label;
+  labelled(p.btn, opts.icon || 'application-x-executable', label);
   p.btn.onclick = () => {
     if (p.hidden) { setHidden(p, false); raise(p); }
     else if (p.z === zTop) setHidden(p, true);
@@ -158,6 +168,7 @@ function run(files, exe, args, label, home, opts = {}) {
   };
   $('tasks').append(p.btn);
   p.con = consoleWindow(p, label);
+  labelled(p.con.querySelector('.t span'), opts.icon || 'application-x-executable', label);
   const out = p.con.querySelector('pre');
   if (opts.typing) typingLine(p, out);
   raise(p);
@@ -332,7 +343,7 @@ setInterval(tick, 15000);
 // File Explorer, Command Prompt, Diagnostics: tools.js loads the first time one is opened
 let toolsReady = null;
 function loadTools() {
-  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=5'; s.onload = ok; s.onerror = fail; document.head.append(s); });
+  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=6'; s.onload = ok; s.onerror = fail; document.head.append(s); });
   return toolsReady;
 }
 async function tool(name, arg) {
@@ -360,12 +371,12 @@ $('shutdown').onclick = () => {
 const folderOf = (path) => path.slice(0, path.lastIndexOf('\\'));
 const baseName = (path) => path.split('\\').pop();
 function runPath(path, label) {
-  run([], path, $('args').value.trim(), '🪟 ' + (label || baseName(path).replace(/\.exe$/i, '')), folderOf(path));
+  run([], path, $('args').value.trim(), label || baseName(path).replace(/\.exe$/i, ''), folderOf(path));
 }
 // a Windows Installer package: Windows' own msiexec installs it
 async function installMsi(path) {
   const data = await fetch('bin/wine/wine-msiexec.exe?v=1').then((r) => r.arrayBuffer());
-  run([{ name: 'msiexec.exe', data }], 'msiexec.exe', '/i "' + path + '"' + ($('args').value.trim() ? ' ' + $('args').value.trim() : ''), '📦 ' + baseName(path).replace(/\.msi$/i, ''), folderOf(path));
+  run([{ name: 'msiexec.exe', data }], 'msiexec.exe', '/i "' + path + '"' + ($('args').value.trim() ? ' ' + $('args').value.trim() : ''), baseName(path).replace(/\.msi$/i, ''), folderOf(path), { icon: 'application-x-msi' });
 }
 // what a double tap does in File Explorer or on the desktop
 async function openPath(path, file) {
@@ -493,7 +504,7 @@ function showMenu() {
   $('installed').replaceChildren(...(list.length ? list.map((p) => {
     const b = document.createElement('button');
     b.className = 'it';
-    b.textContent = '🪟 ' + p.name;
+    labelled(b, 'application-x-executable', p.name);
     b.title = p.path;
     b.onclick = () => { closePops(); runPath(p.path, p.name); };
     return b;
@@ -503,16 +514,16 @@ function showMenu() {
 /* ---------- desktop icons: This PC, Command Prompt, Downloads, then the Desktop folder ---------- */
 function showIcons() {
   const items = [
-    { icon: '🖥️', name: 'This PC', open: () => tool('files', 'C:') },
-    { icon: '⬛', name: 'Command Prompt', open: () => tool('console') },
-    { icon: '📥', name: 'Downloads', open: () => tool('files', HOME + '\\Downloads') },
-    ...desktopItems.map((d) => ({ icon: '🪟', name: baseName(d.path).replace(/\.(lnk|exe)$/i, ''), open: () => openPath(d.path, d.file) })),
+    { icon: 'computer', name: 'This PC', open: () => tool('files', 'C:') },
+    { icon: 'utilities-terminal', name: 'Command Prompt', open: () => tool('console') },
+    { icon: 'folder-download', name: 'Downloads', open: () => tool('files', HOME + '\\Downloads') },
+    ...desktopItems.map((d) => ({ icon: 'application-x-executable', name: baseName(d.path).replace(/\.(lnk|exe)$/i, ''), open: () => openPath(d.path, d.file) })),
   ];
   $('icons').replaceChildren(...items.map((it) => {
     const el = document.createElement('div');
     el.className = 'ico';
-    el.innerHTML = '<i></i><span></span>';
-    el.firstChild.textContent = it.icon;
+    el.innerHTML = '<span></span>';
+    el.prepend(icon(it.icon));
     el.lastChild.textContent = it.name;
     el.open = it.open;
     return el;

@@ -57,12 +57,12 @@ async function copyFile(h, toDir, name) {
 const size = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.ceil(n / 1024) + ' KB' : n + ' B');
 
 /* ---------- a tool window (looks like a console window, has a bar button) ---------- */
-function toolWindow(label, cls) {
+function toolWindow(label, cls, ic) {
   const p = { id: nextId++, z: 0, hidden: false, conAway: false, tool: true };
   progs.push(p);
   p.btn = document.createElement('button');
   p.btn.className = 'task';
-  p.btn.textContent = label;
+  labelled(p.btn, ic, label);
   p.btn.onclick = () => {
     if (p.hidden) { setHidden(p, false); raise(p); }
     else if (p.z === zTop) setHidden(p, true);
@@ -71,7 +71,7 @@ function toolWindow(label, cls) {
   $('tasks').append(p.btn);
   p.con = consoleWindow(p, label);
   p.con.classList.add(cls);
-  p.con.querySelector('span').textContent = label;
+  labelled(p.con.querySelector('span'), ic, label);
   p.con.querySelector('table').remove();
   if (cls === 'win') p.con.style.left = Math.max(0, Math.min(110 + (progs.length % 5) * 28, desk.clientWidth - p.con.offsetWidth)) + 'px'; // the desktop icons stay visible (on a phone it fits the screen)
   raise(p);
@@ -83,7 +83,7 @@ function toolWindow(label, cls) {
 function openFiles(start) {
   const old = progs.find((q) => q.tool === 'files');
   if (old) { setHidden(old, false); raise(old); if (start) old.go(pathParts([], start)); return; }
-  const p = toolWindow('📁 File Explorer', 'win');
+  const p = toolWindow('File Explorer', 'win', 'system-file-manager');
   p.tool = 'files';
   const pre = p.con.querySelector('pre');
   const head = document.createElement('div');
@@ -100,8 +100,8 @@ function openFiles(start) {
   pre.replaceWith(body);
   const [back, fwd, up] = head.querySelectorAll('button');
   const addr = head.querySelector('input[type=text]');
-  const places = [['💽 Local Disk (C:)', ''], ['🖥️ Desktop', 'InkSoC\\Desktop'], ['📥 Downloads', 'InkSoC\\Downloads'], ['📄 Documents', 'InkSoC\\Documents'], ['📦 Program Files', 'Program Files'], ['📦 Program Files (x86)', 'Program Files (x86)'], ['🪟 Windows', 'Windows']];
-  side.replaceChildren(...places.map(([label, path]) => { const d = document.createElement('div'); d.textContent = label; d.dataset.path = path; d.onclick = () => go(pathParts([], 'C:\\' + path)); return d; }));
+  const places = [['drive-harddisk', 'Local Disk (C:)', ''], ['user-desktop', 'Desktop', 'InkSoC\\Desktop'], ['folder-download', 'Downloads', 'InkSoC\\Downloads'], ['folder-documents', 'Documents', 'InkSoC\\Documents'], ['folder', 'Program Files', 'Program Files'], ['folder', 'Program Files (x86)', 'Program Files (x86)'], ['folder', 'Windows', 'Windows']];
+  side.replaceChildren(...places.map(([ic, label, path]) => { const d = document.createElement('div'); labelled(d, ic, label); d.dataset.path = path; d.onclick = () => go(pathParts([], 'C:\\' + path)); return d; }));
   let cwd = [], past = [], ahead = [], sel = null;
   function go(parts, how) {
     if (how !== 'history') { past.push(cwd); ahead = []; }
@@ -122,7 +122,7 @@ function openFiles(start) {
   let ask = null;
   async function show() {
     addr.value = showPath(cwd);
-    p.con.querySelector('.t span').textContent = '📁 ' + (cwd.length ? cwd[cwd.length - 1] : 'Local Disk (C:)');
+    labelled(p.con.querySelector('.t span'), cwd.length ? 'folder' : 'drive-harddisk', cwd.length ? cwd[cwd.length - 1] : 'Local Disk (C:)');
     back.disabled = !past.length;
     fwd.disabled = !ahead.length;
     up.disabled = !cwd.length;
@@ -133,9 +133,9 @@ function openFiles(start) {
     list.replaceChildren(...items.map((it) => {
       const row = document.createElement('div');
       row.className = 'frow';
-      const kind = it.dir ? '📁' : /\.exe$/i.test(it.name) ? '🪟' : /\.msi$/i.test(it.name) ? '📦' : /\.zip$/i.test(it.name) ? '🗜️' : /\.lnk$/i.test(it.name) ? '↗️' : '📄';
+      const kind = it.dir ? 'folder' : /\.(exe|lnk)$/i.test(it.name) ? 'application-x-executable' : /\.msi$/i.test(it.name) ? 'application-x-msi' : /\.zip$/i.test(it.name) ? 'application-zip' : 'text-x-generic';
       row.innerHTML = '<span class="n"></span><span class="z"></span><button title="Save a copy on this device">⬇</button><button title="Delete">🗑</button>';
-      row.querySelector('.n').textContent = kind + ' ' + it.name;
+      labelled(row.querySelector('.n'), kind, it.name);
       row.querySelector('.z').textContent = it.dir ? '' : size(it.size);
       const [dl, del] = row.querySelectorAll('button');
       if (it.dir) dl.remove();
@@ -169,7 +169,7 @@ function openFiles(start) {
 function openDiag() {
   const old = progs.find((q) => q.tool === 'diag');
   if (old) { setHidden(old, false); raise(old); old.refresh(); return; }
-  const p = toolWindow('🩺 Diagnostics', 'win');
+  const p = toolWindow('Diagnostics', 'win', 'utilities-system-monitor');
   p.tool = 'diag';
   p.con.classList.add('diag');
   const pre = p.con.querySelector('pre');
@@ -275,5 +275,5 @@ let system32 = null;
 async function openConsole() {
   system32 = system32 || fetch('bin/system32/list.json?v=1').then((r) => r.json()).then((names) => Promise.all(names.map(async (name) => ({ name, data: await fetch('bin/system32/' + name + '?v=1').then((r) => r.arrayBuffer()) }))));
   const files = (await system32).map((f) => ({ name: f.name, data: f.data.slice(0) }));
-  run(files, 'cmd.exe', '', '⬛ Command Prompt', '', { typing: true });
+  run(files, 'cmd.exe', '', 'Command Prompt', '', { typing: true, icon: 'utilities-terminal' });
 }
