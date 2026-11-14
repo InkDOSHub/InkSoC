@@ -803,7 +803,7 @@ fn native(g: &mut G, i: &Ins, live: bool, n: u32) -> bool {
     // 32-bit code: what uses the stack, implicit addresses or differs from 64-bit mode runs in the interpreter
     if g.m32 && (i.a67 || match i.op {
         0x06 | 0x07 | 0x0E | 0x16 | 0x17 | 0x1E | 0x1F | 0x27 | 0x2F | 0x37 | 0x3F | 0x40..=0x4F | 0x60..=0x63 | 0x6C..=0x6F | 0x82 | 0x8F | 0x9A | 0x9C | 0x9D
-        | 0xA0..=0xAF | 0xC2..=0xCF | 0xD4..=0xD7 | 0xE0..=0xEA | 0xF4 => true,
+        | 0xA0..=0xAF | 0xC2..=0xC5 | 0xC8..=0xCF | 0xD4..=0xD7 | 0xE0..=0xEA | 0xF4 => true,
         0xFF => i.m.map_or(true, |m| m.reg & 7 >= 2),
         _ => false,
     }) { return false; }
@@ -1564,6 +1564,8 @@ fn decode_block(e: &mut Engine, rip: u64) -> Option<Block> {
             let native_term = match i.op {
                 0x70..=0x7F | 0x0F80..=0x0F8F => true,
                 0xE9 | 0xEB if e.cpu.mode32 => true,
+                // JMP r/m32 (jump tables): no stack involved
+                0xFF if e.cpu.mode32 => { let m = i.m.unwrap(); m.reg & 7 == 4 && !(i.seg && m.md != 3) && !i.a67 && i.osz != 16 }
                 _ if e.cpu.mode32 => false, // calls and returns use the 4-byte stack: interpreter
                 0xE8 | 0xE9 | 0xEB | 0xC3 => true,
                 0xC2 => true,
@@ -1697,7 +1699,7 @@ fn emit_block(g: &mut G, b: Block) {
             0xFF if is_branch(i) => {
                 let m = i.m.unwrap();
                 let opd = if m.md == 3 { Opd::Reg(m.rm, false) } else { g.ea(&m, i.next); g.set(L_A); Opd::Mem(L_A) };
-                let t = g.val(opd, 64);
+                let t = g.val(opd, if g.m32 { 32 } else { 64 });
                 if m.reg & 7 == 2 { g.i64c(i.next); g.set(L_T); g.push(L_T); }
                 g.exit_dyn(t, n);
                 done_all = true; break;
