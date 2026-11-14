@@ -261,6 +261,9 @@ impl Engine {
             return then(self, 0);
         }
         // hide first
+        if self.wnd(h).map_or(false, |w| w.style & WS_VISIBLE != 0) {
+            self.uncover(h);
+        }
         if let Some(w) = self.wnd_mut(h) {
             w.style &= !WS_VISIBLE;
         }
@@ -332,6 +335,21 @@ impl Engine {
         self.s.win.dirty = true;
     }
 
+    /// A child that stops showing (hidden or destroyed) leaves its place to its parent, which
+    /// paints it again, and to the siblings there (a wizard's controls of the last page would
+    /// stay on screen otherwise).
+    fn uncover(&mut self, h: u64) {
+        let Some((p, wr)) = self.wnd(h).filter(|w| w.parent != 0).map(|w| (w.parent, w.wrect)) else { return };
+        let Some(c) = self.wnd(p).map(|w| w.crect) else { return };
+        self.invalidate(p, Some(Rect::new(wr.l - c.l, wr.t - c.t, wr.r - c.l, wr.b - c.t)), true);
+        let kids = self.wnd(p).map(|w| w.children.clone()).unwrap_or_default();
+        for k in kids {
+            if k != h && self.wnd(k).map_or(false, |w| w.style & WS_VISIBLE != 0 && !w.wrect.inter(&wr).empty()) {
+                self.invalidate(k, None, true);
+            }
+        }
+    }
+
     pub(super) fn show_window(&mut self, h: u64, cmd: u32, then: Cont) -> Step {
         let h = full(h);
         let Some(w) = self.wnd(h) else { return then(self, 0) };
@@ -354,6 +372,8 @@ impl Engine {
         self.s.win.dirty = true;
         if show {
             self.invalidate(h, None, true);
+        } else {
+            self.uncover(h);
         }
         let top = self.wnd(h).map_or(false, |w| w.style & WS_CHILD == 0);
         self.send(h, WM_SHOWWINDOW, show as u64, 0, move |e, _| {
