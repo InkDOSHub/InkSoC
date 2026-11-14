@@ -1,3 +1,11 @@
+<p align="center"><img src=".github/icon.svg" width="96" alt="InkSoC icon"></p>
+
+<p align="center"><b>Run Windows programs in the browser, on iPad, iPhone and PC: our own x86-64 engine (JIT, WebAssembly) with Wine.</b></p>
+
+<p align="center"><b><a href="https://hub.inkdos.workers.dev/InkSoC/">Open InkSoC</a></b> · part of <a href="https://github.com/InkDOSHub/inkdoshub.github.io">InkDOS Hub</a> · MIT license (Wine: LGPL)</p>
+
+<p align="center"><img src=".github/prints/InkSoC-iphone.png" width="28%" alt="InkSoC desktop on iPhone"> <img src=".github/prints/InkSoC-ipad.png" width="68%" alt="InkSoC desktop on a larger screen"></p>
+
 # InkSoC
 
 Part of the InkDOS Hub: https://hub.inkdos.workers.dev/InkSoC/ (multi-core) and
@@ -65,3 +73,11 @@ the same CPU and JIT.
   (musl's printf and strtod depend on it).
 - `mmu.rs`: one address space per process (`Space`), swapped on a switch.
 
+
+## Part of InkDOS Hub
+
+Other InkDOS Hub repositories: [Hub](https://github.com/InkDOSHub/inkdoshub.github.io) · [InkSoC](https://github.com/InkDOSHub/InkSoC) · [InkShell](https://github.com/InkDOSHub/InkShell) · [InkCam](https://github.com/InkDOSHub/InkCam) · [InkMind](https://github.com/InkDOSHub/InkMind) · [InkArcade](https://github.com/InkDOSHub/InkArcade) · [InkBench](https://github.com/InkDOSHub/InkBench)
+
+## License
+
+Code made here (engine, page, tools): [MIT](LICENSE). Third party: Wine builds in `bin/wine*` (LGPL-2.1, see their READMEs), 7-Zip `7za.exe` (`bin/7za-license.txt`), BusyBox (GPL-2.0).
