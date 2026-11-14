@@ -25,6 +25,14 @@ def drive_job(r, d, f):
         subprocess.run(['node', os.path.join(inksoc, 'compat/run.mjs'), '--one', j], env=env, stdout=log, stderr=subprocess.STDOUT, cwd=inksoc)
         log.flush()
     log.close()
+    # the summary goes to the job log too (readable without downloading the artifact)
+    text = open(os.path.join(out, r['name'] + '.log')).read().strip().splitlines()
+    try: j = json.loads(text[-1]); print('RESULT', r['name'], j['status'], j['error'][:600].replace('\n', ' | '))
+    except Exception: print('RESULT', r['name'], 'crashed', ' | '.join(text[-5:])[:600])
+    notes = [l for l in text if l.startswith('[') and not l.startswith('[20')]
+    if notes: print('--- engine notes (last 40) ---'); print('\n'.join(n[:300] for n in notes[-40:]))
+    b = os.path.join(root, 'logs/bootstrap_log.txt')
+    if os.path.exists(b): print('--- bootstrap_log (end) ---'); print('\n'.join(open(b, errors='replace').read().splitlines()[-30:]))
     for x in ['logs/bootstrap_log.txt', 'logs/stderr.txt', 'logs/cef_log.txt']:
         if os.path.exists(os.path.join(root, x)): shutil.copy(os.path.join(root, x), os.path.join(out, r['name'] + '-' + os.path.basename(x)))
 

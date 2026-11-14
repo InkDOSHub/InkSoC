@@ -1,4 +1,4 @@
 [
   { "name": "steam", "url": "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe",
-    "drive": "C:\\Program Files\\Steam", "exe": "steam.exe", "runs": 3, "limit": 3600 }
+    "drive": "C:\\Program Files\\Steam", "exe": "steam.exe", "runs": 1, "limit": 1200 }
 ]
