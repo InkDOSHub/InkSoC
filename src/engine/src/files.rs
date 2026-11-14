@@ -115,6 +115,8 @@ pub struct Files {
     pub paths: HashMap<u64, (String, bool)>,
     /// named events, mutexes and semaphores (lowercase name -> handle)
     pub named: HashMap<String, u64>,
+    /// NtQueryDirectoryFile: per folder handle, the entries matched and how many were returned
+    pub scans: HashMap<u64, (Vec<String>, usize)>,
     /// the registry (in memory)
     pub reg: crate::registry::Registry,
     /// files that came from the saved drive C: (to notice the ones a program deletes)
@@ -220,7 +222,7 @@ pub fn key_of(path: &str) -> Option<String> {
     case_of(path).map(|s| s.to_ascii_lowercase())
 }
 
-fn wild(p: &[u8], s: &[u8]) -> bool {
+pub(crate) fn wild(p: &[u8], s: &[u8]) -> bool {
     match (p.first(), s.first()) {
         (None, None) => true,
         (Some(b'*'), _) => wild(&p[1..], s) || (!s.is_empty() && wild(p, &s[1..])),
@@ -243,6 +245,7 @@ impl Engine {
 
     /// CloseHandle/NtClose: drops one reference; the object goes with the last one.
     pub fn close_handle(&mut self, h: u64) -> bool {
+        self.s.fs.scans.remove(&h);
         if let Some(n) = self.s.fs.refs.get_mut(&h) {
             *n -= 1;
             if *n == 0 {
@@ -299,6 +302,11 @@ impl Engine {
     }
     /// DuplicateHandle: the same handle, one more reference.
     pub fn dup_handle(&mut self, h: u64) -> u64 {
+        // GetCurrentThread() is only "me": the copy names this thread for everyone
+        if h as u32 == 0xFFFF_FFFE {
+            let tid = self.cur_tid();
+            return self.new_handle(Handle::Thread { tid });
+        }
         if self.s.fs.handles.contains_key(&h) {
             *self.s.fs.refs.entry(h).or_insert(0) += 1;
         }

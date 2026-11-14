@@ -115,6 +115,115 @@ impl Engine {
         Some(crate::kernel32::NO_RETURN)
     }
 
+    /// NtQueryDirectoryFile(Ex): (folder, event, apc, apc context, iosb, buffer, length, class,
+    /// single entry / Ex: flags, mask, restart). The first call (or a restart) takes the mask
+    /// and lists the folder; each call then fills the buffer with as many entries as fit.
+    pub(crate) fn query_directory(&mut self, h: u64, ex: bool) -> u64 {
+        let (iosb, buf, len, class) = (self.arg(4), self.arg(5), self.arg(6) as u32 as u64, self.arg(7) as u32);
+        let (single, mask, restart) = if ex {
+            let f = self.arg(8) as u32;
+            (f & 2 != 0, self.arg(9), f & 1 != 0)
+        } else {
+            (self.arg(8) as u8 != 0, self.arg(9), self.arg(10) as u8 != 0)
+        };
+        // fixed part of each entry and where the name goes
+        let (name_at, len_at) = match class {
+            1 => (64, 60),  // FileDirectoryInformation
+            2 => (68, 60),  // FileFullDirectoryInformation
+            3 => (94, 60),  // FileBothDirectoryInformation
+            12 => (12, 8),  // FileNamesInformation
+            37 => (104, 60), // FileIdBothDirectoryInformation
+            38 => (80, 60), // FileIdFullDirectoryInformation
+            60 => (88, 60), // FileIdExtdDirectoryInformation
+            63 => (114, 60), // FileIdExtdBothDirectoryInformation (Wine's FindFirstFile)
+            _ => {
+                if unsafe { crate::WINE_DEBUG } > 0 {
+                    crate::console(&format!("[ntdll] NtQueryDirectoryFile class {} not handled\n", class));
+                }
+                return INVALID_INFO_CLASS;
+            }
+        };
+        let Some((dir, _)) = self.s.fs.paths.get(&h).cloned() else { return NO_MORE_FILES };
+        let dir = dir.trim_end_matches('\\').to_string();
+        let first = restart || !self.s.fs.scans.contains_key(&h);
+        if first {
+            let pat = self.us_read(mask);
+            let all = pat.is_empty() || pat == "*" || pat == "*.*";
+            let mut v: Vec<String> = self
+                .list_dir(&dir)
+                .into_iter()
+                .filter(|n| all || crate::files::wild(pat.as_bytes(), self.shown(n).as_bytes()))
+                .collect();
+            if !dir.ends_with(':') {
+                for (i, d) in [".", ".."].iter().enumerate() {
+                    if all || crate::files::wild(pat.as_bytes(), d.as_bytes()) {
+                        v.insert(i.min(v.len()), format!("{}\\{}", dir, d));
+                    }
+                }
+            }
+            if v.is_empty() {
+                self.s.fs.scans.insert(h, (v, 0));
+                return 0xC000_000F; // STATUS_NO_SUCH_FILE
+            }
+            self.s.fs.scans.insert(h, (v, 0));
+        }
+        let (names, mut next) = self.s.fs.scans.get(&h).cloned().unwrap();
+        let ft = crate::filetime_now();
+        let (mut at, mut prev): (u64, Option<u64>) = (0, None);
+        while next < names.len() {
+            let k = &names[next];
+            let leaf = k.rsplit('\\').next().unwrap_or(k).to_string();
+            let shown = if leaf == "." || leaf == ".." { leaf.clone() } else { self.shown(k) };
+            let w: Vec<u16> = shown.encode_utf16().collect();
+            let size = name_at + 2 * w.len() as u64;
+            if at + size > len {
+                if prev.is_none() {
+                    return BUFFER_OVERFLOW;
+                }
+                break;
+            }
+            let p = buf + at;
+            self.zero_n(p, name_at);
+            if class == 12 {
+                self.w32(p + 4, next as u32);
+            } else {
+                let (dirp, fsize) = if leaf == "." || leaf == ".." { (true, 0) } else { match self.s.files.size(k) { Some(n) => (false, n), None => (true, 0) } };
+                self.w32(p + 4, next as u32);
+                for o in [8, 16, 24, 32] {
+                    self.w64(p + o, ft);
+                }
+                self.w64(p + 40, fsize);
+                self.w64(p + 48, (fsize + 4095) & !4095);
+                self.w32(p + 56, if dirp { 0x10 } else { 0x20 });
+                if class == 37 {
+                    self.w64(p + 96, next as u64 + 1);
+                } else if class == 38 || class == 60 || class == 63 {
+                    self.w64(p + 72, next as u64 + 1);
+                }
+            }
+            self.w32(p + len_at, 2 * w.len() as u32);
+            for (i, c) in w.iter().enumerate() {
+                self.w16(p + name_at + 2 * i as u64, *c);
+            }
+            if let Some(q) = prev {
+                self.w32(buf + q, (at - q) as u32);
+            }
+            prev = Some(at);
+            at = (at + size + 7) & !7;
+            next += 1;
+            if single {
+                break;
+            }
+        }
+        let Some(last) = prev else { return NO_MORE_FILES };
+        let used = (last + name_at).max(at.min(len));
+        if let Some(s) = self.s.fs.scans.get_mut(&h) {
+            s.1 = next;
+        }
+        self.iosb(iosb, OK, used.min(len));
+        OK
+    }
+
     pub fn load_context(&mut self, c: u64) {
         let flags = self.r32(c + 0x30);
         for i in 0..16 {

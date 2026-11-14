@@ -125,6 +125,7 @@ pub struct Class {
     pub menu_name: u64,
     pub menu_name_a: u64,
     pub builtin: bool,
+    pub pid: u32, // the process that registered it (classes are per process)
 }
 
 pub struct Wnd {

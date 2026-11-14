@@ -35,6 +35,13 @@ pub struct ProcSave {
     std: [u64; 3],
     user_shared: bool,
     dll_dirs: Vec<String>,
+    images: HashMap<u64, u64>,
+    image_files: HashMap<u64, String>,
+    image_slots: HashMap<String, u64>,
+    wow64_ntdll: u64,
+    wow64_ctx: u64,
+    unix_dispatcher: u64,
+    gdi_attrs: crate::wingdi::AttrPool,
 }
 
 /// What other processes see of a process.
@@ -68,6 +75,13 @@ impl Engine {
         swap(&mut s.std, &mut p.std);
         swap(&mut s.user_shared, &mut p.user_shared);
         swap(&mut s.dll_dirs, &mut p.dll_dirs);
+        swap(&mut s.images, &mut p.images);
+        swap(&mut s.image_files, &mut p.image_files);
+        swap(&mut s.image_slots, &mut p.image_slots);
+        swap(&mut s.wow64_ntdll, &mut p.wow64_ntdll);
+        swap(&mut s.wow64_ctx, &mut p.wow64_ctx);
+        swap(&mut s.unix_dispatcher, &mut p.unix_dispatcher);
+        s.gdi.swap_attrs(&mut p.gdi_attrs);
     }
 
     /// Parks the running process (its memory and state) under its id.
@@ -106,12 +120,16 @@ impl Engine {
     /// Ends the running process: the main one stops the engine, a child only its threads.
     pub fn exit_process(&mut self, code: u32) {
         let id = self.s.wpid;
-        if id == 0 {
+        // the first process ends the run, unless it started programs that still run
+        // (an updater that relaunches itself): then the run ends with the last of them
+        if id == 0 && !self.children_alive() || id != 0 && self.s.main_done && self.s.pinfo.iter().all(|(&p, i)| p == id || i.exit.is_some()) {
             self.s.exited = true;
             self.s.exit_code = code;
             return;
         }
-        if let Some(i) = self.s.pinfo.get_mut(&id) {
+        if id == 0 {
+            self.s.main_done = true;
+        } else if let Some(i) = self.s.pinfo.get_mut(&id) {
             if i.exit.is_none() {
                 i.exit = Some(code);
             }
@@ -134,16 +152,26 @@ impl Engine {
     pub fn create_process(&mut self, exe: &str, cmd: &str, env: Vec<u16>, std: [u64; 3], suspended: bool) -> Result<(u32, u32, u64), String> {
         let bytes = self.s.files.get(exe).cloned().ok_or_else(|| format!("{} not found", exe))?;
         let parent = self.s.wpid;
+        // the GDI handle table: every process sees it at the same place (shared memory in
+        // Windows); the child starts with a copy of the entries made so far
+        let (gt, gn) = (self.s.gdi.table, self.s.gdi.table_used());
+        let mut gdi_tab = vec![0u8; gn as usize];
+        if gt != 0 { let _ = self.mmu.read_bytes(gt, &mut gdi_tab); }
         let id = 4 * (self.s.pinfo.len() as u32 + 2);
         self.s.pinfo.insert(id, ProcInfo { exit: None, name: exe.to_string() });
         // a fresh state and an empty address space
         self.park();
-        self.s.next_alloc = 0x0000_0200_0000_0000;
+        let wow = crate::wow64::is_pe32(&bytes);
+        self.s.next_alloc = if wow { crate::wow64::LOW_ALLOC } else { 0x0000_0200_0000_0000 };
         self.s.next_dll = 0x0000_7FF0_0000_0000;
         self.s.std = std;
         self.s.wpid = id;
         self.mmu.set_asid(id);
         let saved_cpu = std::mem::replace(&mut self.cpu, crate::cpu::Cpu::new());
+        if gt != 0 {
+            self.mmu.add_reserved(gt, 0x10000 * 24);
+            let _ = self.mmu.write_bytes(gt, &gdi_tab);
+        }
         let r = self.boot_child(exe, cmd, &bytes, &env);
         let cpu = std::mem::replace(&mut self.cpu, saved_cpu);
         if let Err(m) = r {
@@ -181,6 +209,7 @@ impl Engine {
     fn boot_child(&mut self, name: &str, cmd: &str, bytes: &[u8], env: &[u16]) -> Result<(), String> {
         self.mmu.add_region(TEB, 0x2000);
         self.mmu.add_region(PEB, 0x1000);
+        if self.s.gdi.table != 0 { self.w64(PEB + 0xF8, self.s.gdi.table); }
         let stack = self.alloc(crate::STACK_SIZE).ok_or("out of memory")?;
         self.s.stack_top = stack + crate::STACK_SIZE - 0x100;
         let w = |e: &mut Engine, a: u64, v: u64| {
@@ -204,9 +233,14 @@ impl Engine {
         }
         self.teb_extras(TEB);
         self.shared_data();
-        let idx = pe::load_image(self, name, bytes, true)?;
-        self.s.exe_base = self.s.modules[idx].base;
-        self.s.exe_entry = self.s.modules[idx].entry;
+        if crate::wow64::is_pe32(bytes) {
+            self.s.wow64 = true;
+            self.wow64_boot(name, cmd, bytes)?;
+        } else {
+            let idx = pe::load_image(self, name, bytes, true)?;
+            self.s.exe_base = self.s.modules[idx].base;
+            self.s.exe_entry = self.s.modules[idx].entry;
+        }
         w(self, PEB + 0x10, self.s.exe_base);
         w(self, PEB + 0x30, 0x0000_0000_00AA_0000);
         self.cpu.regs[4] = self.s.stack_top;

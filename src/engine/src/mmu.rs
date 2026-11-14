@@ -190,6 +190,18 @@ impl Mmu {
     pub fn region_of(&self, addr: u64) -> Option<(u64, u64)> {
         self.sh.regions.iter().copied().find(|&(s, e)| addr >= s && addr < e)
     }
+    /// The lowest 64 KB aligned address in [from, limit) with `size` free bytes and `gap`
+    /// free bytes after them.
+    pub fn first_gap(&self, from: u64, limit: u64, size: u64, gap: u64) -> Option<u64> {
+        let mut r: Vec<(u64, u64)> = self.sh.regions.iter().copied().filter(|&(_, e)| e > from).collect();
+        r.sort_unstable();
+        let mut a = from;
+        for (s, e) in r {
+            if a + size + gap <= s { break; }
+            a = a.max((e + gap + 0xFFFF) & !0xFFFF);
+        }
+        (a + size <= limit).then_some(a)
+    }
     /// The end of the furthest region that [start, end) runs into, if any.
     pub fn overlap_end(&self, start: u64, end: u64) -> Option<u64> {
         self.sh.regions.iter().filter(|&&(s, e)| start < e && end > s).map(|&(_, e)| e).max()

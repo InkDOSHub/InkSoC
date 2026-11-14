@@ -69,12 +69,33 @@ macro_rules! tryf {
     };
 }
 
+/// Debug: addresses that print the registers and stack when reached (NOJIT only).
+pub(crate) static mut WATCH: [u64; 8] = [0; 8];
+#[cold]
+fn watch_hit(e: &mut Engine) {
+    let rip = e.cpu.rip;
+    if !unsafe { WATCH.contains(&rip) } { return; }
+    let r = e.cpu.regs;
+    let sp = r[4];
+    let mut st = String::new();
+    for i in 0..8 {
+        let v = e.mmu.read32(sp + i * 4).unwrap_or(0) as u64;
+        st += &format!(" {:x}", v);
+        if v > 0x10000 { if let Some((a, b)) = e.mmu.region_of(v) { st += &format!("<{:x}-{:x}>", a, b); } }
+    }
+    st += " [esi]:";
+    for i in 0..4 { st += &format!(" {:x}", e.mmu.read32(r[6] + i * 4).unwrap_or(0)); }
+    crate::console(&format!("[watch] tid {} {:x} eax={:x} ecx={:x} edx={:x} ebx={:x} esp={:x} ebp={:x} esi={:x} edi={:x} zf={} stack:{}\n",
+        e.cur_tid(), rip, r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], e.cpu.zf, st));
+}
+
 /// Executes up to `n` instructions; returns how many ran.
 pub fn step_block(e: &mut Engine, n: u64) -> u64 {
     e.materialize();
     let mut done = 0;
     while done < n && !e.s.exited && e.s.error.is_none() {
         if e.cpu.rip >= crate::THUNK_BASE { break; }
+        if unsafe { WATCH[0] } != 0 { watch_hit(e); }
         #[cfg(feature = "diff")]
         let chk = diff::want(e.cpu.rip);
         #[cfg(feature = "diff")]

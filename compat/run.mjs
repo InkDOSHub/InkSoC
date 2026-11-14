@@ -84,6 +84,7 @@ async function runOne({ files, exe, args }) {
   if (process.env.WINEDEBUG && x.set_wine_debug) x.set_wine_debug(+process.env.WINEDEBUG || 1);
   if (process.env.TRACE) { traceFd = fs.openSync(process.env.TRACE, 'w'); if (!process.env.TRACE_AT) x.set_trace(1); } // TRACE_AT=s: start the log only then
   if (process.env.NOJIT) x.set_jit(0);
+  if (process.env.WATCH) for (const a of process.env.WATCH.split(',')) x.add_watch(parseInt(a, 16));
   put(enc(exe + '\0' + exe + (args ? ' ' + args : '')));
   const msg = () => new TextDecoder().decode(new Uint8Array(mem.buffer, (x.msg_ptr() >>> 0), x.msg_len()));
   const t0 = performance.now();
@@ -123,7 +124,7 @@ async function runOne({ files, exe, args }) {
   if (process.env.SHOT) { grab(); saveShot(); }
   if (traceFd !== null) { fs.writeSync(traceFd, out); fs.closeSync(traceFd); }
   const outFiles = [];
-  for (let i = 0, n; (n = x.out_file(i)); i++) { const b = new Uint8Array(mem.buffer, (x.out_ptr() >>> 0), n); const nm = new TextDecoder().decode(b.subarray(0, b.indexOf(0))); outFiles.push(nm); let data = b.slice(b.indexOf(0) + 1); if (x.out_disk && x.out_disk(i) === 0x7FFFFFF0) { data = new Uint8Array(x.out_disk_size(i)); fs.readSync(spillFd, data, 0, data.length, x.out_disk_at(i)); } if (process.env.OUTDIR) fs.writeFileSync(path.join(process.env.OUTDIR, path.basename(nm.replace(/\\/g, '/'))), data); }
+  for (let i = 0, n; (n = x.out_file(i)); i++) { const b = new Uint8Array(mem.buffer, (x.out_ptr() >>> 0), n); const nm = new TextDecoder().decode(b.subarray(0, b.indexOf(0))); outFiles.push(nm); let data = b.slice(b.indexOf(0) + 1); if (x.out_disk && x.out_disk(i) === 0x7FFFFFF0) { data = new Uint8Array(x.out_disk_size(i)); fs.readSync(spillFd, data, 0, data.length, x.out_disk_at(i)); } if (process.env.OUTDIR) { const f = path.join(process.env.OUTDIR, nm.replace(/\\/g, '/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, data); } }
   if (spillFd !== null) { fs.closeSync(spillFd); fs.rmSync(path.join(os.tmpdir(), 'inksoc-spill-' + process.pid), { force: true }); spillFd = null; }
   const missing = [...new Set((out.match(/\[inksoc\] \S+ is not available yet/g) || []).map((s) => s.split(' ')[1]))];
   const ms = performance.now() - t0;

@@ -8,7 +8,8 @@ impl Engine {
         if atom == 0 && n.is_empty() {
             return None;
         } // unregistered classes keep an empty name
-        self.s.win.classes.iter().position(|c| if atom != 0 { c.atom == atom } else { c.name == n })
+        let me = self.s.wpid;
+        self.s.win.classes.iter().position(|c| (c.builtin || c.pid == me) && if atom != 0 { c.atom == atom } else { c.name == n })
     }
 
     pub(super) fn add_class(&mut self, c: Class) -> u16 {
@@ -26,7 +27,9 @@ impl Engine {
                 w.next_atom
             }
         };
-        w.classes.push(Class { atom, ..c });
+        let pid = self.s.wpid;
+        let w = &mut self.s.win;
+        w.classes.push(Class { atom, pid, ..c });
         atom
     }
 
@@ -72,6 +75,7 @@ impl Engine {
                 menu_name: 0,
                 menu_name_a: 0,
                 builtin: true,
+                pid: 0,
             });
         }
     }
