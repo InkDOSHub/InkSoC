@@ -12,4 +12,4 @@ for w in ['bin/wine', 'bin/wine32']:
 print(json.dumps({'files': fs, 'exe': exe, 'args': args}))
 P
 )
-node compat/run.mjs --one "$J"
+node ${PROF:+--cpu-prof --cpu-prof-dir="$PROF"} compat/run.mjs --one "$J"
