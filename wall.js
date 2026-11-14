@@ -63,7 +63,7 @@ function wallSwatches(walls) {
   const photo = document.createElement('label');
   photo.dataset.wall = 'photo';
   photo.title = 'A photo of yours';
-  photo.textContent = '＋';
+  photo.innerHTML = sym('list-add');
   photo.innerHTML += '<input type="file" accept="image/*" hidden>';
   photo.querySelector('input').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) wallPhoto(f).catch(() => {}); };
   walls.append(photo);

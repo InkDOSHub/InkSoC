@@ -86,7 +86,7 @@
   .con .frow button{background:none;border:0;color:#bbb;cursor:pointer;font:12px system-ui;padding:2px 4px}
   .con .empty{color:#777;padding:12px;font:13px system-ui}
   .con .cline{border:0;border-top:1px solid #2b2b2b;background:#161616;color:#eee;font:13px Menlo,ui-monospace,monospace;padding:8px 10px;outline:none}
-  /* shell: desktop icons, Start menu, File Explorer (a light window), Diagnostics */
+  /* shell: desktop icons, Start menu, File Explorer (a light window), System Monitor */
   #icons{position:absolute;left:8px;top:8px;bottom:8px;display:flex;flex-direction:column;flex-wrap:wrap;align-content:flex-start;gap:6px;pointer-events:none;z-index:0}
   .ico{width:84px;padding:6px 2px;border-radius:6px;text-align:center;color:#fff;font:12px -apple-system,system-ui,sans-serif;text-shadow:0 1px 2px rgba(0,0,0,.7);overflow-wrap:anywhere;user-select:none;-webkit-user-select:none}
   .ico .ic{display:block;width:44px;height:44px;margin:0 auto 4px}
@@ -120,6 +120,33 @@
   .con.win .frow .z{color:#777}
   .con.win .empty{color:#888}
   .con.win.drop .flist{outline:2px dashed #6b8fd6;outline-offset:-4px}
+  .sym{display:inline-block;width:16px;height:16px;flex:none;background:currentColor;-webkit-mask:var(--s) center/contain no-repeat;mask:var(--s) center/contain no-repeat;vertical-align:-3px}
+  .sym.good{color:#2e9d4f}.sym.bad{color:#e5484d}.sym.warn{color:#e08a00}.sym.wait{color:#999}
+  .top .ttl{display:flex;align-items:center;gap:6px}
+  #more .sym{width:20px;height:20px}
+  .con .t button{display:flex;align-items:center;padding:3px 5px;border-radius:5px}.con .t button:hover{background:rgba(127,127,127,.25)}
+  .con .t button .sym{width:14px;height:14px}
+  #menu #find{padding-left:32px;background:var(--bg) url(icons/sym/system-search-symbolic.svg) 10px center/16px no-repeat}
+  .con.diag .mtabs{display:flex;gap:2px;padding:6px 10px 0;border-bottom:1px solid #e3e3e3;background:#fafafa}
+  .con.diag .mtabs button{border:0;background:none;font:13px system-ui;padding:7px 14px;color:#555;border-bottom:2px solid transparent;cursor:pointer}
+  .con.diag .mtabs button.on{color:#111;font-weight:600;border-bottom-color:var(--accent)}
+  .con.diag .ptable{width:100%;border-collapse:collapse;font:13px system-ui;margin-top:6px}
+  .con.diag .ptable th{text-align:left;font-weight:600;color:#666;font-size:12px;padding:6px 6px;border-bottom:1px solid #e3e3e3}
+  .con.diag .ptable td{padding:6px;border-bottom:1px solid #f0f0f0;white-space:nowrap}
+  .con.diag .ptable td:first-child{display:flex;align-items:center;gap:6px;white-space:normal}
+  .con.diag .ptable td .ic{width:18px;height:18px}
+  .con.diag .endt{border:0;background:none;color:#e5484d;cursor:pointer;padding:3px}
+  .con.diag .meter{padding:10px 0;border-bottom:1px solid #eee}
+  .con.diag .meter .ml{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+  .con.diag .meter .ml span{font-weight:600}.con.diag .meter .ml small{color:#777;text-align:right}
+  .con.diag .meter .mb{height:6px;border-radius:3px;background:#ececf0;margin-top:6px;overflow:hidden}
+  .con.diag .meter .mb i{display:block;height:100%;background:var(--accent);border-radius:3px}
+  .con.diag .chk b .sym{width:16px;height:16px}
+  .con.diag .row button,.con.diag .again{display:inline-flex;align-items:center;gap:6px}
+  .con.diag .row button .sym,.con.diag .again .sym{width:12px;height:12px}
+  .con.diag details{margin-top:14px}.con.diag summary{cursor:pointer;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#7c3aed;font-weight:600}
+  .fbar button .sym{width:16px;height:16px}
+  #walls [data-wall=photo] .sym{width:22px;height:22px}
   .con.diag .hint{margin:0 0 4px;color:#777;font-size:12px}
   .con.diag pre.res{margin:4px 0 8px;padding:8px 10px;max-height:220px;overflow:auto;background:#f4f4f6;border-radius:8px;font:12px ui-monospace,Menlo,monospace;white-space:pre-wrap}
   .con.diag .again,.con.diag .row button{padding:5px 14px;border-radius:8px;border:1px solid #ccc;background:#f4f4f4;font:13px system-ui;cursor:pointer}
@@ -151,16 +178,16 @@
 </style>
 </head>
 <body>
-<div class="top"><a href="/">&lt; InkDOS Hub</a><b>🖥 InkSoC</b><span class="r"><button id="more" title="Menu">☰</button></span></div>
+<div class="top"><a href="/">&lt; InkDOS Hub</a><b class="ttl"><img class="ic" src="icons/computer.svg" alt="">InkSoC</b><span class="r"><button id="more" title="Menu"><i class="sym" style="--s:url(icons/sym/open-menu-symbolic.svg)"></i></button></span></div>
 <div id="desk"><div id="icons"></div></div>
 <div class="pop" id="menu" hidden>
-  <input type="search" id="find" placeholder="🔍 Search programs" autocomplete="off" spellcheck="false">
+  <input type="search" id="find" placeholder="Search programs" autocomplete="off" spellcheck="false">
   <div class="mh">Installed programs</div>
   <div id="installed"></div>
   <div class="mh">Windows</div>
   <button class="it" data-tool="files"><img class="ic" src="icons/system-file-manager.svg" alt="">File Explorer</button>
   <button class="it" data-tool="console"><img class="ic" src="icons/utilities-terminal.svg" alt="">Command Prompt</button>
-  <button class="it" data-tool="diag"><img class="ic" src="icons/utilities-system-monitor.svg" alt="">Diagnostics</button>
+  <button class="it" data-tool="diag"><img class="ic" src="icons/utilities-system-monitor.svg" alt="">System Monitor</button>
   <button class="it" data-tool="settings"><img class="ic" src="icons/preferences-system.svg" alt="">Settings</button>
   <hr>
   <button class="it" id="shutdown"><img class="ic" src="icons/system-shutdown.svg" alt="">Shut down</button>
@@ -174,7 +201,7 @@
   <div data-pane="about">
   <p><b>InkSoC</b> runs Windows programs (.exe, 64-bit and 32-bit) in this tab with its own engine: no Wine install, no Linux, nothing sent to a server.</p>
   <p>Drive C: lives in this browser's private storage and stays after a reload. To bring a program in, drop its file on the desktop or use "Copy here…" in File Explorer; it lands in Downloads, and a double tap opens it there (.exe runs, .msi installs, .zip unpacks). Installed programs appear in Start.</p>
-  <p>Each running program gets a button in the bar: tap it to bring it to the front or hide it. Windows move by their title bar and change size by their bottom-right corner; □ fills the screen. Several cores need the hub.inkdos.workers.dev address.</p>
+  <p>Each running program gets a button in the bar: tap it to bring it to the front or hide it. Windows move by their title bar and change size by their bottom-right corner; the maximize button fills the screen. Several cores need the hub.inkdos.workers.dev address.</p>
   </div>
 </div>
 <div id="off" hidden><p>InkSoC is shut down.<br><small>Every program stopped and drive C: is saved.</small></p><button onclick="location.reload()">Turn on</button></div>
@@ -182,8 +209,8 @@
 </div>
 <div class="bar"><button id="start">Start</button><div id="tasks"></div><span id="status"></span><span id="clock"></span></div>
 <script src="prefs.js?v=1"></script>
-<script src="desktop.js?v=47"></script>
-<script src="pad.js?v=1"></script>
-<script src="wall.js?v=2"></script>
+<script src="desktop.js?v=48"></script>
+<script src="pad.js?v=2"></script>
+<script src="wall.js?v=3"></script>
 </body>
 </html>

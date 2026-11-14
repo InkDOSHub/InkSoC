@@ -25,7 +25,7 @@ const CONTROLS = [
   { id: 'rs', kind: 'stick', label: '', side: 'r', x: 190, y: 8, w: 96, h: 96 },
   { id: 'back', kind: 'small', label: 'Select', side: 'l', x: 160, y: 300, w: 60, h: 26 },
   { id: 'start', kind: 'small', label: 'Start', side: 'r', x: 160, y: 300, w: 60, h: 26 },
-  { id: 'menu', kind: 'small', label: '☰', side: 'r', x: 100, y: 300, w: 44, h: 26 },
+  { id: 'menu', kind: 'small', label: '', sym: 'open-menu', side: 'r', x: 100, y: 300, w: 44, h: 26 },
 ];
 
 const padEl = $('pad');
@@ -53,6 +53,7 @@ function build() {
     el.dataset.id = c.id;
     if (c.kind === 'stick') el.innerHTML = '<i></i>';
     else if (c.kind === 'dpad') el.innerHTML = '<svg viewBox="0 0 120 120"><path d="M42 4h36v38h38v36H78v38H42V78H4V42h38z"/><path class="ar" d="M60 14l9 13H51zM60 106l9-13H51zM14 60l13-9v18zM106 60l-13-9v18z"/></svg>';
+    else if (c.sym) el.innerHTML = sym(c.sym);
     else el.textContent = c.label;
     if (c.color) el.style.color = c.color;
     place(el, c);
