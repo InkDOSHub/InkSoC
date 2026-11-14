@@ -322,7 +322,10 @@ function openSettings() {
     return s;
   };
   const button = (t, act) => { const b = document.createElement('button'); b.textContent = t; b.onclick = act; return b; };
+  // a newer build (each drive listing asks for one) stops an older one still waiting
+  let gen = 0;
   async function build() {
+    const mine = ++gen;
     list.replaceChildren();
     head('Appearance');
     const walls = document.createElement('div');
@@ -356,11 +359,12 @@ function openSettings() {
     row('JIT compiler', 'Off only to find engine bugs (much slower)', check('jit'));
     row('Last program', null, Object.assign(document.createElement('b'), { textContent: lastSpeed || '–' }));
     head('Storage');
-    await listDrive();
     let persisted = false;
     try { persisted = await navigator.storage.persisted(); } catch (e) { /* not offered */ }
+    if (mine !== gen) return;
     row('Drive C:', persisted ? 'Kept by the browser' : 'The browser may clear it when space runs short', Object.assign(document.createElement('b'), { textContent: driveBytes ? fmt(driveBytes / 1048576) + ' MB' : 'empty' }));
     const trash = await readTrash();
+    if (mine !== gen) return;
     row('Recycle Bin', trash.length + ' item(s)', button('Empty', async () => { await deleteTrash(await readTrash()); build(); }));
     // erase: a second tap within 4 seconds confirms
     let ask = 0;
@@ -380,7 +384,8 @@ function openSettings() {
     row('Engine tests', 'For developers', a);
   }
   p.refresh = build;
-  build();
+  // the drive's size: counted once, then shown
+  listDrive().then(build);
 }
 
 
