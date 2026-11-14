@@ -376,7 +376,16 @@ fn step_raw(e: &mut Engine) {
     }
     if (0x40..0x50).contains(&op) && !e.cpu.mode32 { rex = op; op = d.u8(); }
     #[cfg(feature = "ophist")]
-    unsafe { let k = if op == 0x0F { 0x100 + d.b[d.p.min(15)] as usize } else { op as usize }; OPHIST[k] += 1; }
+    unsafe {
+        let k = if op == 0x0F { 0x100 + d.b[d.p.min(15)] as usize } else { op as usize };
+        OPHIST[k] += 1;
+        // a sample of where the two most run opcodes are (every 2^20th): rip and bytes
+        if OPHIST[k] & 0xFFFFF == 0 && (op == 0xC7 || op == 0xFF) {
+            let mut h = String::new();
+            for b in buf.iter() { h.push_str(&format!("{:02x}", b)); }
+            crate::console(&format!("OPRIP {:x} {} m32={}\n", rip, h, e.cpu.mode32));
+        }
+    }
     // lock prefix (and xchg with memory): atomic against the other cores
     let _atomic = if crate::lock::MT && (locked || ((op == 0x86 || op == 0x87) && d.b[d.p.min(15)] >> 6 != 3)) {
         crate::lock::count_locked();

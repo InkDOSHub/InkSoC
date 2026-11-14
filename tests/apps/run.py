@@ -70,7 +70,7 @@ for name, t0, p, log in jobs:
     try: j = json.loads(res); print('RESULT', name, j['status'], j['error'][:300].replace('\n', ' | '), len(j['files']), 'files,', j.get('mips'), 'MIPS,', secs, 's')
     except Exception: print('RESULT', name, 'crashed', ' | '.join(text[-5:])[:300])
     for l in text:
-        if l.startswith('OPHIST'): print(l)
+        if l.startswith(('OPHIST', 'OPRIP')): print(l)
     # where the time went (node --cpu-prof): functions by own time, wasm ones by name
     pd = os.path.join(out, name + '-prof')
     for pf in (os.listdir(pd) if os.path.isdir(pd) else []):

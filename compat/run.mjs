@@ -50,7 +50,7 @@ async function runOne({ files, exe, args }) {
   const view = (p) => new Uint8Array(mem.buffer, p, PAGE);
   const env = {
     // with TRACE the call log goes straight to its file (it can pass node's string limit)
-    host_console: (p, n) => { const t = new TextDecoder().decode(new Uint8Array(mem.buffer, p, n).slice()); if (traceFd !== null && t.startsWith('[call]')) fs.writeSync(traceFd, t); else out += t; },
+    host_console: (p, n) => { const t = new TextDecoder().decode(new Uint8Array(mem.buffer, p, n).slice()); if (traceFd !== null && t.startsWith('[call]')) fs.writeSync(traceFd, t); else if (t.startsWith('OPRIP')) process.stdout.write(t); else out += t; },
     host_now_ms: () => performance.now(), host_epoch_ms: () => Date.now(), host_random: (p, n) => { const v = new Uint8Array(mem.buffer, p >>> 0, n); for (let i = 0; i < n; i += 65536) { const b = new Uint8Array(Math.min(65536, n - i)); crypto.getRandomValues(b); v.set(b, i); } },
     host_swap_write: (s, p) => ram.set(s, view(p).slice()), host_swap_read: (s, p) => view(p).set(ram.get(s)), // the spill file (closed big files) in a temporary file, as OPFS holds it in the browser
     host_drive_write: (id, off, p, n) => { spillFd ??= fs.openSync(path.join(os.tmpdir(), 'inksoc-spill-' + process.pid), 'w+'); return fs.writeSync(spillFd, new Uint8Array(mem.buffer, p >>> 0, n), 0, n, off); },
