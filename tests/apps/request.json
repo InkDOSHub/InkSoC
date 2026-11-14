@@ -1,4 +1,2 @@
-[
-  { "name": "supertuxkart", "url": "https://github.com/supertuxkart/stk-code/releases/download/1.4/SuperTuxKart-1.4-installer-x86_64.exe",
-    "drive": "C:\\Program Files\\SuperTuxKart", "exe": "supertuxkart.exe", "runs": 1, "limit": 900 }
-]
+[ { "name": "stk-install", "url": "https://github.com/supertuxkart/stk-code/releases/download/1.4/SuperTuxKart-1.4-installer-x86_64.exe",
+    "args": "/S", "runs": 1, "limit": 900 } ]

@@ -4,7 +4,7 @@
 # "drive": "C:\\Some\\Folder" unpacks the download (7z) into that folder of drive C: and runs
 # "exe" there "runs" times in a row, each run going on from the files the last one left
 # (a program that updates itself and restarts, like Steam).
-import shutil, json, os, subprocess, sys, urllib.request
+import time, shutil, json, os, subprocess, sys, urllib.request
 here = os.path.dirname(os.path.abspath(__file__))
 inksoc = os.path.dirname(os.path.dirname(here))
 out = os.path.join(here, 'out'); os.makedirs(out, exist_ok=True)
@@ -56,16 +56,16 @@ for r in json.load(open(os.path.join(here, 'request.json'))):
     for t, x, y in r.get('clicks', []): clicks += [[t * 1000, 1, x, y, 0], [t * 1000 + 50, 2, x, y, 0], [t * 1000 + 150, 3, x, y, 0]]
     env = dict(os.environ, LIMIT=str(r.get('limit', 600)), INPUT=json.dumps(clicks), SHOT=os.path.join(out, r['name'] + '.ppm'))
     log = open(os.path.join(out, r['name'] + '.log'), 'w')
-    jobs.append((r['name'], subprocess.Popen([os.path.join(inksoc, 'compat/app.sh'), d, exe, args], env=env, stdout=log, stderr=subprocess.STDOUT), log))
+    jobs.append((r['name'], time.time(), subprocess.Popen([os.path.join(inksoc, 'compat/app.sh'), d, exe, args], env=env, stdout=log, stderr=subprocess.STDOUT), log))
 for t in drives: t.join()
 for f in sorted(os.listdir(out)):
     if f.endswith('.ppm') and shutil.which('convert'):
         subprocess.run(['convert', os.path.join(out, f), os.path.join(out, f[:-4] + '.png')]); os.remove(os.path.join(out, f))
-for name, p, log in jobs:
-    p.wait(); log.close()
+for name, t0, p, log in jobs:
+    p.wait(); log.close(); secs = int(time.time() - t0)
     text = open(os.path.join(out, name + '.log')).read().strip().splitlines()
     res = text[-1] if text else ''
-    try: j = json.loads(res); print('RESULT', name, j['status'], j['error'][:300].replace('\n', ' | '), len(j['files']), 'files')
+    try: j = json.loads(res); print('RESULT', name, j['status'], j['error'][:300].replace('\n', ' | '), len(j['files']), 'files,', j.get('mips'), 'MIPS,', secs, 's')
     except Exception: print('RESULT', name, 'crashed', ' | '.join(text[-5:])[:300])
     ppm = os.path.join(out, name + '.ppm')
     # the last screen: PNG when ImageMagick is there, else the raw PPM
