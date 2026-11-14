@@ -49,23 +49,28 @@ async function wallPhoto(file) {
   chooseWall('photo');
 }
 
-// the swatches in Settings
-const walls = $('walls');
-for (const [id, bg] of Object.entries(WALLS)) {
-  const b = document.createElement('button');
-  b.dataset.wall = id;
-  b.title = id[0].toUpperCase() + id.slice(1);
-  b.style.background = bg;
-  b.onclick = () => chooseWall(id);
-  walls.append(b);
+// the swatches in Settings (the window builds them when it opens)
+function wallSwatches(walls) {
+  walls.id = 'walls';
+  for (const [id, bg] of Object.entries(WALLS)) {
+    const b = document.createElement('button');
+    b.dataset.wall = id;
+    b.title = id[0].toUpperCase() + id.slice(1);
+    b.style.background = bg;
+    b.onclick = () => chooseWall(id);
+    walls.append(b);
+  }
+  const photo = document.createElement('label');
+  photo.dataset.wall = 'photo';
+  photo.title = 'A photo of yours';
+  photo.textContent = '＋';
+  photo.innerHTML += '<input type="file" accept="image/*" hidden>';
+  photo.querySelector('input').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) wallPhoto(f).catch(() => {}); };
+  walls.append(photo);
+  let now = 'blue';
+  try { now = localStorage.getItem(WALL_KEY) || 'blue'; } catch (e) { /* private window */ }
+  for (const s of walls.querySelectorAll('[data-wall]')) s.classList.toggle('on', s.dataset.wall === now);
 }
-const photo = document.createElement('label');
-photo.dataset.wall = 'photo';
-photo.title = 'A photo of yours';
-photo.textContent = '＋';
-photo.innerHTML += '<input type="file" accept="image/*" hidden>';
-photo.querySelector('input').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) wallPhoto(f).catch(() => {}); };
-walls.append(photo);
 let saved = 'blue';
 try { saved = localStorage.getItem(WALL_KEY) || 'blue'; } catch (e) { /* private window */ }
 showWall(saved);
