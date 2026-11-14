@@ -91,8 +91,9 @@ pub extern "C" fn gl_guest_free(addr: f64) {
 }
 
 /// One argument of a params struct, read by its kind letter; returns (value, size).
-fn read_arg(e: &mut Engine, at: u64, kind: u8) -> (f64, u64) {
+fn read_arg(e: &mut Engine, at: u64, kind: u8, w32: bool) -> (f64, u64) {
     match kind {
+        b'p' if w32 => (e.r32(at) as f64, 4), // a 32-bit program (WoW64): 32-bit pointers
         b'p' | b'q' => (e.r64(at) as i64 as f64, 8),
         b'd' => (f64::from_bits(e.r64(at)), 8),
         b'f' => (f32::from_bits(e.r32(at)) as f64, 4),
@@ -105,8 +106,9 @@ fn read_arg(e: &mut Engine, at: u64, kind: u8) -> (f64, u64) {
     }
 }
 
-fn kind_size(kind: u8) -> u64 {
+fn kind_size(kind: u8, w32: bool) -> u64 {
     match kind {
+        b'p' if w32 => 4,
         b'p' | b'q' | b'd' => 8,
         b'f' | b'i' | b'u' => 4,
         b's' | b'H' => 2,
@@ -114,8 +116,9 @@ fn kind_size(kind: u8) -> u64 {
     }
 }
 
-fn write_ret(e: &mut Engine, at: u64, kind: u8, v: f64) {
+fn write_ret(e: &mut Engine, at: u64, kind: u8, v: f64, w32: bool) {
     match kind {
+        b'p' if w32 => e.w32(at, v as i64 as u32),
         b'p' | b'q' => e.w64(at, v as i64 as u64),
         b'd' => e.w64(at, v.to_bits()),
         b'f' => e.w32(at, (v as f32).to_bits()),
@@ -134,23 +137,25 @@ impl Engine {
             "get_pixel_formats" => return self.gl_pixel_formats(params),
             _ => {}
         }
-        // the arguments, laid out after the TEB pointer with C alignment
+        // the arguments, laid out after the TEB pointer with C alignment (a 32-bit program's
+        // struct has 4-byte pointers; 8-byte numbers stay 8-aligned, as i386 mingw lays them out)
+        let w32 = self.s.wow64;
         let sig = sig.as_bytes();
         let (args_sig, ret_kind) = match sig.iter().position(|&c| c == b'>') {
             Some(i) => (&sig[..i], Some(sig[i + 1])),
             None => (sig, None),
         };
-        let mut at = params + 8;
+        let mut at = params + if w32 { 4 } else { 8 };
         let mut args = Vec::with_capacity(args_sig.len());
         for &k in args_sig {
-            let sz = kind_size(k);
+            let sz = kind_size(k, w32);
             at = (at + sz - 1) & !(sz - 1);
-            let (v, n) = read_arg(self, at, k);
+            let (v, n) = read_arg(self, at, k, w32);
             args.push(v);
             at += n;
         }
         let ret_at = ret_kind.map(|k| {
-            let sz = kind_size(k);
+            let sz = kind_size(k, w32);
             (at + sz - 1) & !(sz - 1)
         });
         let r = match name {
@@ -178,7 +183,7 @@ impl Engine {
             return NOT_IMPLEMENTED;
         };
         if let (Some(k), Some(a)) = (ret_kind, ret_at) {
-            write_ret(self, a, k, v);
+            write_ret(self, a, k, v, w32);
         }
         OK
     }
@@ -194,9 +199,14 @@ impl Engine {
 
     /// get_pixel_formats(hdc, formats*, max, &num, &num_onscreen): fills the format table.
     fn gl_pixel_formats(&mut self, params: u64) -> u64 {
-        let (formats, max) = (self.r64(params + 16), self.r32(params + 24));
-        self.w32(params + 28, FORMATS);
-        self.w32(params + 32, FORMATS);
+        // { teb, hdc, formats, max, num, num_onscreen }: pointers are 4 bytes for a 32-bit program
+        let (formats, max, num) = if self.s.wow64 {
+            (self.r32(params + 8) as u64, self.r32(params + 12), params + 16)
+        } else {
+            (self.r64(params + 16), self.r32(params + 24), params + 28)
+        };
+        self.w32(num, FORMATS);
+        self.w32(num + 4, FORMATS);
         if formats == 0 {
             return OK;
         }

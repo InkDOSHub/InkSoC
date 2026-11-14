@@ -37,17 +37,49 @@ function setHidden(p, h) {
   if (p.con) p.con.hidden = h || p.conAway;
 }
 
+// the shell's icons (Papirus, icons/): an <img> with a text after it
+function icon(name) {
+  const i = document.createElement('img');
+  i.className = 'ic';
+  i.src = 'icons/' + name + '.svg';
+  i.alt = '';
+  return i;
+}
+function labelled(el, name, text) { el.replaceChildren(icon(name), document.createTextNode(text)); }
+
 function consoleWindow(p, title) {
   const c = document.createElement('div');
   c.className = 'con';
   const n = progs.length;
   c.style.left = 12 + (n % 5) * 28 + 'px';
   c.style.top = 12 + (n % 5) * 28 + 'px';
-  c.innerHTML = '<div class="t"><span></span><button title="Hide">–</button><button title="Stop">✕</button></div><table></table><pre></pre>';
-  c.querySelector('span').textContent = title + ' — Console';
-  const [hide, stop] = c.querySelectorAll('button');
+  c.innerHTML = '<div class="t"><span></span><button title="Hide">–</button><button title="Fill the screen">□</button><button title="Close">✕</button></div><table></table><pre></pre><div class="grip" title="Resize"></div>';
+  c.querySelector('span').textContent = title;
+  const [hide, max, stop] = c.querySelectorAll('.t button');
   hide.onclick = () => setHidden(p, true);
   stop.onclick = () => close(p);
+  // □: fill the desktop, again: back to the size it had
+  let before = null;
+  max.onclick = () => {
+    if (before) { Object.assign(c.style, before); before = null; return; }
+    before = { left: c.style.left, top: c.style.top, width: c.style.width, height: c.style.height };
+    Object.assign(c.style, { left: '0px', top: '0px', width: desk.clientWidth + 'px', height: desk.clientHeight + 'px' });
+  };
+  // resize by the bottom-right corner (works with a finger: pointer events, not CSS resize)
+  const grip = c.querySelector('.grip');
+  grip.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    raise(p);
+    grip.setPointerCapture(e.pointerId);
+    const w0 = c.offsetWidth - e.clientX, h0 = c.offsetHeight - e.clientY;
+    grip.onpointermove = (m) => {
+      c.style.width = Math.max(220, Math.min(desk.clientWidth - c.offsetLeft, w0 + m.clientX)) + 'px';
+      c.style.height = Math.max(140, Math.min(desk.clientHeight - c.offsetTop, h0 + m.clientY)) + 'px';
+      before = null;
+    };
+    grip.onpointerup = () => { grip.onpointermove = null; };
+  });
   // drag by the title bar
   const t = c.querySelector('.t');
   t.addEventListener('pointerdown', (e) => {
@@ -63,6 +95,8 @@ function consoleWindow(p, title) {
   });
   c.addEventListener('pointerdown', () => raise(p));
   desk.append(c);
+  // a phone: the window starts inside the screen
+  if (c.offsetLeft + c.offsetWidth > desk.clientWidth) c.style.left = Math.max(0, desk.clientWidth - c.offsetWidth) + 'px';
   return c;
 }
 
@@ -119,14 +153,14 @@ function close(p) {
   if (focus === p) focus = null;
 }
 
-function run(files, exe, args, label, home) {
+function run(files, exe, args, label, home, opts = {}) {
   // Files and Console step aside: the program gets the screen (they use no CPU while hidden)
   for (const q of progs) if (q.tool && !q.hidden) setHidden(q, true);
   const p = { id: nextId++, z: 0, hidden: false, conAway: false };
   progs.push(p);
   p.btn = document.createElement('button');
   p.btn.className = 'task';
-  p.btn.textContent = label;
+  labelled(p.btn, opts.icon || 'application-x-executable', label);
   p.btn.onclick = () => {
     if (p.hidden) { setHidden(p, false); raise(p); }
     else if (p.z === zTop) setHidden(p, true);
@@ -134,15 +168,18 @@ function run(files, exe, args, label, home) {
   };
   $('tasks').append(p.btn);
   p.con = consoleWindow(p, label);
+  labelled(p.con.querySelector('.t span'), opts.icon || 'application-x-executable', label);
   const out = p.con.querySelector('pre');
+  if (opts.typing) typingLine(p, out);
   raise(p);
-  const w = p.w = new Worker('worker.js?v=63');
+  const w = p.w = new Worker('worker.js?v=67');
   w.onmessage = (ev) => {
     const d = ev.data;
-    if (d.type === 'log') { out.textContent += d.text; out.scrollTop = out.scrollHeight; }
+    if (d.type === 'log') { out.textContent += d.text.replace(/\r/g, ''); out.scrollTop = out.scrollHeight; }
     else if (d.type === 'stats') {
       const gips = d.insns / d.ms / 1e6;
-      p.con.querySelector('table').innerHTML = '<tr><td>' + fmt(d.insns / d.ms / 1000) + ' MIPS · ' + (d.jit ? 'JIT' : 'interpreter') + ' · ' + d.cores + (d.cores > 1 ? ' cores' : ' core') + (d.threads > 1 ? ' · ' + d.threads + ' threads' : '') + ' · RAM ' + fmt(d.resident * 4 / 1024) + '/' + fmt(d.frames * 4 / 1024) + ' MB' + (d.swapOut || d.swapIn ? ' · swap ' + fmt(d.swapOut * 4 / 1024) + ' MB out, ' + fmt(d.swapIn * 4 / 1024) + ' MB in, ' + fmt(d.swapMs) + ' ms on ' + (d.opfs ? 'OPFS' : 'RAM') : '') + '</td></tr>';
+      const tb = p.con.querySelector('table');
+      if (tb) tb.innerHTML = '<tr><td>' + fmt(d.insns / d.ms / 1000) + ' MIPS · ' + (d.jit ? 'JIT' : 'interpreter') + ' · ' + d.cores + (d.cores > 1 ? ' cores' : ' core') + (d.threads > 1 ? ' · ' + d.threads + ' threads' : '') + ' · RAM ' + fmt(d.resident * 4 / 1024) + '/' + fmt(d.frames * 4 / 1024) + ' MB' + (d.swapOut || d.swapIn ? ' · swap ' + fmt(d.swapOut * 4 / 1024) + ' MB out, ' + fmt(d.swapIn * 4 / 1024) + ' MB in, ' + fmt(d.swapMs) + ' ms on ' + (d.opfs ? 'OPFS' : 'RAM') : '') + '</td></tr>';
       $('speed').textContent = d.cores + (d.cores > 1 ? ' cores' : ' core') + ' · ' + (gips >= 1 ? gips.toFixed(1) + ' GIPS' : fmt(gips * 1000) + ' MIPS');
     } else if (d.type === 'frame') frame(p, d);
     else if (d.type === 'audio') play(p, d);
@@ -170,8 +207,35 @@ function run(files, exe, args, label, home) {
     }
   };
   w.postMessage({ type: 'exec', files, exe, cmd: (/\s/.test(exe) ? '"' + exe + '"' : exe) + (args ? ' ' + args : ''), drive: true, home, poolMb: poolMb(), targetMb: 8192,
-    jit: $('jit').checked, cores: +$('cores').value, strong: new URLSearchParams(location.search).get('strong') !== '0', opt: new URLSearchParams(location.search).get('opt') !== '0', winedebug: +new URLSearchParams(location.search).get('winedebug') || 0, winetrace: new URLSearchParams(location.search).get('winetrace') || '' },
+    jit: $('jit').checked, cores: opts.typing ? 1 : +$('cores').value, typing: !!opts.typing, strong: new URLSearchParams(location.search).get('strong') !== '0', opt: new URLSearchParams(location.search).get('opt') !== '0', winedebug: +new URLSearchParams(location.search).get('winedebug') || 0, winetrace: new URLSearchParams(location.search).get('winetrace') || '' },
   files ? files.map((f) => f.data).filter(Boolean) : []);
+}
+
+// a console the user types in (Command Prompt): the line below the output; Enter sends it to
+// the program's console input, and it shows in the output the way a console echoes typing
+function typingLine(p, out) {
+  const line = document.createElement('input');
+  line.className = 'cline';
+  line.autocapitalize = 'off';
+  line.autocomplete = 'off';
+  line.spellcheck = false;
+  out.after(line);
+  p.con.querySelector('table').remove();
+  const history = [];
+  let at = 0;
+  line.onkeydown = (e) => {
+    if (e.key === 'ArrowUp' && at > 0) { line.value = history[--at]; e.preventDefault(); return; }
+    if (e.key === 'ArrowDown') { at = Math.min(at + 1, history.length); line.value = history[at] || ''; e.preventDefault(); return; }
+    if (e.key !== 'Enter' || !p.w) return;
+    const text = line.value;
+    line.value = '';
+    if (text.trim()) { history.push(text); at = history.length; }
+    out.textContent += text + '\n';
+    out.scrollTop = out.scrollHeight;
+    p.w.postMessage({ type: 'stdin', text: text + '\n' });
+  };
+  p.con.addEventListener('pointerup', () => { if (!getSelection().toString()) line.focus(); });
+  setTimeout(() => line.focus(), 0);
 }
 
 // a program's screen: shown the first time it draws a window; its console steps aside
@@ -235,21 +299,10 @@ const key = (kind) => (e) => {
   e.preventDefault();
 };
 // on-screen game controls: each button holds its key down while touched (several at once)
-const padTarget = () => focus && focus.cv ? focus : progs.filter((p) => p.cv && !p.hidden).sort((a, b) => b.z - a.z)[0];
-for (const k of document.querySelectorAll('#pad .k')) {
-  const vk = +k.dataset.vk, ch = /^[A-Z]$/.test(k.textContent) ? k.textContent.toLowerCase().codePointAt(0) : vk === 27 ? 27 : 0;
-  let held = null;
-  k.addEventListener('pointerdown', (e) => { e.preventDefault(); soundOn(); k.setPointerCapture(e.pointerId); held = padTarget(); if (held) send(held, 4, 0, 0, vk | (ch << 16)); k.classList.add('down'); });
-  const up = () => { if (held) send(held, 5, 0, 0, vk); held = null; k.classList.remove('down'); };
-  k.addEventListener('pointerup', up);
-  k.addEventListener('pointercancel', up);
-  k.addEventListener('contextmenu', (e) => e.preventDefault());
-}
-// the 🎮 button shows on touch screens; the controls stay hidden until it is tapped
-if (matchMedia('(pointer: coarse)').matches) $('padbtn').hidden = false;
-$('padbtn').onclick = () => { const on = $('pad').hidden; $('pad').hidden = !on; $('padbtn').classList.toggle('on', on); };
+// they are switched on in ☰ > Controls
+$('padon').onchange = () => { $('pad').hidden = !$('padon').checked; sendPad(); };
 // a real keyboard got connected and used: the on-screen controls step aside (🎮 brings them back)
-addEventListener('keydown', (e) => { if (e.target.tagName !== 'INPUT' && !$('pad').hidden) { $('pad').hidden = true; $('padbtn').classList.remove('on'); } }, true);
+addEventListener('keydown', (e) => { if (e.target.tagName !== 'INPUT' && !$('pad').hidden) { $('pad').hidden = true; $('padon').checked = false; } }, true);
 addEventListener('keydown', key(4));
 addEventListener('keyup', key(5));
 
@@ -258,7 +311,14 @@ const pops = ['menu', 'setp', 'infop'];
 function closePops() { for (const id of pops) $(id).hidden = true; }
 function togglePop(id) { const h = $(id).hidden; closePops(); $(id).hidden = !h; return h; }
 $('start').onclick = (e) => { e.stopPropagation(); if (togglePop('menu')) { listDrive(); $('find').value = ''; showMenu(); } };
-$('info').onclick = (e) => { e.stopPropagation(); togglePop('infop'); };
+$('more').onclick = (e) => { e.stopPropagation(); togglePop('infop'); };
+// ☰ has two tabs: Info and Controls
+for (const b of document.querySelectorAll('.tabs button')) {
+  b.onclick = () => {
+    for (const x of document.querySelectorAll('.tabs button')) x.classList.toggle('on', x === b);
+    for (const pane of document.querySelectorAll('[data-pane]')) pane.hidden = pane.dataset.pane !== b.dataset.tab;
+  };
+}
 document.addEventListener('click', (e) => { if (!e.target.closest('.pop')) closePops(); });
 $('find').oninput = () => showMenu();
 $('find').onkeydown = (e) => { if (e.key === 'Enter') { const b = $('installed').querySelector('button'); if (b) b.click(); } };
@@ -272,7 +332,7 @@ setInterval(tick, 15000);
 // File Explorer, Command Prompt, Diagnostics: tools.js loads the first time one is opened
 let toolsReady = null;
 function loadTools() {
-  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=2'; s.onload = ok; s.onerror = fail; document.head.append(s); });
+  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=7'; s.onload = ok; s.onerror = fail; document.head.append(s); });
   return toolsReady;
 }
 async function tool(name, arg) {
@@ -286,20 +346,26 @@ for (const b of document.querySelectorAll('[data-tool]')) b.onclick = (e) => { e
 // Shut down: every program stops and keeps its files on drive C:
 $('shutdown').onclick = () => {
   closePops();
+  const busy = progs.some((p) => p.w);
   for (const p of progs.slice()) close(p);
-  note('All programs stopped; drive C: saved');
+  // a dark screen, like a computer that is off; programs get up to 5 s to save drive C: first
+  const msg = $('off').querySelector('small');
+  $('off').querySelector('button').hidden = busy;
+  msg.textContent = busy ? 'Saving drive C:…' : 'Every program stopped and drive C: is saved.';
+  $('off').hidden = false;
+  if (busy) setTimeout(() => { msg.textContent = 'Every program stopped and drive C: is saved.'; $('off').querySelector('button').hidden = false; }, 5200);
 };
 
 /* ---------- opening a file that is on drive C: (by its Windows path) ---------- */
 const folderOf = (path) => path.slice(0, path.lastIndexOf('\\'));
 const baseName = (path) => path.split('\\').pop();
 function runPath(path, label) {
-  run([], path, $('args').value.trim(), '🪟 ' + (label || baseName(path).replace(/\.exe$/i, '')), folderOf(path));
+  run([], path, $('args').value.trim(), label || baseName(path).replace(/\.exe$/i, ''), folderOf(path));
 }
 // a Windows Installer package: Windows' own msiexec installs it
 async function installMsi(path) {
   const data = await fetch('bin/wine/wine-msiexec.exe?v=1').then((r) => r.arrayBuffer());
-  run([{ name: 'msiexec.exe', data }], 'msiexec.exe', '/i "' + path + '"' + ($('args').value.trim() ? ' ' + $('args').value.trim() : ''), '📦 ' + baseName(path).replace(/\.msi$/i, ''), folderOf(path));
+  run([{ name: 'msiexec.exe', data }], 'msiexec.exe', '/i "' + path + '"' + ($('args').value.trim() ? ' ' + $('args').value.trim() : ''), baseName(path).replace(/\.msi$/i, ''), folderOf(path), { icon: 'application-x-msi' });
 }
 // what a double tap does in File Explorer or on the desktop
 async function openPath(path, file) {
@@ -427,7 +493,7 @@ function showMenu() {
   $('installed').replaceChildren(...(list.length ? list.map((p) => {
     const b = document.createElement('button');
     b.className = 'it';
-    b.textContent = '🪟 ' + p.name;
+    labelled(b, 'application-x-executable', p.name);
     b.title = p.path;
     b.onclick = () => { closePops(); runPath(p.path, p.name); };
     return b;
@@ -437,16 +503,16 @@ function showMenu() {
 /* ---------- desktop icons: This PC, Command Prompt, Downloads, then the Desktop folder ---------- */
 function showIcons() {
   const items = [
-    { icon: '🖥️', name: 'This PC', open: () => tool('files', 'C:') },
-    { icon: '⬛', name: 'Command Prompt', open: () => tool('console') },
-    { icon: '📥', name: 'Downloads', open: () => tool('files', HOME + '\\Downloads') },
-    ...desktopItems.map((d) => ({ icon: '🪟', name: baseName(d.path).replace(/\.(lnk|exe)$/i, ''), open: () => openPath(d.path, d.file) })),
+    { icon: 'computer', name: 'This PC', open: () => tool('files', 'C:') },
+    { icon: 'utilities-terminal', name: 'Command Prompt', open: () => tool('console') },
+    { icon: 'folder-download', name: 'Downloads', open: () => tool('files', HOME + '\\Downloads') },
+    ...desktopItems.map((d) => ({ icon: 'application-x-executable', name: baseName(d.path).replace(/\.(lnk|exe)$/i, ''), open: () => openPath(d.path, d.file) })),
   ];
   $('icons').replaceChildren(...items.map((it) => {
     const el = document.createElement('div');
     el.className = 'ico';
-    el.innerHTML = '<i></i><span></span>';
-    el.firstChild.textContent = it.icon;
+    el.innerHTML = '<span></span>';
+    el.prepend(icon(it.icon));
     el.lastChild.textContent = it.name;
     el.open = it.open;
     return el;
@@ -477,7 +543,7 @@ $('cerase').onclick = async (e) => {
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 // the usual folders of the user's profile are there from the start
 (async () => {
-  for (const f of ['Desktop', 'Documents', 'Downloads']) try { await driveDir(HOME + '\\' + f, true); } catch (e) { /* no OPFS here */ }
+  for (const f of [HOME + '\\Desktop', HOME + '\\Documents', HOME + '\\Downloads', 'C:\\Program Files', 'C:\\Program Files (x86)']) try { await driveDir(f, true); } catch (e) { /* no OPFS here */ }
   listDrive();
 })();
 

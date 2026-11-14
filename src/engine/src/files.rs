@@ -743,7 +743,11 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 let ov = e.arg(4);
                 return Some(e.np_win32(true, a0, buf, n, done, ov));
             }
-            // no keyboard yet: reading the console fails like a closed pipe
+            // typing on (the page's Command Prompt): a typed line, or a wait for one
+            if a0 == 3 && e.s.con_live {
+                return crate::winapi::console_read(e, name);
+            }
+            // no keyboard: reading the console fails like a closed pipe
             if a0 == 3 {
                 if done != 0 {
                     e.w32(done, 0);
@@ -1149,8 +1153,12 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             0
         }
         "FormatMessageW" | "FormatMessageA" => {
-            // system messages only (FORMAT_MESSAGE_FROM_SYSTEM)
+            // system messages only (FORMAT_MESSAGE_FROM_SYSTEM); a message from a string or a
+            // module's own table (cmd.exe's texts) goes on to Wine's kernelbase, which formats it
             let (flags, full_id, buf, size) = (a0 as u32, e.arg(2) as u32, e.arg(4), e.arg(5));
+            if flags & 0x1000 == 0 {
+                return None;
+            }
             let id = if full_id >> 16 == 0x8007 || full_id >> 16 == 0 { full_id & 0xFFFF } else { full_id };
             let other;
             let text = match id {

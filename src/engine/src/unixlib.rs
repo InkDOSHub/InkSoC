@@ -34,8 +34,8 @@ pub fn data_export(e: &mut Engine, dll: &str, name: &str) -> Option<u64> {
 }
 
 /// The unix funcs handle of the module at `base`, or None when it has no Unix side here.
-/// A 32-bit DLL gets one only where the engine reads 32-bit structures (net.rs follows the
-/// process: a WoW64 process hands over 32-bit layouts).
+/// A 32-bit DLL gets one only where the engine reads 32-bit structures (net.rs and
+/// opengl follow the process: a WoW64 process hands over 32-bit layouts).
 pub fn handle_of(e: &Engine, base: u64, wow64: bool) -> Option<u64> {
     // the engine's own modules, or a DLL that a loader (WoW64's 32-bit one) mapped as a section
     let name = match e.s.modules.iter().find(|m| m.base == base) {
@@ -49,7 +49,7 @@ pub fn handle_of(e: &Engine, base: u64, wow64: bool) -> Option<u64> {
         "crypt32.dll" => CRYPT32,
         _ => return None,
     };
-    if wow64 && !matches!(h, WS2 | CRYPT32) {
+    if wow64 && !matches!(h, WS2 | CRYPT32 | OPENGL) {
         return None;
     }
     Some(h)

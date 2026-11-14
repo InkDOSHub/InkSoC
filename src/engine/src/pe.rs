@@ -25,7 +25,7 @@ fn u64_at(b: &[u8], o: usize) -> Result<u64, String> {
     Ok(u32_at(b, o)? as u64 | (u32_at(b, o + 4)? as u64) << 32)
 }
 
-pub const NATIVE_DLLS: &[&str] = &["kernel32.dll", "kernelbase.dll", "ntdll.dll", "oleaut32.dll", "advapi32.dll", "vcruntime140.dll", "vcruntime140_1.dll", "shell32.dll", "shlwapi.dll", "bcrypt.dll", "bcryptprimitives.dll", "version.dll", "winmm.dll", "win32u.dll"];
+pub const NATIVE_DLLS: &[&str] = &["kernel32.dll", "kernelbase.dll", "ntdll.dll", "oleaut32.dll", "advapi32.dll", "vcruntime140.dll", "vcruntime140_1.dll", "shell32.dll", "shlwapi.dll", "bcrypt.dll", "bcryptprimitives.dll", "version.dll", "winmm.dll", "win32u.dll", "xinput1_1.dll", "xinput1_2.dll", "xinput1_3.dll", "xinput1_4.dll", "xinput9_1_0.dll"];
 
 pub fn find_module(e: &Engine, name: &str) -> Option<usize> {
     let n = norm(name);

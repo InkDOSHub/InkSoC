@@ -1,5 +1,5 @@
-/* InkSoC shell tools: File Explorer (drive C:), Command Prompt (a few cmd-style commands,
-   until Wine's own cmd.exe runs) and Diagnostics. Both are plain page code over the drive's storage (OPFS folder "inksoc-c/C"):
+/* InkSoC shell tools: File Explorer (drive C:), Command Prompt (Wine's cmd.exe) and
+   Diagnostics. Both are plain page code over the drive's storage (OPFS folder "inksoc-c/C"):
    this file loads the first time one is opened, and they use no CPU while they wait, so a
    program keeps the whole engine. They step aside (hide) when a program starts. */
 'use strict';
@@ -57,12 +57,12 @@ async function copyFile(h, toDir, name) {
 const size = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.ceil(n / 1024) + ' KB' : n + ' B');
 
 /* ---------- a tool window (looks like a console window, has a bar button) ---------- */
-function toolWindow(label, cls) {
+function toolWindow(label, cls, ic) {
   const p = { id: nextId++, z: 0, hidden: false, conAway: false, tool: true };
   progs.push(p);
   p.btn = document.createElement('button');
   p.btn.className = 'task';
-  p.btn.textContent = label;
+  labelled(p.btn, ic, label);
   p.btn.onclick = () => {
     if (p.hidden) { setHidden(p, false); raise(p); }
     else if (p.z === zTop) setHidden(p, true);
@@ -71,9 +71,9 @@ function toolWindow(label, cls) {
   $('tasks').append(p.btn);
   p.con = consoleWindow(p, label);
   p.con.classList.add(cls);
-  p.con.querySelector('span').textContent = label;
+  labelled(p.con.querySelector('span'), ic, label);
   p.con.querySelector('table').remove();
-  if (cls === 'win') p.con.style.left = 110 + (progs.length % 5) * 28 + 'px'; // the desktop icons stay visible
+  if (cls === 'win') p.con.style.left = Math.max(0, Math.min(110 + (progs.length % 5) * 28, desk.clientWidth - p.con.offsetWidth)) + 'px'; // the desktop icons stay visible (on a phone it fits the screen)
   raise(p);
   return p;
 }
@@ -83,7 +83,7 @@ function toolWindow(label, cls) {
 function openFiles(start) {
   const old = progs.find((q) => q.tool === 'files');
   if (old) { setHidden(old, false); raise(old); if (start) old.go(pathParts([], start)); return; }
-  const p = toolWindow('📁 File Explorer', 'win');
+  const p = toolWindow('File Explorer', 'win', 'system-file-manager');
   p.tool = 'files';
   const pre = p.con.querySelector('pre');
   const head = document.createElement('div');
@@ -100,8 +100,8 @@ function openFiles(start) {
   pre.replaceWith(body);
   const [back, fwd, up] = head.querySelectorAll('button');
   const addr = head.querySelector('input[type=text]');
-  const places = [['💽 Local Disk (C:)', ''], ['🖥️ Desktop', 'InkSoC\\Desktop'], ['📥 Downloads', 'InkSoC\\Downloads'], ['📄 Documents', 'InkSoC\\Documents'], ['📦 Program Files', 'Program Files'], ['📦 Program Files (x86)', 'Program Files (x86)'], ['🪟 Windows', 'Windows']];
-  side.replaceChildren(...places.map(([label, path]) => { const d = document.createElement('div'); d.textContent = label; d.dataset.path = path; d.onclick = () => go(pathParts([], 'C:\\' + path)); return d; }));
+  const places = [['drive-harddisk', 'Local Disk (C:)', ''], ['user-desktop', 'Desktop', 'InkSoC\\Desktop'], ['folder-download', 'Downloads', 'InkSoC\\Downloads'], ['folder-documents', 'Documents', 'InkSoC\\Documents'], ['folder', 'Program Files', 'Program Files'], ['folder', 'Program Files (x86)', 'Program Files (x86)']];
+  side.replaceChildren(...places.map(([ic, label, path]) => { const d = document.createElement('div'); labelled(d, ic, label); d.dataset.path = path; d.onclick = () => go(pathParts([], 'C:\\' + path)); return d; }));
   let cwd = [], past = [], ahead = [], sel = null;
   function go(parts, how) {
     if (how !== 'history') { past.push(cwd); ahead = []; }
@@ -122,7 +122,7 @@ function openFiles(start) {
   let ask = null;
   async function show() {
     addr.value = showPath(cwd);
-    p.con.querySelector('.t span').textContent = '📁 ' + (cwd.length ? cwd[cwd.length - 1] : 'Local Disk (C:)');
+    labelled(p.con.querySelector('.t span'), cwd.length ? 'folder' : 'drive-harddisk', cwd.length ? cwd[cwd.length - 1] : 'Local Disk (C:)');
     back.disabled = !past.length;
     fwd.disabled = !ahead.length;
     up.disabled = !cwd.length;
@@ -133,9 +133,9 @@ function openFiles(start) {
     list.replaceChildren(...items.map((it) => {
       const row = document.createElement('div');
       row.className = 'frow';
-      const kind = it.dir ? '📁' : /\.exe$/i.test(it.name) ? '🪟' : /\.msi$/i.test(it.name) ? '📦' : /\.zip$/i.test(it.name) ? '🗜️' : /\.lnk$/i.test(it.name) ? '↗️' : '📄';
+      const kind = it.dir ? 'folder' : /\.(exe|lnk)$/i.test(it.name) ? 'application-x-executable' : /\.msi$/i.test(it.name) ? 'application-x-msi' : /\.zip$/i.test(it.name) ? 'application-zip' : 'text-x-generic';
       row.innerHTML = '<span class="n"></span><span class="z"></span><button title="Save a copy on this device">⬇</button><button title="Delete">🗑</button>';
-      row.querySelector('.n').textContent = kind + ' ' + it.name;
+      labelled(row.querySelector('.n'), kind, it.name);
       row.querySelector('.z').textContent = it.dir ? '' : size(it.size);
       const [dl, del] = row.querySelectorAll('button');
       if (it.dir) dl.remove();
@@ -169,7 +169,7 @@ function openFiles(start) {
 function openDiag() {
   const old = progs.find((q) => q.tool === 'diag');
   if (old) { setHidden(old, false); raise(old); old.refresh(); return; }
-  const p = toolWindow('🩺 Diagnostics', 'win');
+  const p = toolWindow('Diagnostics', 'win', 'utilities-system-monitor');
   p.tool = 'diag';
   p.con.classList.add('diag');
   const pre = p.con.querySelector('pre');
@@ -250,7 +250,7 @@ function openDiag() {
     try {
       const t0 = performance.now();
       const done = await new Promise((res) => {
-        const w = new Worker('worker.js?v=62');
+        const w = new Worker('worker.js?v=66');
         const stop = setTimeout(() => { w.terminate(); res({ ok: false, error: 'no answer in 60 s' }); }, 60000);
         w.onmessage = (ev) => { if (ev.data.type === 'done') { clearTimeout(stop); w.terminate(); res(ev.data); } };
         w.onerror = (e) => { clearTimeout(stop); res({ ok: false, error: e.message }); };
@@ -268,109 +268,12 @@ function openDiag() {
   check();
 }
 
-/* ---------- Console ---------- */
-function openConsole() {
-  const p = toolWindow('⬛ Command Prompt', 'cmd');
-  p.tool = 'console';
-  const out = p.con.querySelector('pre');
-  const line = document.createElement('input');
-  line.className = 'cline';
-  line.autocapitalize = 'off';
-  line.autocomplete = 'off';
-  line.spellcheck = false;
-  out.after(line);
-  let cwd = ['InkSoC'];
-  const say = (t) => { out.textContent += t; out.scrollTop = out.scrollHeight; };
-  const prompt = () => { line.placeholder = showPath(cwd) + '>'; };
-  say('InkSoC Command Prompt (a stand-in until Windows\' own cmd.exe runs here). Type "help".\n\n');
-  prompt();
-  const history = [];
-  let hi = 0;
-  p.con.addEventListener('pointerup', () => { if (!getSelection().toString()) line.focus(); });
-  line.onkeydown = async (e) => {
-    if (e.key === 'ArrowUp' && hi > 0) { line.value = history[--hi]; e.preventDefault(); return; }
-    if (e.key === 'ArrowDown') { line.value = history[++hi] || ''; hi = Math.min(hi, history.length); e.preventDefault(); return; }
-    if (e.key !== 'Enter') return;
-    const cmd = line.value.trim();
-    line.value = '';
-    say(showPath(cwd) + '>' + cmd + '\n');
-    if (cmd) { history.push(cmd); hi = history.length; }
-    try { await exec(cmd); } catch (err) { say((err.message || String(err)) + '\n'); }
-    prompt();
-    say('\n');
-  };
-  // "a b" "c d" e -> ['a b', 'c d', 'e']
-  const words = (s) => (s.match(/"[^"]*"|\S+/g) || []).map((w) => w.replace(/^"|"$/g, ''));
-  async function need(parts, what) { const e = await entryAt(parts); if (!e) throw new Error(what + ': not found'); return e; }
-  async function exec(cmd) {
-    if (!cmd) return;
-    const [c0, ...args] = words(cmd), c = c0.toLowerCase();
-    if (/^[a-z]:$/i.test(c)) { cwd = []; return; }
-    if (c === 'help') {
-      return say('dir [folder]     list a folder\ncd <folder>      change folder (cd .. goes up)\ntype <file>      show a text file\ncopy <from> <to> copy a file\nmove <from> <to> move or rename (ren too)\ndel <file>       delete a file\nmkdir <name>     make a folder (md too)\nrmdir <name>     delete a folder and what is in it (rd too)\nstart <x.exe>    run a program (or just type its name)\ncls              clear the screen\nexplorer         open this folder in File Explorer\n');
-    }
-    if (c === 'cls') { out.textContent = ''; return; }
-    if (c === 'cd' || c === 'chdir') {
-      if (!args.length) return say(showPath(cwd) + '\n');
-      const parts = pathParts(cwd, args.join(' '));
-      if (!(await dirAt(parts))) throw new Error('The system cannot find the path specified.');
-      const fixed = [];
-      for (const s of parts) { const d = await dirAt(fixed); fixed.push((await realName(d, s)) || s); }
-      cwd = fixed;
-      return;
-    }
-    if (c === 'dir' || c === 'ls') {
-      const parts = pathParts(cwd, args.join(' '));
-      const dir = await dirAt(parts);
-      if (!dir) throw new Error('File Not Found');
-      const items = await listDir(dir);
-      let total = 0;
-      say(' Directory of ' + showPath(parts) + '\n\n');
-      for (const it of items) { total += it.size; say((it.dir ? '<DIR>          ' : size(it.size).padStart(14) + ' ') + ' ' + it.name + '\n'); }
-      return say(`${String(items.filter((i) => !i.dir).length).padStart(16)} File(s) ${size(total)}\n${String(items.filter((i) => i.dir).length).padStart(16)} Dir(s)\n`);
-    }
-    if (c === 'type' || c === 'cat') {
-      const e = await need(pathParts(cwd, args.join(' ')), args.join(' '));
-      if (e.h.kind !== 'file') throw new Error('Access is denied.');
-      const f = await e.h.getFile();
-      return say(new TextDecoder().decode(await f.slice(0, 256 * 1024).arrayBuffer()) + (f.size > 256 * 1024 ? '\n[… first 256 KB of ' + size(f.size) + ']' : '') + '\n');
-    }
-    if (c === 'del' || c === 'erase' || c === 'rm') {
-      const e = await need(pathParts(cwd, args.join(' ')), args.join(' '));
-      if (e.h.kind !== 'file') throw new Error('Use rmdir for folders.');
-      await e.dir.removeEntry(e.name);
-      return listDrive();
-    }
-    if (c === 'mkdir' || c === 'md') { await dirAt(pathParts(cwd, args.join(' ')), true); return; }
-    if (c === 'rmdir' || c === 'rd') {
-      const e = await need(pathParts(cwd, args.filter((a) => !/^\/[sq]$/i.test(a)).join(' ')), 'folder');
-      if (e.h.kind !== 'directory') throw new Error('The directory name is invalid.');
-      await e.dir.removeEntry(e.name, { recursive: true });
-      return listDrive();
-    }
-    if (c === 'copy' || c === 'move' || c === 'ren' || c === 'rename' || c === 'mv' || c === 'cp') {
-      if (args.length !== 2) throw new Error('Usage: ' + c + ' <from> <to>');
-      const from = await need(pathParts(cwd, args[0]), args[0]);
-      if (from.h.kind !== 'file') throw new Error('Only files can be copied or moved.');
-      let to = pathParts(cwd, (c === 'ren' || c === 'rename') ? args[0].replace(/[^\\/]*$/, '') + args[1] : args[1]);
-      const target = await dirAt(to);
-      let dir, name;
-      if (target) { dir = target; name = from.name; } else { dir = await dirAt(to.slice(0, -1)); name = to[to.length - 1]; }
-      if (!dir) throw new Error('The system cannot find the path specified.');
-      await copyFile(from.h, dir, name);
-      if (!/^(copy|cp)$/.test(c)) await from.dir.removeEntry(from.name);
-      say('        1 file(s) ' + (/^(copy|cp)$/.test(c) ? 'copied' : 'moved') + '.\n');
-      return listDrive();
-    }
-    if (c === 'files' || c === 'explorer') { openFiles(showPath(cwd)); return; }
-    if (c === 'exit') { close(p); return; }
-    // a program: "start x.exe", "x.exe" or "x"
-    const name = c === 'start' ? args.join(' ') : c0;
-    for (const n of [name, name + '.exe']) {
-      const e = await entryAt(pathParts(cwd, n));
-      if (e && e.h.kind === 'file' && /\.(exe|msi|zip)$/i.test(e.name)) { openPath(showPath([...pathParts(cwd, n).slice(0, -1), e.name]), await e.h.getFile()); return say('Started ' + e.name + '.\n'); }
-    }
-    throw new Error(`'${c0}' is not recognized as a command or a program here. Type "help".`);
-  }
-  setTimeout(() => line.focus(), 0);
+/* ---------- Command Prompt: Wine's own cmd.exe ---------- */
+// cmd.exe and the usual command-line tools of C:\Windows\System32 (xcopy, findstr, reg...)
+// run in the engine like any program; what is typed goes to cmd's console input.
+let system32 = null;
+async function openConsole() {
+  system32 = system32 || fetch('bin/system32/list.json?v=1').then((r) => r.json()).then((names) => Promise.all(names.map(async (name) => ({ name, data: await fetch('bin/system32/' + name + '?v=1').then((r) => r.arrayBuffer()) }))));
+  const files = (await system32).map((f) => ({ name: f.name, data: f.data.slice(0) }));
+  run(files, 'cmd.exe', '', 'Command Prompt', '', { typing: true, icon: 'utilities-terminal' });
 }

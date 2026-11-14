@@ -12,5 +12,8 @@ A 32-bit program runs the way 64-bit Windows runs it: these DLLs execute as
 `wine-stable-amd64` package of the same version), which converts them for the
 engine. The page downloads this folder only for 32-bit programs.
 
+3D for 32-bit programs: `opengl32`, `wined3d`, `d3d8`, `d3d9`, `d3d11`, `dxgi` and `ddraw`
+come along; opengl32's unix calls reach the engine with 32-bit structures (4-byte pointers).
+
 Wine is free software under the GNU Lesser General Public License 2.1 or later
 (https://www.winehq.org/license). Source: https://dl.winehq.org/wine/source/11.0/

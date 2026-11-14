@@ -162,6 +162,13 @@ pub struct Shared {
     pub pinfo: HashMap<u32, proc::ProcInfo>,
     /// GetStdHandle: input, output, error
     pub std: [u64; 3],
+    /// console input typed in the page (winapi/console.rs); live = the page sends lines
+    pub con_in: Vec<u8>,
+    pub con_live: bool,
+    /// the page's game controller (winapi/xinput.rs): connected, packet number, XINPUT_GAMEPAD bytes
+    pub pad_on: bool,
+    pub pad_packet: u32,
+    pub pad: [u8; 12],
     /// folders searched for DLLs after C:\InkSoC (SetDllDirectory, AddDllDirectory, folders DLLs were loaded from)
     pub dll_dirs: Vec<String>,
     /// 32-bit program (WoW64): its ntdll, and the CONTEXT passed to Wow64LdrpInitialize
@@ -224,7 +231,7 @@ pub extern "C" fn init(pool_mb: u32, target_mb: u32) {
             init_queue: Vec::new(), resume: Vec::new(), user_shared: false, win: Default::default(), gdi: Default::default(), gl: Default::default(), audio: Default::default(), net: Default::default(), unix_dispatcher: 0, next_luid: 0, win_ki: 0, recent: [(0, 0); 16], recent_n: 0, wine_exports: HashMap::new(), ldr_entries: HashMap::new(), loadlib: Vec::new(),
             stack_top: 0, exe_entry: 0, exe_base: 0, cmdline: (0, 0), unknown_calls: 0, crt: Default::default(), fs: Default::default(),
             sched: Default::default(), cores: 1, insns: 0, jit_on: true, lx: None, names: HashMap::new(),
-            wpid: 0, procs: HashMap::new(), pinfo: HashMap::new(), std: [3, 1, 2], dll_dirs: Vec::new(), wow64: false, wow64_ntdll: 0, wow64_ctx: 0, images: HashMap::new(), image_files: HashMap::new(), root_off: 0, image_slots: HashMap::new(), atoms: Vec::new(),
+            wpid: 0, procs: HashMap::new(), pinfo: HashMap::new(), std: [3, 1, 2], con_in: Vec::new(), con_live: false, pad_on: false, pad_packet: 0, pad: [0; 12], dll_dirs: Vec::new(), wow64: false, wow64_ntdll: 0, wow64_ctx: 0, images: HashMap::new(), image_files: HashMap::new(), root_off: 0, image_slots: HashMap::new(), atoms: Vec::new(),
         });
         ENGINE = Some(Engine {
             mmu: Mmu::new(pool_mb as usize, target_mb as u64),
