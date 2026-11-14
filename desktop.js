@@ -192,6 +192,7 @@ function frame(p, d) {
 
 /* ---------- mouse and keyboard: the topmost program with a window under the pointer ---------- */
 let focus = null, held = null;
+const seen = { keys: 0, taps: 0 }; // for Diagnostics: the page gets keyboard and touch input
 const at = (e) => { const r = desk.getBoundingClientRect(); return [Math.round((e.clientX - r.left) / scale), Math.round((e.clientY - r.top) / scale)]; };
 const send = (p, k, x, y, d) => { if (p && p.w) p.w.postMessage({ type: 'win', k, x, y, d }); };
 function hit(x, y) {
@@ -201,11 +202,12 @@ function hit(x, y) {
   return null;
 }
 desk.addEventListener('pointerdown', (e) => {
+  seen.taps++;
   if (e.target !== desk) return;
   const [x, y] = at(e);
   const p = hit(x, y);
   closePops();
-  if (!p) return;
+  if (!p) { iconTap(e); return; }
   held = p; focus = p;
   raise(p);
   desk.setPointerCapture(e.pointerId);
@@ -225,6 +227,7 @@ desk.addEventListener('pointerup', (e) => {
 });
 desk.addEventListener('contextmenu', (e) => e.preventDefault());
 const key = (kind) => (e) => {
+  seen.keys++;
   if (!focus || !focus.cv || e.target.tagName === 'INPUT') return;
   const special = { Enter: 13, Backspace: 8, Tab: 9, Escape: 27 };
   const ch = kind === 4 ? (e.key.length === 1 ? e.key.codePointAt(0) : special[e.key] || 0) : 0;
@@ -250,120 +253,216 @@ addEventListener('keydown', (e) => { if (e.target.tagName !== 'INPUT' && !$('pad
 addEventListener('keydown', key(4));
 addEventListener('keyup', key(5));
 
-/* ---------- menu and info ---------- */
-function closePops() { $('menu').hidden = true; $('infop').hidden = true; }
-$('start').onclick = (e) => { e.stopPropagation(); const h = $('menu').hidden; closePops(); $('menu').hidden = !h; if (h) listDrive(); };
-$('info').onclick = (e) => { e.stopPropagation(); const h = $('infop').hidden; closePops(); $('infop').hidden = !h; };
+/* ---------- Start menu, settings and info ---------- */
+const pops = ['menu', 'setp', 'infop'];
+function closePops() { for (const id of pops) $(id).hidden = true; }
+function togglePop(id) { const h = $(id).hidden; closePops(); $(id).hidden = !h; return h; }
+$('start').onclick = (e) => { e.stopPropagation(); if (togglePop('menu')) { listDrive(); $('find').value = ''; showMenu(); } };
+$('info').onclick = (e) => { e.stopPropagation(); togglePop('infop'); };
 document.addEventListener('click', (e) => { if (!e.target.closest('.pop')) closePops(); });
+$('find').oninput = () => showMenu();
+$('find').onkeydown = (e) => { if (e.key === 'Enter') { const b = $('installed').querySelector('button'); if (b) b.click(); } };
+const note = (t) => { $('status').textContent = t; };
 
-const builtins = {
-  '7z': { url: 'bin/7za.exe?v=1', name: '7za.exe', label: '🗜 7-Zip', args: () => 'b -md18 -mmt' + $('cores').value },
-};
-// Files and Console: tools.js loads the first time one is opened
+// the clock in the bar
+const tick = () => { $('clock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); };
+tick();
+setInterval(tick, 15000);
+
+// File Explorer, Command Prompt, Diagnostics: tools.js loads the first time one is opened
 let toolsReady = null;
-for (const b of document.querySelectorAll('[data-tool]')) {
-  b.onclick = async () => {
-    closePops();
-    toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=1'; s.onload = ok; s.onerror = fail; document.head.append(s); });
-    await toolsReady;
-    (b.dataset.tool === 'files' ? openFiles : openConsole)();
-  };
+function loadTools() {
+  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=2'; s.onload = ok; s.onerror = fail; document.head.append(s); });
+  return toolsReady;
 }
-for (const b of document.querySelectorAll('[data-run]')) {
-  b.onclick = async () => {
-    closePops();
-    const k = builtins[b.dataset.run];
-    const data = await fetch(k.url).then((r) => r.arrayBuffer());
-    run([{ name: k.name, data }], k.name, $('args').value.trim() || (k.args ? k.args() : ''), k.label);
-  };
-}
-
-// Picked files add up: a DLL or data file picked later joins the .exe picked before
-// (some browsers hand over only one file per pick). Names like "7z (1).dll" are fixed.
-const picked = new Map();
-const copy = (f) => (f.blob ? { name: f.name, blob: f.blob } : { name: f.name, data: f.data.slice(0) });
-$('pick').onchange = async (ev) => {
-  // a .zip (a game or program that needs no installer) unpacks onto drive C:
-  const zips = [...ev.target.files].filter((f) => /\.zip$/i.test(f.name));
-  if (zips.length) { ev.target.value = ''; closePops(); for (const z of zips) await unzipToDrive(z); return; }
-  for (const f of ev.target.files) {
-    const name = f.name.replace(/ \(\d+\)(?=\.[^.]+$)/, '');
-    // a big file (a 400 MB .msi) stays a File: the engine copies it to disk in pieces, so
-    // the phone never holds it whole in memory
-    picked.set(name.toLowerCase(), f.size > (32 << 20) ? { name, blob: f } : { name, data: await f.arrayBuffer() });
-  }
-  ev.target.value = '';
+async function tool(name, arg) {
   closePops();
-  const all = [...picked.values()];
-  const exes = all.filter((f) => /\.exe$/i.test(f.name));
-  // a Windows Installer package: Windows' own msiexec installs it
-  const msi = all.filter((f) => /\.msi$/i.test(f.name)).pop();
-  if (msi && !exes.length) {
-    picked.clear();
-    const data = await fetch('bin/wine/wine-msiexec.exe?v=1').then((r) => r.arrayBuffer());
-    run([{ name: 'msiexec.exe', data }, ...all.map(copy)], 'msiexec.exe', '/i "' + msi.name + '"' + ($('args').value.trim() ? ' ' + $('args').value.trim() : ''), '📦 ' + msi.name.replace(/\.msi$/i, ''));
-    return;
-  }
-  if (!exes.length) { $('speed').textContent = 'Picked ' + all.length + ' file(s): now pick the .exe or .msi'; return; }
-  const exe = exes[exes.length - 1];
-  run(all.map(copy), exe.name, $('args').value.trim(), '🪟 ' + exe.name.replace(/\.exe$/i, ''));
+  if (name === 'settings') { $('setp').hidden = false; listDrive(); return; }
+  await loadTools();
+  ({ files: openFiles, console: openConsole, diag: openDiag })[name](arg);
+}
+for (const b of document.querySelectorAll('[data-tool]')) b.onclick = (e) => { e.stopPropagation(); tool(b.dataset.tool); };
+
+// Shut down: every program stops and keeps its files on drive C:
+$('shutdown').onclick = () => {
+  closePops();
+  for (const p of progs.slice()) close(p);
+  note('All programs stopped; drive C: saved');
 };
+
+/* ---------- opening a file that is on drive C: (by its Windows path) ---------- */
+const folderOf = (path) => path.slice(0, path.lastIndexOf('\\'));
+const baseName = (path) => path.split('\\').pop();
+function runPath(path, label) {
+  run([], path, $('args').value.trim(), '🪟 ' + (label || baseName(path).replace(/\.exe$/i, '')), folderOf(path));
+}
+// a Windows Installer package: Windows' own msiexec installs it
+async function installMsi(path) {
+  const data = await fetch('bin/wine/wine-msiexec.exe?v=1').then((r) => r.arrayBuffer());
+  run([{ name: 'msiexec.exe', data }], 'msiexec.exe', '/i "' + path + '"' + ($('args').value.trim() ? ' ' + $('args').value.trim() : ''), '📦 ' + baseName(path).replace(/\.msi$/i, ''), folderOf(path));
+}
+// what a double tap does in File Explorer or on the desktop
+async function openPath(path, file) {
+  if (/\.exe$/i.test(path)) return runPath(path);
+  if (/\.msi$/i.test(path)) return installMsi(path);
+  if (/\.zip$/i.test(path)) return unzipToDrive(file);
+  if (/\.lnk$/i.test(path)) { const t = await lnkTarget(file); if (t) return runPath(t, baseName(path).replace(/\.lnk$/i, '')); note('This shortcut points to nothing on drive C:'); return; }
+  // any other file: the browser opens it
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file);
+  a.download = baseName(path);
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
 
 /* ---------- drive C: (OPFS folder "inksoc-c", kept apart from the swap file) ---------- */
+const HOME = 'C:\\InkSoC'; // the user's profile folder (USERPROFILE in the engine)
+async function driveDir(path, create) {
+  let d = await (await navigator.storage.getDirectory()).getDirectoryHandle('inksoc-c', { create });
+  for (const s of ('C' + path.slice(2)).split('\\').filter(Boolean)) d = await d.getDirectoryHandle(s, { create });
+  return d;
+}
+// files from outside the shell (dropped or picked) are copied into a folder of drive C:
+async function copyIn(files, path, into) {
+  const dir = into || await driveDir(path, true);
+  for (const f of files) {
+    note('Copying ' + f.name + '…');
+    const name = f.name.replace(/ \(\d+\)(?=\.[^.]+$)/, ''); // "7z (1).dll" -> "7z.dll"
+    const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
+    await f.stream().pipeTo(w);
+  }
+  note(files.length + ' file(s) copied to ' + path);
+  listDrive();
+}
+// dropping files on the desktop: they go to Downloads, which opens in File Explorer
+desk.addEventListener('dragover', (e) => { e.preventDefault(); desk.classList.add('drop'); });
+desk.addEventListener('dragleave', () => desk.classList.remove('drop'));
+desk.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  desk.classList.remove('drop');
+  if (e.target.closest && e.target.closest('.con')) return; // a window takes its own drops
+  const files = [...e.dataTransfer.files];
+  if (!files.length) return;
+  await copyIn(files, HOME + '\\Downloads');
+  tool('files', HOME + '\\Downloads');
+});
+
 // unpacks a .zip to C:\<folder> in a worker, then starts its program when it has just one
 function unzipToDrive(file) {
   return new Promise((done) => {
     const w = new Worker('unzip.js?v=1');
-    $('speed').textContent = 'Unpacking ' + file.name + '…';
+    note('Unpacking ' + file.name + '…');
     w.onmessage = async (ev) => {
       const d = ev.data;
-      if (d.progress !== undefined) { $('speed').textContent = 'Unpacking ' + file.name + ' · ' + Math.floor((100 * d.progress) / Math.max(1, d.total)) + '%'; return; }
+      if (d.progress !== undefined) { note('Unpacking ' + file.name + ' · ' + Math.floor((100 * d.progress) / Math.max(1, d.total)) + '%'); return; }
       w.terminate();
-      if (d.error) { $('speed').textContent = file.name + ': ' + d.error; done(); return; }
-      const found = (await listDrive()).filter((p) => p.toLowerCase().startsWith('c:\\' + d.done.toLowerCase() + '\\'));
-      $('speed').textContent = 'Unpacked to C:\\' + d.done;
-      if (found.length === 1) { const path = found[0], name = path.split('\\').pop().replace(/\.exe$/i, ''); run([], path, $('args').value.trim(), '🪟 ' + name, path.slice(0, path.lastIndexOf('\\'))); }
+      if (d.error) { note(file.name + ': ' + d.error); done(); return; }
+      const found = (await listDrive()).filter((p) => p.path.toLowerCase().startsWith('c:\\' + d.done.toLowerCase() + '\\'));
+      note('Unpacked to C:\\' + d.done);
+      if (found.length === 1) runPath(found[0].path);
       done();
     };
     w.postMessage({ file });
   });
 }
-// installed programs: the .exe files in the folders of Program Files and other top folders
+
+// a Windows shortcut (.lnk): the first "X:\...\something.exe" path inside it, read as
+// UTF-16 or as bytes (the LinkInfo block keeps the ANSI path, string data the Unicode one)
+async function lnkTarget(file) {
+  const b = new Uint8Array(await file.slice(0, 65536).arrayBuffer());
+  const find = (t) => (t.match(/[a-z]:\\[^\0-\x1f"*?<>|]*?\.exe/i) || [])[0];
+  return find(new TextDecoder('utf-16le').decode(b)) || find(new TextDecoder('latin1').decode(b)) || null;
+}
+
+// Installed programs: the shortcuts installers leave in the Start Menu and Desktop folders,
+// plus the .exe files in the folders of Program Files (and C:\<app> from a .zip)
 const skip = /^(unins|uninst|setup|install|update|crash)/i;
+const skipLink = /(uninstall|readme|help|website|homepage|license|manual)/i;
 const system = /^(windows|programdata|users|inksoc|program files( \(x86\))?)$/i;
+let programs = [], desktopItems = [];
 async function listDrive() {
   for (const q of progs) if (q.refresh && !q.hidden) q.refresh();
   let root;
-  try { root = await (await navigator.storage.getDirectory()).getDirectoryHandle('inksoc-c'); } catch (e) { $('csize').textContent = 'empty'; $('installed').replaceChildren(); return []; }
+  try { root = await (await navigator.storage.getDirectory()).getDirectoryHandle('inksoc-c'); } catch (e) { root = null; }
   let bytes = 0;
-  const found = [];
+  const exes = [], links = [], onDesk = [];
   const walk = async (dir, path, depth) => {
     for await (const [name, h] of dir.entries()) {
       const p = path + '\\' + name;
-      if (h.kind === 'directory') await walk(h, p, depth + 1);
-      else {
-        bytes += (await h.getFile()).size;
-        const top = p.split('\\')[1] || '';
-        const deep = /^program files/i.test(top) ? 3 : 2; // C:\Program Files\App\app.exe or C:\App\app.exe
-        if (depth === deep && /\.exe$/i.test(name) && !skip.test(name) && (deep === 3 || !system.test(top))) found.push(p.replace(/^C/, 'C:'));
-      }
+      if (h.kind === 'directory') { await walk(h, p, depth + 1); continue; }
+      const f = await h.getFile();
+      bytes += f.size;
+      const win = p.replace(/^C/, 'C:');
+      const top = p.split('\\')[1] || '';
+      if (/\\desktop\\[^\\]+$/i.test(win) && /\.(lnk|exe)$/i.test(name)) onDesk.push({ path: win, file: f });
+      if (/\.lnk$/i.test(name) && /\\(start menu|desktop)\\/i.test(win) && !skipLink.test(name)) links.push({ path: win, file: f });
+      const deep = /^program files/i.test(top) ? 3 : 2; // C:\Program Files\App\app.exe or C:\App\app.exe
+      if (depth === deep && /\.exe$/i.test(name) && !skip.test(name) && (deep === 3 || !system.test(top))) exes.push(win);
     }
   };
-  try { const c = await root.getDirectoryHandle('C'); await walk(c, 'C', 1); } catch (e) { /* nothing installed yet */ }
-  for await (const [, h] of root.entries()) if (h.kind === 'file') bytes += (await h.getFile()).size;
+  if (root) {
+    try { await walk(await root.getDirectoryHandle('C'), 'C', 1); } catch (e) { /* nothing installed yet */ }
+    for await (const [, h] of root.entries()) if (h.kind === 'file') bytes += (await h.getFile()).size;
+  }
   $('csize').textContent = bytes ? fmt(bytes / 1048576) + ' MB' : 'empty';
-  found.sort((a, b) => a.localeCompare(b));
-  $('installed').replaceChildren(...(found.length ? [document.createElement('hr')] : []), ...found.map((path) => {
+  // a shortcut names its program better than the .exe file does
+  const byTarget = new Map();
+  for (const l of links) {
+    const target = await lnkTarget(l.file);
+    if (target && !skip.test(baseName(target))) byTarget.set(target.toLowerCase(), { name: baseName(l.path).replace(/\.lnk$/i, ''), path: target });
+  }
+  for (const path of exes) if (!byTarget.has(path.toLowerCase())) byTarget.set(path.toLowerCase(), { name: baseName(path).replace(/\.exe$/i, ''), path });
+  programs = [...byTarget.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  desktopItems = onDesk;
+  showMenu();
+  showIcons();
+  return programs;
+}
+function showMenu() {
+  const q = $('find').value.trim().toLowerCase();
+  const list = programs.filter((p) => !q || p.name.toLowerCase().includes(q));
+  const none = document.createElement('div');
+  none.className = 'none';
+  none.textContent = programs.length ? 'No program matches' : 'None yet: install one from File Explorer';
+  $('installed').replaceChildren(...(list.length ? list.map((p) => {
     const b = document.createElement('button');
     b.className = 'it';
-    const name = path.split('\\').pop().replace(/\.exe$/i, '');
-    b.textContent = '📦 ' + name;
-    b.title = path;
-    b.onclick = () => { closePops(); run([], path, $('args').value.trim(), '🪟 ' + name, path.slice(0, path.lastIndexOf('\\'))); };
+    b.textContent = '🪟 ' + p.name;
+    b.title = p.path;
+    b.onclick = () => { closePops(); runPath(p.path, p.name); };
     return b;
-  }));
-  return found;
+  }) : [none]));
 }
+
+/* ---------- desktop icons: This PC, Command Prompt, Downloads, then the Desktop folder ---------- */
+function showIcons() {
+  const items = [
+    { icon: '🖥️', name: 'This PC', open: () => tool('files', 'C:') },
+    { icon: '⬛', name: 'Command Prompt', open: () => tool('console') },
+    { icon: '📥', name: 'Downloads', open: () => tool('files', HOME + '\\Downloads') },
+    ...desktopItems.map((d) => ({ icon: '🪟', name: baseName(d.path).replace(/\.(lnk|exe)$/i, ''), open: () => openPath(d.path, d.file) })),
+  ];
+  $('icons').replaceChildren(...items.map((it) => {
+    const el = document.createElement('div');
+    el.className = 'ico';
+    el.innerHTML = '<i></i><span></span>';
+    el.firstChild.textContent = it.icon;
+    el.lastChild.textContent = it.name;
+    el.open = it.open;
+    return el;
+  }));
+}
+// icons sit under the program screens, so the desktop finds them by position:
+// a tap selects, a second tap on the same icon opens it (like a double click)
+let lastIcon = null, lastTap = 0;
+function iconTap(e) {
+  const el = [...$('icons').children].find((c) => { const r = c.getBoundingClientRect(); return e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom; });
+  for (const c of $('icons').children) c.classList.toggle('sel', c === el);
+  if (el && el === lastIcon && Date.now() - lastTap < 500) { el.classList.remove('sel'); lastIcon = null; el.open(); return; }
+  lastIcon = el;
+  lastTap = Date.now();
+}
+
 // erase: a second tap within 4 seconds confirms
 let eraseAsk = 0;
 $('cerase').onclick = async (e) => {
@@ -376,7 +475,11 @@ $('cerase').onclick = async (e) => {
 };
 // keep drive C: when the browser runs short of space
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-listDrive();
+// the usual folders of the user's profile are there from the start
+(async () => {
+  for (const f of ['Desktop', 'Documents', 'Downloads']) try { await driveDir(HOME + '\\' + f, true); } catch (e) { /* no OPFS here */ }
+  listDrive();
+})();
 
 // default: up to 4 cores where the page is isolated (shared memory), 1 elsewhere
 $('cores').value = String(self.crossOriginIsolated ? Math.max(1, Math.min(navigator.hardwareConcurrency || 2, 4)) : 1);

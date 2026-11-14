@@ -65,31 +65,69 @@
   .con .frow button{background:none;border:0;color:#bbb;cursor:pointer;font:12px system-ui;padding:2px 4px}
   .con .empty{color:#777;padding:12px;font:13px system-ui}
   .con .cline{border:0;border-top:1px solid #2b2b2b;background:#161616;color:#eee;font:13px Menlo,ui-monospace,monospace;padding:8px 10px;outline:none}
-  @media (max-width:520px){#speed{display:none}}
+  /* shell: desktop icons, Start menu, File Explorer (a light window), Diagnostics */
+  #icons{position:absolute;left:8px;top:8px;bottom:8px;display:flex;flex-direction:column;flex-wrap:wrap;align-content:flex-start;gap:6px;pointer-events:none;z-index:0}
+  .ico{width:84px;padding:6px 2px;border-radius:6px;text-align:center;color:#fff;font:12px -apple-system,system-ui,sans-serif;text-shadow:0 1px 2px rgba(0,0,0,.7);overflow-wrap:anywhere;user-select:none;-webkit-user-select:none}
+  .ico i{display:block;font-style:normal;font-size:30px;line-height:38px}
+  .ico.sel{background:rgba(255,255,255,.25)}
+  #desk.drop{outline:3px dashed rgba(255,255,255,.7);outline-offset:-8px}
+  #menu{width:300px;max-height:calc(100% - 70px);overflow:auto}
+  #menu #find{width:100%;font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:inherit;margin-bottom:4px}
+  .pop .mh{color:var(--muted);font-size:12px;padding:8px 12px 2px}
+  .pop .none{color:var(--muted);font-size:13px;padding:4px 12px 8px}
+  #setp{width:320px}
+  #status{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
+  #clock{color:var(--muted);font-size:13px;white-space:nowrap}
+  .con.win{background:#fff;color:#111;width:min(720px,calc(100% - 24px));height:min(460px,calc(100% - 24px));resize:both}
+  .con.win .t{background:#eef1f5;color:#111}.con.win .t button{color:#333}
+  .con.win .fbar{background:#fff;color:#333;border-bottom:1px solid #e3e3e3}
+  .con.win .fbar button,.con.win .fbar label{background:#f1f1f1;color:#222}
+  .con.win .fbar input{flex:1;min-width:0;font:13px system-ui;padding:4px 8px;border:1px solid #ddd;border-radius:6px;background:#f7f7f7;color:#111}
+  .con.win .body{flex:1;display:flex;min-height:0}
+  .con.win .side{width:150px;flex:none;border-right:1px solid #e3e3e3;overflow:auto;padding:6px 0;font:13px system-ui}
+  .con.win .side div{padding:5px 10px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .con.win .side div:hover,.con.win .frow:hover{background:#eef4ff}
+  .con.win .side div.on{background:#dde8fb}
+  .con.win .frow{color:#111;user-select:none;-webkit-user-select:none}
+  .con.win .frow.sel{background:#cfe0fa}
+  .con.win .frow button{color:#555}
+  .con.win .frow .z{color:#777}
+  .con.win .empty{color:#888}
+  .con.win.drop .flist{outline:2px dashed #6b8fd6;outline-offset:-4px}
+  .con.diag .flist{padding:6px 12px;font:13px system-ui;line-height:1.5}
+  .con.diag .chk{display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #eee}
+  .con.diag .chk b{width:18px;flex:none}.con.diag .chk small{color:#666;display:block}
+  @media (max-width:520px){.con.win .side{display:none}#status{display:none}}
 </style>
 </head>
 <body>
 <div class="top"><a href="/">&lt; InkDOS Hub</a><b>🖥 InkSoC</b><span class="r"></span></div>
-<div id="desk"></div>
+<div id="desk"><div id="icons"></div></div>
 <div class="pop" id="menu" hidden>
-  <label class="it">📂 Open .exe, .msi or .zip…<input type="file" id="pick" multiple hidden></label>
-  <button class="it" data-tool="files">📁 Files</button>
-  <button class="it" data-tool="console">⌨️ Console</button>
-  <div class="set"><input type="text" id="args" placeholder="Arguments (optional)"></div>
+  <input type="search" id="find" placeholder="🔍 Search programs" autocomplete="off" spellcheck="false">
+  <div class="mh">Installed programs</div>
   <div id="installed"></div>
+  <div class="mh">Windows</div>
+  <button class="it" data-tool="files">📁 File Explorer</button>
+  <button class="it" data-tool="console">⬛ Command Prompt</button>
+  <button class="it" data-tool="diag">🩺 Diagnostics</button>
+  <button class="it" data-tool="settings">⚙️ Settings</button>
   <hr>
-  <button class="it" data-run="7z">🗜 7-Zip benchmark</button>
-  <hr>
-  <div class="set">⚙️ Cores <select id="cores"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+  <button class="it" id="shutdown">⏻ Shut down</button>
+</div>
+<div class="pop" id="setp" hidden>
+  <div class="mh">Settings</div>
+  <div class="set">Arguments <input type="text" id="args" placeholder="for the next program (optional)"></div>
+  <div class="set">Cores <select id="cores"><option>1</option><option>2</option><option>3</option><option>4</option></select>
     <label><input type="checkbox" id="jit" checked> JIT</label></div>
-  <div class="set">💽 Drive C: <span id="csize">empty</span> <button class="it" id="cerase" style="width:auto;padding:4px 10px;margin-left:auto">Erase</button></div>
-  <a class="it" href="tests.html">ⓘ Diagnostics &amp; tests</a>
+  <div class="set">Last program <span id="speed">–</span></div>
+  <div class="set">Drive C: <span id="csize">empty</span> <button class="it" id="cerase" style="width:auto;padding:4px 10px;margin-left:auto">Erase</button></div>
+  <a class="it" href="tests.html">Engine tests (developers) →</a>
 </div>
 <div class="pop" id="infop" hidden>
   <p><b>InkSoC</b> runs Windows programs (.exe, 64-bit and 32-bit) in this tab with its own engine: no Wine install, no Linux, nothing sent to a server.</p>
-  <p>Programs with windows appear on the desktop; console programs open in a console window. Each program gets a button in the bar below: tap it to bring it to the front or hide it, ✕ stops it.</p>
-  <p>"Open .exe or .msi…" takes the .exe (or a Windows Installer .msi) together with its DLLs and data files; installers and programs keep their files on drive C:, which stays in this browser (its private storage, apart from the memory swap), so installed programs appear in this menu after a reload; other files the program creates can also be downloaded from its console window. Several cores need the hub.inkdos.workers.dev address.</p>
-  <p>The figure in the bar is the speed of the last program, in billions of x86 instructions per second.</p>
+  <p>Drive C: lives in this browser's private storage and stays after a reload. To bring a program in, drop its file on the desktop or use "Copy here…" in File Explorer; it lands in Downloads, and a double tap opens it there (.exe runs, .msi installs, .zip unpacks). Installed programs appear in Start.</p>
+  <p>Each running program gets a button in the bar: tap it to bring it to the front or hide it. Several cores need the hub.inkdos.workers.dev address.</p>
 </div>
 <div id="pad" hidden>
   <div class="k d" data-vk="38" style="left:72px;bottom:128px">▲</div>
@@ -103,7 +141,7 @@
   <div class="k s" data-vk="65" style="right:118px;bottom:190px">A</div>
   <div class="k s" data-vk="83" style="right:170px;bottom:190px">S</div>
 </div>
-<div class="bar"><button id="start">☰ Programs</button><div id="tasks"></div><span id="speed"></span><button id="padbtn" title="Game controls" hidden>🎮</button><button id="info" title="About">i</button></div>
-<script src="desktop.js?v=32"></script>
+<div class="bar"><button id="start">⊞ Start</button><div id="tasks"></div><span id="status"></span><button id="padbtn" title="Game controls" hidden>🎮</button><button id="info" title="About">i</button><span id="clock"></span></div>
+<script src="desktop.js?v=33"></script>
 </body>
 </html>
