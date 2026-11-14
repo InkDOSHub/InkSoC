@@ -45,6 +45,8 @@ function icon(name) {
   i.alt = '';
   return i;
 }
+// a symbolic (one colour) Linux icon from icons/sym, drawn in the text colour: the shell's buttons and marks
+function sym(name, cls) { return '<i class="sym' + (cls ? ' ' + cls : '') + '" style="--s:url(icons/sym/' + name + '-symbolic.svg)"></i>'; }
 function labelled(el, name, text) { el.replaceChildren(icon(name), document.createTextNode(text)); }
 
 function consoleWindow(p, title) {
@@ -53,14 +55,15 @@ function consoleWindow(p, title) {
   const n = progs.length;
   c.style.left = 12 + (n % 5) * 28 + 'px';
   c.style.top = 12 + (n % 5) * 28 + 'px';
-  c.innerHTML = '<div class="t"><span></span><button title="Hide">–</button><button title="Fill the screen">□</button><button title="Close">✕</button></div><table></table><pre></pre><div class="grip" title="Resize"></div>';
+  c.innerHTML = '<div class="t"><span></span><button title="Hide">' + sym('window-minimize') + '</button><button title="Fill the screen">' + sym('window-maximize') + '</button><button title="Close">' + sym('window-close') + '</button></div><table></table><pre></pre><div class="grip" title="Resize"></div>';
   c.querySelector('span').textContent = title;
   const [hide, max, stop] = c.querySelectorAll('.t button');
   hide.onclick = () => setHidden(p, true);
   stop.onclick = () => close(p);
-  // □: fill the desktop, again: back to the size it had
+  // maximize: fill the desktop, again: back to the size it had
   let before = null;
   max.onclick = () => {
+    max.innerHTML = sym(before ? 'window-maximize' : 'window-restore');
     if (before) { Object.assign(c.style, before); before = null; return; }
     before = { left: c.style.left, top: c.style.top, width: c.style.width, height: c.style.height };
     Object.assign(c.style, { left: '0px', top: '0px', width: desk.clientWidth + 'px', height: desk.clientHeight + 'px' });
@@ -172,12 +175,21 @@ function run(files, exe, args, label, home, opts = {}) {
   const out = p.con.querySelector('pre');
   if (opts.typing) typingLine(p, out);
   raise(p);
+  p.label = label;
+  p.icon = opts.icon || 'application-x-executable';
   const w = p.w = new Worker('worker.js?v=70');
   w.onmessage = (ev) => {
     const d = ev.data;
     if (d.type === 'log') { out.textContent += d.text.replace(/\r/g, ''); out.scrollTop = out.scrollHeight; }
     else if (d.type === 'stats') {
       const gips = d.insns / d.ms / 1e6;
+      // for System Monitor: the speed over the last second, not since the start
+      const now = performance.now();
+      if (!p.lastAt || now - p.lastAt >= 1000) {
+        if (p.lastAt && d.ms > p.lastMs) p.mips = (d.insns - p.lastIns) / (d.ms - p.lastMs) / 1000;
+        p.lastAt = now; p.lastIns = d.insns; p.lastMs = d.ms;
+      }
+      p.stats = d;
       const tb = p.con.querySelector('table');
       if (tb) tb.innerHTML = '<tr><td>' + fmt(d.insns / d.ms / 1000) + ' MIPS · ' + (d.jit ? 'JIT' : 'interpreter') + ' · ' + d.cores + (d.cores > 1 ? ' cores' : ' core') + (d.threads > 1 ? ' · ' + d.threads + ' threads' : '') + ' · RAM ' + fmt(d.resident * 4 / 1024) + '/' + fmt(d.frames * 4 / 1024) + ' MB' + (d.swapOut || d.swapIn ? ' · swap ' + fmt(d.swapOut * 4 / 1024) + ' MB out, ' + fmt(d.swapIn * 4 / 1024) + ' MB in, ' + fmt(d.swapMs) + ' ms on ' + (d.opfs ? 'OPFS' : 'RAM') : '') + '</td></tr>';
       lastSpeed = d.cores + (d.cores > 1 ? ' cores' : ' core') + ' · ' + (gips >= 1 ? gips.toFixed(1) + ' GIPS' : fmt(gips * 1000) + ' MIPS');
@@ -256,7 +268,7 @@ function frame(p, d) {
 
 /* ---------- mouse and keyboard: the topmost program with a window under the pointer ---------- */
 let focus = null, held = null;
-const seen = { keys: 0, taps: 0 }; // for Diagnostics: the page gets keyboard and touch input
+const seen = { keys: 0, taps: 0 }; // for System Monitor: the page gets keyboard and touch input
 const at = (e) => { const r = desk.getBoundingClientRect(); return [Math.round((e.clientX - r.left) / scale), Math.round((e.clientY - r.top) / scale)]; };
 const send = (p, k, x, y, d) => { if (p && p.w) p.w.postMessage({ type: 'win', k, x, y, d }); };
 function hit(x, y) {
@@ -303,9 +315,9 @@ const key = (kind) => (e) => {
   e.preventDefault();
 };
 // on-screen game controls: each button holds its key down while touched (several at once)
-// they are switched on in ☰ > Controls
+// they are switched on in the top menu > Controls
 $('padon').onchange = () => { $('pad').hidden = !$('padon').checked; sendPad(); };
-// a real keyboard got connected and used: the on-screen controls step aside (🎮 brings them back)
+// a real keyboard got connected and used: the on-screen controls step aside (the top menu brings them back)
 addEventListener('keydown', (e) => { if (e.target.tagName !== 'INPUT' && !$('pad').hidden) { $('pad').hidden = true; $('padon').checked = false; } }, true);
 addEventListener('keydown', key(4));
 addEventListener('keyup', key(5));
@@ -316,7 +328,7 @@ function closePops() { for (const id of pops) $(id).hidden = true; }
 function togglePop(id) { const h = $(id).hidden; closePops(); $(id).hidden = !h; return h; }
 $('start').onclick = (e) => { e.stopPropagation(); if (togglePop('menu')) { listDrive(); $('find').value = ''; showMenu(); } };
 $('more').onclick = (e) => { e.stopPropagation(); togglePop('infop'); };
-// ☰ has two tabs: Info and Controls
+// the top menu has two tabs: Info and Controls
 for (const b of document.querySelectorAll('.tabs button')) {
   b.onclick = () => {
     for (const x of document.querySelectorAll('.tabs button')) x.classList.toggle('on', x === b);
@@ -347,10 +359,10 @@ const tick = () => { $('clock').textContent = new Date().toLocaleTimeString([], 
 tick();
 setInterval(tick, 1000);
 
-// File Explorer, Command Prompt, Diagnostics: tools.js loads the first time one is opened
+// File Explorer, Command Prompt, System Monitor: tools.js loads the first time one is opened
 let toolsReady = null;
 function loadTools() {
-  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=12'; s.onload = ok; s.onerror = fail; document.head.append(s); });
+  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=13'; s.onload = ok; s.onerror = fail; document.head.append(s); });
   return toolsReady;
 }
 async function tool(name, arg) {
