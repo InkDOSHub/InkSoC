@@ -178,7 +178,7 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
   };
   let jitErr = 0;
   let wine;
-  let [wasm, wineWasm] = await Promise.all([mt ? 'inksoc-mt.wasm?v=52' : 'inksoc.wasm?v=75', 'wine.wasm?v=2'].map((u) => fetch(u).then((r) => r.arrayBuffer())));
+  let [wasm, wineWasm] = await Promise.all([mt ? 'inksoc-mt.wasm?v=53' : 'inksoc.wasm?v=76', 'wine.wasm?v=2'].map((u) => fetch(u).then((r) => r.arrayBuffer())));
   // test: the same engine on a shared memory (what several cores need), to compare speed
   if (mt) {
     importScripts('sharedmem.js?v=1');
@@ -450,7 +450,7 @@ async function runLinux({ files, cmd, poolMb, jit, rows, cols }) {
       } catch (e) { return -1; }
     },
   };
-  const wasm = await fetch('inksoc.wasm?v=75').then((r) => r.arrayBuffer());
+  const wasm = await fetch('inksoc.wasm?v=76').then((r) => r.arrayBuffer());
   x = (await WebAssembly.instantiate(wasm, { env })).instance.exports;
   mem = x.memory;
   const enc = new TextEncoder();
@@ -564,7 +564,9 @@ async function runExec(d) {
     files = files.concat(wine);
     // a 32-bit program (PE32, i386) also needs Wine's 32-bit DLLs and the WoW64 layer
     const exe = files.find((f) => f.name.toLowerCase() === (d.exe || '').toLowerCase());
-    if (exe && isPe32(exe.data)) {
+    // a program on drive C: is still on disk: its first 4 KB tell
+    const head = exe && (exe.data || (exe.handle && await (await exe.handle.getFile()).slice(0, 4096).arrayBuffer().catch(() => null)));
+    if (head && isPe32(head)) {
       post('log', { text: '[engine] 32-bit program: loading the 32-bit Wine DLLs (45 MB the first time)\n' });
       const l32 = await fetch('bin/wine32/list.json?v=7').then((r) => r.json());
       const w32 = await Promise.all(l32.filter((n) => !have.has(n)).map(async (name) => ({ name, data: await fetch((name.startsWith('wine-') ? 'bin/wine/' : 'bin/wine32/') + name + '?v=2').then((r) => r.arrayBuffer()) })));

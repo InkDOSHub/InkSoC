@@ -172,7 +172,7 @@ function run(files, exe, args, label, home, opts = {}) {
   const out = p.con.querySelector('pre');
   if (opts.typing) typingLine(p, out);
   raise(p);
-  const w = p.w = new Worker('worker.js?v=67');
+  const w = p.w = new Worker('worker.js?v=68');
   w.onmessage = (ev) => {
     const d = ev.data;
     if (d.type === 'log') { out.textContent += d.text.replace(/\r/g, ''); out.scrollTop = out.scrollHeight; }

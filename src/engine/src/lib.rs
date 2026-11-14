@@ -340,6 +340,10 @@ pub extern "C" fn start() -> i32 {
         cmd = format!("\"{}\"{}", &cmd[..raw.len()], &cmd[raw.len()..]);
     }
     let e = eng();
+    // a program outside its home folder (at the root of C:): found by its path, run by its name
+    if !e.s.files.contains_key(&name) {
+        if let Some(k) = files::key_of(&raw).filter(|k| e.s.files.contains_key(k)) { if !e.s.files.alias(name.clone(), &k) { if let Some(b) = e.s.files.get(&k).cloned() { e.s.files.insert(name.clone(), b); } } }
+    }
     if let Some(d) = e.s.files.get("roots.der").cloned() {
         e.s.fs.reg.seed_roots(&d);
     }
@@ -713,7 +717,8 @@ impl Engine {
         self.mmu.add_region(TEB, 0x2000);
         self.mmu.add_region(PEB, 0x1000);
         // a 32-bit program needs its memory below 2 GB: allocations start low
-        if self.s.files.get(name).map_or(false, |b| wow64::is_pe32(b)) { self.s.wow64 = true; self.s.next_alloc = wow64::LOW_ALLOC; }
+        let bytes = self.exe_image(name).ok_or_else(|| format!("{} not found", name))?;
+        if wow64::is_pe32(&bytes) { self.s.wow64 = true; self.s.next_alloc = wow64::LOW_ALLOC; }
         let stack = self.alloc(STACK_SIZE).ok_or("out of memory")?;
         self.s.stack_top = stack + STACK_SIZE - 0x100;
         let w = |e: &mut Engine, a: u64, v: u64| { e.w64(a, v); };
@@ -728,7 +733,6 @@ impl Engine {
         self.w16(TEB + 0x125A, 522); w(self, TEB + 0x1260, TEB + 0x1268);
         self.cpu.gs_base = TEB;
         self.sched_init();
-        let bytes = self.s.files.get(name).cloned().ok_or_else(|| format!("{} not found", name))?;
         if bytes.starts_with(b"\x7fELF") { return self.linux_boot(name, cmd); }
         let wow = wow64::is_pe32(&bytes);
         // before the imports are bound: msvcrt's _acmdln points at it
@@ -748,6 +752,27 @@ impl Engine {
         self.cpu.regs[4] = self.s.stack_top;
         self.next_init();
         Ok(())
+    }
+
+    /// The program file for loading: a big one still on disk (an installer with hundreds of MB
+    /// of data after its image) is read only up to the end of its sections; the program reads
+    /// the rest itself through a file handle.
+    fn exe_image(&self, name: &str) -> Option<Vec<u8>> {
+        let size = self.s.files.size(name)?;
+        if size < 64 << 20 || self.s.files.disk_of(name).is_none() { return self.s.files.get(name).cloned(); }
+        let h = self.s.files.read_at(name, 0, 0x1000)?;
+        let r32 = |b: &[u8], at: usize| b.get(at..at + 4).map_or(0, |x| u32::from_le_bytes([x[0], x[1], x[2], x[3]])) as u64;
+        let r16 = |b: &[u8], at: usize| b.get(at..at + 2).map_or(0, |x| u16::from_le_bytes([x[0], x[1]])) as usize;
+        let pe = r32(&h, 0x3C) as usize;
+        if !h.starts_with(b"MZ") || h.get(pe..pe + 4) != Some(b"PE\0\0") { return self.s.files.get(name).cloned(); }
+        let (nsec, opt) = (r16(&h, pe + 6), r16(&h, pe + 20));
+        let sec = pe + 24 + opt;
+        let mut end = r32(&h, pe + 24 + 60); // SizeOfHeaders (same place in PE32 and PE32+)
+        for i in 0..nsec {
+            let s = sec + 40 * i;
+            end = end.max(r32(&h, s + 20) + r32(&h, s + 16));
+        }
+        self.s.files.read_at(name, 0, end.min(size))
     }
 
     /// Calls a program function from native code, returning to `ret`.
