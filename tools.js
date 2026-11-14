@@ -378,10 +378,7 @@ function openSettings() {
     row('Erase everything', 'Programs, files and settings of Windows programs', erase);
     head('More');
     row('Settings', 'Back to how they start', button('Reset', () => { resetPrefs(); build(); }));
-    const a = document.createElement('a');
-    a.href = 'tests.html';
-    a.textContent = 'Open';
-    row('Engine tests', 'For developers', a);
+    row('Tests and benchmarks', 'Memory calibration, speed, disk, graphics', button('Diagnostics', () => tool('diag')));
   }
   p.refresh = build;
   // the drive's size: counted once, then shown
@@ -389,28 +386,92 @@ function openSettings() {
 }
 
 
-/* ---------- Diagnostics: does the shell work with this browser? ---------- */
+/* ---------- Diagnostics: does the shell work here, and how fast is this device? ---------- */
+// Results of the memory tests stay in localStorage 'inksoc-limits' (poolMb() in desktop.js reads them).
+const LIMITS = 'inksoc-limits';
+const limits = {
+  get() { try { return JSON.parse(localStorage.getItem(LIMITS)) || {}; } catch (e) { return {}; } },
+  set(v) { try { localStorage.setItem(LIMITS, JSON.stringify(v)); } catch (e) { /* private window */ } },
+};
+// one engine worker for a test: it answers through onmsg until the test ends it
+function testWorker(msg, onmsg, transfer) {
+  const w = new Worker('worker.js?v=68');
+  w.onmessage = (ev) => onmsg(ev.data, w);
+  w.onerror = (e) => onmsg({ type: 'done', ok: false, error: e.message || 'worker error' }, w);
+  w.postMessage(msg, transfer || []);
+  return w;
+}
+// a Windows program run for a test: log lines go to out, the promise ends with the 'done' message
+function testRun(files, exe, args, out, cores) {
+  return new Promise((res) => {
+    let stats = null;
+    testWorker({ type: 'exec', files, exe, cmd: args ? exe + ' ' + args : exe, poolMb: poolMb(), targetMb: 8192, jit: prefs.jit, cores: cores || 1, strong: true, opt: true },
+      (d, w) => {
+        if (d.type === 'log') out(d.text.replace(/\r/g, ''));
+        else if (d.type === 'stats') stats = d;
+        else if (d.type === 'done') { w.terminate(); res(Object.assign(d, { stats })); }
+      }, files ? files.map((f) => f.data) : []);
+  });
+}
+const mips = (s) => s ? (s.insns / s.ms / 1000).toFixed(0) + ' MIPS' + (s.jit ? '' : ' (no JIT)') : '';
+// the 7-Zip rating on its last "Tot:" line (MIPS of the compress and decompress test together)
+const zipRating = (text) => { const m = text.match(/Tot:\s+\d+\s+\d+\s+(\d+)/g); return m ? +m[m.length - 1].split(/\s+/).pop() : 0; };
+let zipExe = null;
+const get7z = async () => (zipExe = zipExe || await fetch('bin/7za.exe?v=1').then((r) => r.arrayBuffer()));
+
 function openDiag() {
   const old = progs.find((q) => q.tool === 'diag');
-  if (old) { setHidden(old, false); raise(old); old.refresh(); return; }
+  if (old) { setHidden(old, false); raise(old); return; }
   const p = toolWindow('Diagnostics', 'win', 'utilities-system-monitor');
   p.tool = 'diag';
-  p.con.classList.add('diag');
-  const pre = p.con.querySelector('pre');
+  p.con.classList.add('sets', 'diag');
   const list = document.createElement('div');
   list.className = 'flist';
-  pre.replaceWith(list);
+  p.con.querySelector('pre').replaceWith(list);
+  const head = (t, hint) => {
+    const h = document.createElement('h4'); h.textContent = t; list.append(h);
+    if (hint) { const s = document.createElement('p'); s.className = 'hint'; s.textContent = hint; list.append(s); }
+  };
+  // a test: name, what it does, a Run button and a box for its results (id dg-<key>, used by tests/arm/bench.js)
+  const test = (key, label, hint, act) => {
+    const r = document.createElement('div');
+    r.className = 'row';
+    const s = document.createElement('span');
+    s.textContent = label;
+    if (hint) { const h = document.createElement('small'); h.textContent = hint; s.append(h); }
+    const b = document.createElement('button');
+    b.id = 'dg-' + key;
+    b.textContent = 'Run';
+    const out = document.createElement('pre');
+    out.className = 'res';
+    out.id = 'dg-' + key + '-out';
+    out.hidden = true;
+    const say = (t) => { out.hidden = false; out.textContent += t; out.scrollTop = out.scrollHeight; };
+    b.onclick = async () => {
+      b.disabled = true;
+      out.textContent = '';
+      try { await act(say, out); } catch (e) { say('\nError: ' + (e.message || e)); }
+      b.disabled = false;
+    };
+    r.append(s, b);
+    list.append(r, out);
+    return b;
+  };
+
+  /* check: the parts of the browser the shell needs */
+  head('Check', 'What this browser gives the shell. Runs when the window opens.');
+  const checks = document.createElement('div');
+  list.append(checks);
   const row = (name) => {
     const r = document.createElement('div');
     r.className = 'chk';
     r.innerHTML = '<b>…</b><div><span></span><small></small></div>';
     r.querySelector('span').textContent = name;
-    list.append(r);
+    checks.append(r);
     return (ok, text) => { r.querySelector('b').textContent = ok === null ? '–' : ok ? '✅' : '❌'; r.querySelector('small').textContent = text; };
   };
   async function check() {
-    list.replaceChildren();
-    // drive C: lives in OPFS: write a file, read it back
+    checks.replaceChildren();
     const store = row('Drive C: storage (OPFS)');
     try {
       const d = await (await navigator.storage.getDirectory()).getDirectoryHandle('inksoc-diag', { create: true });
@@ -430,22 +491,24 @@ function openDiag() {
       let loadedAt = 0;
       try { loadedAt = performance.timeOrigin; } catch (e) { /* old browser */ }
       const [at, page] = before.split(' ').map(Number);
-      if (!at) kept(null, 'first check: reload the page and run Diagnostics again');
-      else if (page === loadedAt) kept(null, 'reload the page and run Diagnostics again to check');
+      if (!at) kept(null, 'first check: reload the page and open Diagnostics again');
+      else if (page === loadedAt) kept(null, 'reload the page and open Diagnostics again to check');
       else kept(true, 'a mark from ' + new Date(at).toLocaleString() + ' was still there');
       if (!at || page !== loadedAt) { const w = await h.createWritable(); await w.write(Date.now() + ' ' + loadedAt); await w.close(); }
     } catch (e) { kept(false, e.message || String(e)); }
-    // the browser may clear site data when space runs short, unless storage is persistent
     const room = row('Space for drive C:');
     try {
       const est = await navigator.storage.estimate();
       const persisted = navigator.storage.persisted ? await navigator.storage.persisted() : false;
       room(est.quota - est.usage > 1 << 30, size(est.usage) + ' used of ' + size(est.quota) + (persisted ? ', kept by the browser' : ', the browser may clear it when space runs short'));
     } catch (e) { room(null, 'the browser does not say'); }
-    // several cores need shared memory, which needs an isolated page
     const cores = row('Several cores (shared memory)');
-    cores(self.crossOriginIsolated, self.crossOriginIsolated ? (navigator.hardwareConcurrency || '?') + ' cores in this device; programs can use up to 4' : 'this address gives 1 core; hub.inkdos.workers.dev gives several');
-    // network: programs' sockets go through the wisp tunnel on our Cloudflare worker
+    cores(self.crossOriginIsolated, self.crossOriginIsolated ? (navigator.hardwareConcurrency || '?') + ' cores in this device; programs get ' + coresFor() : 'this address gives 1 core; hub.inkdos.workers.dev gives several');
+    const simd = WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11]));
+    row('Wasm SIMD')(simd, simd ? 'yes' : 'no: programs run slower');
+    const mem = row('Memory for programs');
+    const lim = limits.get().minLimit || 0;
+    mem(lim ? true : null, lim ? 'tab limit ' + fmt(lim) + ' MB, programs get ' + poolMb() + ' MB of real RAM (the rest goes to swap)' : 'not calibrated: programs get a safe ' + poolMb() + ' MB. Run "Calibrate" under Memory');
     const net = row('Internet for programs (tunnel)');
     const url = /\.workers\.dev$/.test(location.hostname) ? `wss://${location.host}/net/wisp/` : 'wss://hub.inkdos.workers.dev/net/wisp/';
     await new Promise((res) => {
@@ -454,42 +517,328 @@ function openDiag() {
       const t = setTimeout(() => end(false, 'no answer in 8 s'), 8000);
       try { ws = new WebSocket(url); ws.onopen = () => end(true, 'tunnel open'); ws.onerror = () => end(false, 'the tunnel did not open'); } catch (e) { end(false, e.message); }
     });
-    // windows are drawn on a canvas; 3D games need WebGL2 or WebGPU
     const gfx = row('Graphics (2D windows, 3D games)');
-    const c = document.createElement('canvas');
-    const gl2 = !!c.getContext('webgl2');
+    const gl2 = !!document.createElement('canvas').getContext('webgl2');
     gfx(gl2 || !!navigator.gpu, '2D canvas ok · WebGL2 ' + (gl2 ? 'yes' : 'no') + ' · WebGPU ' + (navigator.gpu ? 'yes' : 'no'));
-    // sound starts only after a tap; tapping "Check again" counts
     const snd = row('Sound');
     soundOn();
     snd(sound.ctx ? sound.ctx.state === 'running' : false, sound.ctx ? 'audio ' + sound.ctx.state + (sound.ctx.state === 'running' ? '' : ': tap the page once') : 'no Web Audio in this browser');
-    // input reaches the programs
     const input = row('Touch, mouse and keyboard');
-    input(seen.taps > 0 || seen.keys > 0, (matchMedia('(pointer: coarse)').matches ? 'touch screen' : 'mouse') + ' · ' + seen.taps + ' tap(s) on the desktop · ' + seen.keys + ' key press(es) so far' + (seen.keys ? '' : ' (press a key to check the keyboard)'));
-    // files from outside: the browser hands them over by picking or dropping
-    const pick = row('Files from this device');
-    pick(!!(window.File && window.DataTransfer), 'pick with "Copy here…" in File Explorer or drop on the desktop; they land in Downloads');
-    // the engine itself: a small Windows program runs in a worker and finishes
+    input(seen.taps > 0 || seen.keys > 0, (matchMedia('(pointer: coarse)').matches ? 'touch screen' : 'mouse') + ' · ' + seen.taps + ' tap(s) on the desktop · ' + seen.keys + ' key press(es) so far');
     const engine = row('Engine runs a Windows program');
-    try {
-      const t0 = performance.now();
-      const done = await new Promise((res) => {
-        const w = new Worker('worker.js?v=66');
-        const stop = setTimeout(() => { w.terminate(); res({ ok: false, error: 'no answer in 60 s' }); }, 60000);
-        w.onmessage = (ev) => { if (ev.data.type === 'done') { clearTimeout(stop); w.terminate(); res(ev.data); } };
-        w.onerror = (e) => { clearTimeout(stop); res({ ok: false, error: e.message }); };
-        w.postMessage({ type: 'exec', exe: 'stage1.exe', cmd: 'stage1.exe', poolMb: 128, targetMb: 1024, jit: true, cores: 1, strong: true, opt: true });
-      });
-      engine(!!done.ok, done.ok ? 'stage1.exe finished in ' + Math.round(performance.now() - t0) + ' ms' : 'stopped: ' + (done.error || 'exit code ' + done.exitCode));
-    } catch (e) { engine(false, e.message || String(e)); }
-    const again = document.createElement('button');
-    again.textContent = 'Check again';
-    again.style.cssText = 'margin:10px 0;padding:6px 14px;border-radius:8px;border:1px solid #ccc;background:#f4f4f4;font:13px system-ui;cursor:pointer';
-    again.onclick = check;
-    list.append(again);
+    const t0 = performance.now();
+    const done = await testRun(null, 'stage1.exe', '', () => {}, 1);
+    engine(!!done.ok, done.ok ? 'stage1.exe finished in ' + Math.round(performance.now() - t0) + ' ms · ' + mips(done.stats) : 'stopped: ' + (done.error || 'exit code ' + done.exitCode));
   }
-  p.refresh = check;
+  const again = document.createElement('button');
+  again.textContent = 'Check again';
+  again.className = 'again';
+  again.onclick = check;
+  list.append(again);
+
+  /* benchmark: the CPU through the engine */
+  head('Benchmark', 'Cores and JIT come from Settings › Performance.');
+  test('7z', '7-Zip benchmark', 'Compress and decompress in memory, the classic CPU test (rating in MIPS)', async (say) => {
+    const n = coresFor();
+    say('7-Zip 23.01, ' + n + ' core(s)…\n');
+    let text = '';
+    const d = await testRun([{ name: '7za.exe', data: (await get7z()).slice(0) }], '7za.exe', 'b -md18 -mmt' + n, (t) => { text += t; say(t); }, n);
+    say(d.ok ? '\nFinished. Rating: ' + fmt(zipRating(text)) + ' MIPS · engine ' + mips(d.stats) : '\nStopped: ' + (d.error || 'exit code ' + d.exitCode));
+  });
+  test('engine', 'Engine self-test', 'Integers, floating point, DLLs, msvcrt and threads, each checked against the right answer', async (say) => {
+    for (const exe of ['stage1.exe', 'stage2.exe', 'stage4.exe']) {
+      const t0 = performance.now();
+      const d = await testRun(null, exe, '', () => {}, exe === 'stage4.exe' ? coresFor() : 1);
+      say((d.ok ? '✅ ' : '❌ ') + exe + ' · ' + Math.round(performance.now() - t0) + ' ms · ' + mips(d.stats) + (d.ok ? '' : ' · ' + (d.error || 'exit code ' + d.exitCode)) + '\n');
+    }
+  });
+  test('stress', 'Stress test (5 min)', 'The 7-Zip benchmark again and again: a falling rating means the device slows down when hot', async (say) => {
+    const n = coresFor(), t0 = performance.now(), got = [];
+    while (performance.now() - t0 < 300000) {
+      let text = '';
+      const d = await testRun([{ name: '7za.exe', data: (await get7z()).slice(0) }], '7za.exe', 'b 1 -md18 -mmt' + n, (t) => { text += t; }, n);
+      if (!d.ok) { say('Stopped: ' + (d.error || 'exit code ' + d.exitCode)); return; }
+      got.push(zipRating(text));
+      say(Math.round((performance.now() - t0) / 1000) + ' s · ' + fmt(got[got.length - 1]) + ' MIPS\n');
+    }
+    const first = got[0] || 1, last = got[got.length - 1];
+    say('\nStart ' + fmt(first) + ', end ' + fmt(last) + ' MIPS: ' + (last >= first * 0.9 ? 'steady' : 'dropped ' + Math.round(100 - last / first * 100) + '% (heat)'));
+  });
+
+  /* memory: how much real RAM a program can have before the tab reloads */
+  head('Memory', 'The calibration sets how much real RAM programs get; the rest of their memory goes to swap on drive C:. The tab may reload during these tests: that is the measurement.');
+  const memOut = document.createElement('pre');
+  memOut.className = 'res';
+  const showLimits = () => {
+    const s = limits.get(), lines = [];
+    if (s.calib && s.calib.mb && (s.calib.running || s.calib.note)) {
+      const m = Math.min(s.minLimit || Infinity, s.calib.mb);
+      if (m !== s.minLimit) { s.minLimit = m; limits.set(s); }
+    }
+    const desc = (v, label) => {
+      if (!v) return;
+      if (v.running) lines.push(label + ': the tab reloaded after ' + fmt(v.mb) + ' MB, so that is the limit.');
+      else lines.push(label + ': reached ' + fmt(v.mb) + ' MB without reloading' + (v.note ? ' (' + v.note + ')' : '') + '.');
+    };
+    desc(s.calib, 'Program memory');
+    desc(s.tex, 'GPU textures');
+    lines.push('Programs get ' + poolMb() + ' MB of real RAM' + (s.minLimit ? ' (half of the lowest limit seen)' : ' (safe default until calibrated)') + '.');
+    memOut.textContent = lines.join('\n');
+  };
+  test('calib', 'Calibrate memory', 'Grows memory in 128 MB steps until the browser says no (or the tab reloads)', (say) => new Promise((res) => {
+    limits.set(Object.assign(limits.get(), { calib: { mb: 0, running: true } }));
+    testWorker({ type: 'calibrate' }, (d, w) => {
+      if (d.type !== 'calib') { say('Error: ' + d.error); w.terminate(); return res(); }
+      const s = limits.get();
+      s.calib = { mb: d.mb, running: !(d.refused || d.max), note: d.refused ? 'the browser refused to grow further' : d.max ? '4 GB, the wasm maximum' : '' };
+      limits.set(s);
+      if (d.refused || d.max) { w.terminate(); showLimits(); say('Done: ' + fmt(d.mb) + ' MB.'); res(); } else setTimeout(() => w.postMessage({ type: 'calib-next' }), 50);
+    });
+  }));
+  test('swap', 'Swap', 'A program uses 512 MB with only 128 MB of real RAM: the rest goes to drive C: and back, every page checked', (say) => new Promise((res) => {
+    testWorker({ type: 'proof', poolMb: 128, targetMb: 8192, testMb: 512 }, (d, w) => {
+      if (d.type === 'log') say(d.text);
+      else if (d.type === 'stats') say.stats = d;
+      else if (d.type === 'done') {
+        const s = say.stats;
+        say((d.ok ? '\n✅ Passed' : '\n❌ Failed: ' + (d.error || 'exit code ' + d.exitCode)) + (s ? ' · ' + fmt(s.swapOut) + ' pages out, ' + fmt(s.swapIn) + ' in, ' + fmt(s.swapMs) + ' ms of ' + fmt(s.ms) + ' ms in swap' : ''));
+        w.terminate(); res();
+      }
+    });
+  }));
+  test('tex', 'GPU memory', 'Fills the GPU with textures in 128 MB steps', async (say) => {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    if (!gl) { say('No WebGL2.'); return; }
+    const sz = 2048, data = new Uint8Array(sz * sz * 4);
+    crypto.getRandomValues(data.subarray(0, 65536));
+    for (let i = 65536; i < data.length; i += 65536) data.copyWithin(i, 0, 65536);
+    const keep = [];
+    let mb = 0;
+    limits.set(Object.assign(limits.get(), { tex: { mb: 0, running: true } }));
+    while (mb < 6144) {
+      for (let k = 0; k < 8; k++) { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, sz, sz, 0, gl.RGBA, gl.UNSIGNED_BYTE, data); keep.push(t); }
+      gl.finish();
+      const err = gl.getError();
+      if (err || gl.isContextLost()) { const s = limits.get(); s.tex = { mb, running: false, note: err ? 'out of memory error' : 'context lost' }; limits.set(s); break; }
+      mb += 128;
+      const s = limits.get(); s.tex = { mb, running: true }; limits.set(s);
+      say(mb % 1024 ? '' : fmt(mb) + ' MB… ');
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const s = limits.get(); if (s.tex.running) { s.tex = { mb, running: false, note: 'test maximum' }; limits.set(s); }
+    keep.forEach((t) => gl.deleteTexture(t));
+    showLimits();
+    say('\nDone: ' + fmt(mb) + ' MB.');
+  });
+  list.append(memOut);
+  const clear = document.createElement('button');
+  clear.textContent = 'Forget memory results';
+  clear.className = 'again';
+  clear.onclick = () => { limits.set({}); showLimits(); };
+  list.append(clear);
+  showLimits();
+
+  /* disk: drive C: lives in the browser's private storage (OPFS) */
+  head('Disk', 'Drive C: and swap live in this browser\'s storage.');
+  test('disk', 'Disk speed', 'Writes and reads a 128 MB file, then 4 KB pages at random places (what swap does)', async (say) => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('inksoc-diag', { create: true });
+    const h = await dir.getFileHandle('speed', { create: true });
+    const chunk = new Uint8Array(4 << 20);
+    crypto.getRandomValues(chunk.subarray(0, 65536));
+    let t = performance.now();
+    const w = await h.createWritable();
+    for (let i = 0; i < 32; i++) await w.write(chunk);
+    await w.close();
+    const wr = 128 / ((performance.now() - t) / 1000);
+    t = performance.now();
+    const back = await (await h.getFile()).arrayBuffer();
+    const rd = (back.byteLength >> 20) / ((performance.now() - t) / 1000);
+    say('Write ' + fmt(wr) + ' MB/s · read ' + fmt(rd) + ' MB/s\n');
+    await dir.removeEntry('speed');
+    await new Promise((res) => testWorker({ type: 'opfs' }, (d, wk) => {
+      say(d.type === 'opfs' ? '4 KB pages: read ' + d.readUs.toFixed(1) + ' µs, write ' + d.writeUs.toFixed(1) + ' µs (' + fmt(1e6 / d.readUs) + ' pages/s)' : 'Error: ' + d.error);
+      wk.terminate(); res();
+    }));
+  });
+
+  /* graphics */
+  head('Graphics', 'What 3D games will meet: draws per frame and textures streamed from the disk.');
+  test('3d', '3D draw calls', 'Time per frame for 500 to 8000 separate draws (WebGPU, or WebGL2)', async (say) => {
+    if (navigator.gpu) { try { await drawWebGPU(say); return; } catch (e) { say('WebGPU error: ' + e.message + '\n'); } }
+    drawWebGL(say);
+  });
+  test('gpu', 'GPU stress (30 s)', 'Streams far more textures than the GPU holds, from the disk, at 60 frames per second', async (say, out) => streamTest(say, out, limits));
+
+  /* the browser */
+  head('Browser');
+  const feat = document.createElement('pre');
+  feat.className = 'res';
+  feat.textContent = navigator.userAgent + '\nCores: ' + (navigator.hardwareConcurrency || '?') + ' · WebGPU: ' + (navigator.gpu ? 'yes' : 'no') + ' · isolated: ' + (self.crossOriginIsolated ? 'yes' : 'no');
+  list.append(feat);
+  p.refresh = () => {};
   check();
+}
+
+// draws per frame, WebGPU
+async function drawWebGPU(say) {
+  const adapter = await navigator.gpu.requestAdapter();
+  const dev = await adapter.requestDevice();
+  const ctx = new OffscreenCanvas(256, 256).getContext('webgpu');
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  ctx.configure({ device: dev, format });
+  const mod = dev.createShaderModule({ code: `
+    struct U { v: vec4f };
+    @group(0) @binding(0) var<uniform> u: U;
+    @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+      let p = array(vec2f(0, .1), vec2f(-.1, -.1), vec2f(.1, -.1));
+      return vec4f(p[i] + u.v.xy, 0, 1);
+    }
+    @fragment fn fs() -> @location(0) vec4f { return vec4f(1, .5, 0, 1); }` });
+  const bgl = dev.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform', hasDynamicOffset: true } }] });
+  const pipe = dev.createRenderPipeline({ layout: dev.createPipelineLayout({ bindGroupLayouts: [bgl] }), vertex: { module: mod, entryPoint: 'vs' }, fragment: { module: mod, entryPoint: 'fs', targets: [{ format }] } });
+  const N = 8000, ubuf = dev.createBuffer({ size: N * 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const data = new Float32Array(N * 64);
+  for (let i = 0; i < N; i++) { data[i * 64] = Math.random() * 1.8 - .9; data[i * 64 + 1] = Math.random() * 1.8 - .9; }
+  dev.queue.writeBuffer(ubuf, 0, data);
+  const bg = dev.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: ubuf, size: 16 } }] });
+  const frame = (n) => {
+    const enc = dev.createCommandEncoder();
+    const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }] });
+    pass.setPipeline(pipe);
+    for (let i = 0; i < n; i++) { pass.setBindGroup(0, bg, [i * 256]); pass.draw(3); }
+    pass.end();
+    dev.queue.submit([enc.finish()]);
+    return dev.queue.onSubmittedWorkDone();
+  };
+  say('WebGPU\n');
+  for (const n of [500, 1000, 2000, 4000, 8000]) {
+    await frame(n);
+    const t = performance.now();
+    for (let k = 0; k < 20; k++) await frame(n);
+    say(n + ' draws: ' + ((performance.now() - t) / 20).toFixed(2) + ' ms per frame\n');
+  }
+  dev.destroy();
+}
+// draws per frame, WebGL2
+function drawWebGL(say) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 256;
+  const gl = cv.getContext('webgl2');
+  if (!gl) { say('No WebGL2.'); return; }
+  const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); return o; };
+  const pr = gl.createProgram();
+  gl.attachShader(pr, sh(gl.VERTEX_SHADER, '#version 300 es\nuniform vec2 o; void main(){ vec2 v[3]=vec2[](vec2(0,.1),vec2(-.1,-.1),vec2(.1,-.1)); gl_Position=vec4(v[gl_VertexID]+o,0,1);}'));
+  gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, '#version 300 es\nprecision mediump float; out vec4 c; void main(){ c=vec4(1,.5,0,1);}'));
+  gl.linkProgram(pr); gl.useProgram(pr);
+  const loc = gl.getUniformLocation(pr, 'o'), px = new Uint8Array(4);
+  say('WebGL2\n');
+  for (const n of [500, 1000, 2000, 4000, 8000]) {
+    const t = performance.now();
+    for (let k = 0; k < 20; k++) {
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      for (let i = 0; i < n; i++) { gl.uniform2f(loc, Math.random() * 1.8 - .9, Math.random() * 1.8 - .9); gl.drawArrays(gl.TRIANGLES, 0, 3); }
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    }
+    say(n + ' draws: ' + ((performance.now() - t) / 20).toFixed(2) + ' ms per frame\n');
+  }
+}
+
+// GPU stress: a fixed pool of GPU textures, 2 GB of textures in a disk file, a "camera" that keeps
+// needing new ones: the least used leave the GPU and come back from the disk (as a game's would)
+async function streamTest(say, out, limits) {
+  const lim = limits.get().minLimit || 1024;
+  if (!navigator.gpu) { say('This test needs WebGPU.'); return; }
+  const total = Math.floor(lim * 0.7), gpu = Math.max(64, Math.floor(total * 0.35 / 4) * 4);
+  const texMb = 2048, SIZE = 1024, BYTES = SIZE * SIZE * 4, count = texMb / 4, SHOW = 48;
+  say('GPU pool ' + gpu + ' MB (' + gpu / 4 + ' textures), ' + texMb + ' MB of textures on the disk\n');
+  const io = new Worker('worker.js?v=68');
+  await new Promise((r) => { io.onmessage = r; io.postMessage({ type: 'tex-init', count, size: BYTES }); });
+  const dev = await (await navigator.gpu.requestAdapter()).requestDevice();
+  let gpuErr = '';
+  dev.onuncapturederror = (e) => { gpuErr = e.error.message; };
+  const cv = document.createElement('canvas');
+  cv.width = 512; cv.height = 288;
+  cv.className = 'gpuview';
+  out.after(cv);
+  const off = new OffscreenCanvas(cv.width, cv.height);
+  const ctx = off.getContext('webgpu'), show = cv.getContext('bitmaprenderer');
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  ctx.configure({ device: dev, format });
+  const mod = dev.createShaderModule({ code: `
+    @group(0) @binding(0) var t: texture_2d<f32>;
+    @group(0) @binding(1) var s: sampler;
+    struct O { @builtin(position) p: vec4f, @location(0) uv: vec2f };
+    @vertex fn vs(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32) -> O {
+      let q = array(vec2f(0, 0), vec2f(1, 0), vec2f(0, 1), vec2f(0, 1), vec2f(1, 0), vec2f(1, 1));
+      let uv = q[v]; let c = f32(i % 8u); let r = f32(i / 8u);
+      var o: O; o.p = vec4f((c + uv.x) / 4.0 - 1.0, 1.0 - (r + uv.y) / 3.0, 0, 1); o.uv = uv; return o;
+    }
+    @fragment fn fs(o: O) -> @location(0) vec4f { return textureSample(t, s, o.uv); }` });
+  const pipe = dev.createRenderPipeline({ layout: 'auto', vertex: { module: mod, entryPoint: 'vs' }, fragment: { module: mod, entryPoint: 'fs', targets: [{ format }] } });
+  const sampler = dev.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+  const bgFor = (tx) => dev.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: tx.createView() }, { binding: 1, resource: sampler }] });
+  const ph = dev.createTexture({ size: [1, 1], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+  dev.queue.writeTexture({ texture: ph }, new Uint8Array([40, 40, 40, 255]), { bytesPerRow: 4 }, [1, 1]);
+  const phBG = bgFor(ph);
+  const nSlots = gpu / 4, slots = [];
+  for (let i = 0; i < nSlots; i++) {
+    const tx = dev.createTexture({ size: [SIZE, SIZE], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+    slots.push({ tx, bg: bgFor(tx), id: -1, used: -1 });
+  }
+  const where = new Map(), pending = new Set();
+  let frame = 0, loads = 0, waits = 0, pos = 0;
+  io.onmessage = (e) => {
+    const d = e.data; if (d.type !== 'tex') return;
+    pending.delete(d.id);
+    let best = -1;
+    for (let i = 0; i < nSlots; i++) {
+      const sl = slots[i];
+      if (sl.used >= frame) continue;
+      if (best < 0 || sl.used < slots[best].used) best = i;
+      if (sl.id < 0) { best = i; break; }
+    }
+    if (best < 0) return;
+    const sl = slots[best];
+    if (sl.id >= 0) where.delete(sl.id);
+    dev.queue.writeTexture({ texture: sl.tx }, d.data, { bytesPerRow: SIZE * 4 }, [SIZE, SIZE]);
+    loads++;
+    sl.id = d.id; sl.used = frame; where.set(d.id, best);
+  };
+  const t0 = performance.now();
+  let last = t0, worst = 0, mark = 0;
+  await new Promise((done) => {
+    const tick = (now) => {
+      const dt = now - last; last = now; if (frame > 5) worst = Math.max(worst, dt);
+      frame++;
+      pos += 0.5;
+      const base = Math.floor(pos);
+      const enc = dev.createCommandEncoder();
+      const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }] });
+      pass.setPipeline(pipe);
+      for (let i = 0; i < SHOW + 8; i++) {
+        const id = (base + i) % count, k = where.get(id);
+        if (i < SHOW) {
+          if (k !== undefined) { slots[k].used = frame; pass.setBindGroup(0, slots[k].bg); } else { waits++; pass.setBindGroup(0, phBG); }
+          pass.draw(6, 1, 0, i);
+        }
+        if (k === undefined && !pending.has(id) && pending.size < 6) { pending.add(id); io.postMessage({ type: 'tex-get', id }); }
+      }
+      pass.end();
+      dev.queue.submit([enc.finish()]);
+      show.transferFromImageBitmap(off.transferToImageBitmap());
+      const sec = (now - t0) / 1000;
+      if (sec - mark >= 5) { mark = sec; say(Math.floor(sec) + ' s · ' + (frame / sec).toFixed(0) + ' fps\n'); }
+      if (sec < 30) requestAnimationFrame(tick); else done();
+    };
+    requestAnimationFrame(tick);
+  });
+  const secs = (performance.now() - t0) / 1000;
+  say('\n' + (frame / secs).toFixed(0) + ' fps average, worst frame ' + worst.toFixed(0) + ' ms\n');
+  say('Streamed ' + fmt(loads * 4) + ' MB from the disk (' + (loads * 4 / secs).toFixed(0) + ' MB/s); ' + (waits / (frame * SHOW) * 100).toFixed(1) + '% of draws waited for a texture' + (gpuErr ? '\nGPU error: ' + gpuErr : ''));
+  io.postMessage({ type: 'tex-done' });
+  setTimeout(() => io.terminate(), 500);
+  slots.forEach((sl) => sl.tx.destroy());
+  dev.destroy();
+  cv.remove();
 }
 
 /* ---------- Command Prompt: Wine's own cmd.exe ---------- */

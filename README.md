@@ -39,8 +39,9 @@ This folder holds the first proof:
 - `src/test64/`: stage 1 test (`main.c` + `testdll.c`), stage 2 test (`stage2.c`,
   real msvcrt.dll API) and stage 4 test (`stage4.c`, threads; same build
   command as stage 2).
-- `index.html`, `inksoc.js`, `worker.js`: test page (engine proof, OPFS swap cost,
-  draw calls per frame, memory and GPU texture limits).
+- `index.html`, `desktop.js`, `tools.js`, `worker.js`: the shell. Its Diagnostics window
+  holds the tests: checks, 7-Zip benchmark, engine self-test, stress test, memory
+  calibration, swap, GPU memory, disk speed, 3D draw calls and GPU streaming.
 
 Build:
 
