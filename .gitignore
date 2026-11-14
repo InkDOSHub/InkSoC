@@ -1,0 +1,9 @@
+src/engine/target/
+src/wine/.cache/
+src/engine/target-mt/
+src/engine/target-diff/
+src/engine/target-ab/
+src/engine/target-ab2/
+src/engine/src/graphify-out/cache/
+src/engine/src/graphify-out/graph.html
+__pycache__/
