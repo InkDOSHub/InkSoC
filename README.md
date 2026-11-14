@@ -8,15 +8,50 @@
 
 # InkSoC
 
-Part of the InkDOS Hub: https://hub.inkdos.workers.dev/InkSoC/ (multi-core) and
-https://inkdoshub.github.io/InkSoC/. Until 2026-11-14 it lived in the Hub repository as `apps/inksoc/`.
-
 Our own engine to run Windows `.exe` files in the browser, WebKit first (iPhone/iPad).
-This folder holds the first proof:
+A Rust engine compiled to WebAssembly runs the x86-64 (and 32-bit, WoW64) code and plays
+the part of the kernel that Wine runs on: Wine's DLLs (in `bin/`) are the rest of Windows.
 
-- `src/engine/`: Rust → wasm engine. PE32+ loader, x86-64 interpreter, 64-bit page
-  table with a fixed pool of real RAM and swap to OPFS, and a bridge to "Wine side"
-  C code compiled to wasm (`wine/ntdll_proof.c`).
+Addresses: https://hub.inkdos.workers.dev/InkSoC/ (multi-core) and https://inkdoshub.github.io/InkSoC/.
+Until 2026-11-14 it lived in the Hub repository as `apps/inksoc/`.
+
+## Repository layout
+
+| Path | What |
+|---|---|
+| `index.html`, `desktop.js` | The desktop: Start menu, windows, file explorer of drive C: |
+| `worker.js` | Core 0: loads the engine, runs the program, owns the screen and files |
+| `core.js`, `sharedmem.js`, `swapio.js` | Extra cores on shared memory, and the swap file worker |
+| `gl.js`, `gl-funcs.js` | OpenGL on WebGL 2 (`gl-funcs.js` is generated: do not edit) |
+| `tools.js` | The Diagnostics window: checks, benchmarks, memory calibration |
+| `pad.js`, `prefs.js`, `wall.js`, `unzip.js` | On-screen gamepad, settings, wallpaper, .zip install onto drive C: |
+| `inksoc.wasm`, `inksoc-mt.wasm`, `wine.wasm` | Built engine (single and multi-core) and Wine's msvcrt |
+| `bin/` | Wine DLLs (`wine/` 64-bit, `wine32/` 32-bit), `system32/` tools such as `cmd.exe`, 7-Zip, BusyBox |
+| `test.exe`, `stage*.exe`, `testdll.dll` | Small test programs used by the Diagnostics checks (sources in `src/test*`) |
+| `src/engine/` | The engine (Rust). Map of the code: `src/engine/src/graphify-out/` |
+| `src/wine/` | Build of Wine's msvcrt for the engine |
+| `compat/` | Compatibility runner: real programs from `list.json`, results in `results.json` |
+| `tests/apps/` | Runs a real installer or game on GitHub Actions (`request.json`, `run.py`) |
+| `tests/arm/` | ARM speed benchmark run on GitHub Actions |
+| `linux.html` | Redirect: the Linux terminal is now [InkShell](https://github.com/InkDOSHub/InkShell) |
+
+## Engine (`src/engine/src`)
+
+The Windows code is organized by area, like Wine: one Rust function per Windows API, with its name.
+
+- CPU: `cpu.rs` (interpreter), `sse.rs`, `x87.rs` + `f80.rs` (exact 80-bit FPU), `jit.rs`.
+- Memory and processes: `mmu.rs` (64-bit page table, fixed pool of real RAM, swap to OPFS),
+  `heap.rs`, `pe.rs` (PE loader), `proc.rs` (child processes), `wow64.rs` (32-bit programs),
+  `sched.rs` (threads), `lock.rs` (engine lock with several cores).
+- Wine's Unix side: `ntsys/` (NT system calls), `winsys/` (NtUser*), `wingdi/` (NtGdi*),
+  `opengl/`, `audio.rs`, `net.rs` (sockets), `registry.rs`, `npipe.rs`, `unixlib.rs`.
+- Windows API written here: `kernel32.rs`, `msvcrt.rs`, `oleaut.rs`, `winapi/`, `eh.rs` (C++ exceptions),
+  `hash.rs`; anything else falls through to Wine (`winefb.rs`).
+- Files: `files.rs`, `store.rs` (drive C:, kept in the browser).
+- `linux.rs`: Linux system calls, used by InkShell (which keeps its own patch on top of this engine).
+
+More detail on a few parts:
+
 - `src/engine/src/jit.rs`: JIT. Hot x86-64 blocks (40 visits) become small wasm
   modules that the page compiles and adds to the engine's function table.
   Registers live in wasm locals, flags are lazy (a cmp + jcc becomes one wasm
@@ -31,19 +66,12 @@ This folder holds the first proof:
   is, even when their page is in swap. `glue.c` gives it a fixed "C" locale and
   the entry point `ink_call`. Wine's own data and stack sit at 1-4 MB of the
   engine's memory (the engine is linked with `--global-base=4194304`).
-- `src/test/test.c`: the x86-64 test program (`test.exe`).
 - `src/engine/src/sched.rs`: program threads. Each thread is a saved CPU state;
   the engine switches every 200,000 instructions or when a thread waits
   (WaitFor*, Sleep, critical sections, SRW locks, events, mutexes, semaphores).
   When every thread waits on a timeout, `run` returns 3 and the page waits.
-- `src/test64/`: stage 1 test (`main.c` + `testdll.c`), stage 2 test (`stage2.c`,
-  real msvcrt.dll API) and stage 4 test (`stage4.c`, threads; same build
-  command as stage 2).
-- `index.html`, `desktop.js`, `tools.js`, `worker.js`: the shell. Its Diagnostics window
-  holds the tests: checks, 7-Zip benchmark, engine self-test, stress test, memory
-  calibration, swap, GPU memory, disk speed, 3D draw calls and GPU streaming.
 
-Build:
+## Build
 
 ```
 cd src/engine && cargo build --release --target wasm32-unknown-unknown && cp target/wasm32-unknown-unknown/release/inksoc.wasm ../../
@@ -57,23 +85,11 @@ Own programs: build with `-D__USE_MINGW_ANSI_STDIO=0` so printf comes from msvcr
 
 `worker.js` patches `test_mb` at 0x140002000 (check with `x86_64-w64-mingw32-nm test.exe`).
 
-License: GPL-3.0-or-later.
+## Tests
 
-## Linux (experimental)
-
-`linux.html` / `linux.js`: a terminal (xterm.js, in `vendor/`) running BusyBox
-(`bin/busybox`, 1.35.0 static x86-64 musl build from busybox.net, GPL-2.0) on
-the same CPU and JIT.
-
-- `src/engine/src/linux.rs`: static ELF loader, Linux system calls (`syscall`),
-  an in-memory file tree, processes (fork copies the address space, execve,
-  wait4, pipes, `#!` scripts), terminal modes and Ctrl+C / Ctrl+D. A syscall
-  that has to wait rewinds to the `syscall` instruction and runs again when the
-  scheduler wakes it. Linux processes run on core 0 only.
-- `src/engine/src/x87.rs` + `f80.rs`: the x87 FPU with exact 80-bit arithmetic
-  (musl's printf and strtod depend on it).
-- `mmu.rs`: one address space per process (`Space`), swapped on a switch.
-
+Tests run on GitHub Actions, not on a local machine: `inksoc-apps.yml` (real programs,
+`tests/apps/request.json`) and `inksoc-arm-bench.yml`. In the browser, the Diagnostics window runs the
+built-in checks.
 
 ## Part of InkDOS Hub
 
