@@ -64,10 +64,16 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                     return Some(OK);
                 }
                 let Some(b) = e.s.files.get(file).cloned() else { return Some(INVALID_HANDLE) };
-                let (a, sz, moved) = match crate::pe::map_image(e, &b) {
+                let file = file.clone();
+                let slot = e.s.image_slots.get(&file).copied();
+                let (a, sz, moved) = match crate::pe::map_image(e, &b, slot) {
                     Ok(v) => v,
                     Err(_) => return Some(INVALID_IMAGE_FORMAT),
                 };
+                if moved {
+                    e.s.image_slots.insert(file.clone(), a);
+                }
+                e.s.image_files.insert(a, file);
                 e.w64(bp, a);
                 if vp != 0 {
                     e.w64(vp, sz);
@@ -109,6 +115,7 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             // a file view: its bytes go back to the file
             let a = e.arg(1);
             if e.s.images.remove(&a).is_some() {
+                e.s.image_files.remove(&a);
                 e.mmu.release_region(a);
                 return Some(OK);
             }

@@ -576,13 +576,20 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "RtlFindExportedRoutineByName" => {
             let name_at = e.arg(1);
             let f = e.read_cstr(name_at, 256);
-            // (only the engine's own ntdll: the 32-bit ntdll of WoW64 has its real variable)
-            let dll = e.module_by_handle(a0).filter(|&i| e.s.modules[i].native).map(|i| e.s.modules[i].name.clone()).unwrap_or_default();
-            if let Some(v) = crate::unixlib::data_export(e, &dll, &f) {
-                return Some(v);
+            // (any 64-bit ntdll: wow64cpu asks too; the 32-bit ntdll of WoW64 has its real variable)
+            let dll = e.module_by_handle(a0).map(|i| e.s.modules[i].name.trim_start_matches("wine-").to_string()).unwrap_or_default();
+            if a0 != e.s.wow64_ntdll {
+                if let Some(v) = crate::unixlib::data_export(e, &dll, &f) {
+                    return Some(v);
+                }
             }
-            // anything else: the usual lookup (ntdll's own, which also knows WoW64's data exports)
-            return e.not_mine();
+            // the engine's own DLLs: Wine's real export (data such as LdrSystemDllInitBlock too);
+            // a DLL mapped by a loader: its export table; any other DLL: the usual lookup
+            match e.module_by_handle(a0) {
+                Some(i) if e.s.modules[i].native => e.wine_fallback(&dll, &f, 0).unwrap_or(0),
+                Some(i) => pe::proc_address(e, i, &f).unwrap_or(0),
+                None => pe::export_addr(e, a0, &f).unwrap_or(0),
+            }
         }
         "GetProcAddress" => {
             let f = if e.arg(1) >> 16 == 0 {

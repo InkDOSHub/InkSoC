@@ -102,6 +102,16 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             return Some(crate::kernel32::NO_RETURN);
         }
         "NtRaiseException" => {
+            // (record, context, first chance): a first chance goes to ntdll's
+            // KiUserExceptionDispatcher, as the kernel does, so the handlers of the frames on the
+            // stack run (WoW64 raises a 32-bit program's exceptions this way); what nobody handles
+            // comes back here as a second chance
+            if e.arg(2) != 0 {
+                let ctx = e.arg(1);
+                if let Some(r) = e.user_exception(a0, ctx) {
+                    return Some(r);
+                }
+            }
             let code = e.r32(a0) as u64;
             let at = e.r64(a0 + 16);
             let info = e.r64(a0 + 32);
@@ -200,6 +210,24 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 OK
             } else {
                 INVALID_CID
+            }
+        }
+        // the threads of this process one by one: (process, after this thread or 0, access, attributes, flags, *next)
+        "NtGetNextThread" => {
+            let after = e.arg(1);
+            let pid = e.s.wpid;
+            let mine: Vec<u32> = e.s.sched.th.iter().filter(|t| t.pid == 0 && t.wpid == pid && t.st != crate::sched::St::Done).map(|t| t.id).collect();
+            let start = match e.s.fs.handles.get(&after) {
+                Some(Handle::Thread { tid }) => mine.iter().position(|t| t == tid).map_or(mine.len(), |i| i + 1),
+                _ => 0,
+            };
+            match mine.get(start) {
+                Some(&tid) => {
+                    let (h, out) = (e.new_handle(Handle::Thread { tid }), e.arg(5));
+                    e.w64(out, h);
+                    OK
+                }
+                None => NO_MORE_ENTRIES,
             }
         }
         "NtOpenDirectoryObject" | "NtCreateDirectoryObject" | "NtOpenSymbolicLinkObject" => {

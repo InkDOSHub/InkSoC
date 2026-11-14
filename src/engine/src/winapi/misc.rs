@@ -33,14 +33,9 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
 
         // ---- misc ----
         "SystemFunction036" | "RtlGenRandom" | "ProcessPrng" => {
-            let (p, n) = (a0, e.arg(1) as u32 as u64);
-            let mut x = (crate::epoch_ms() as u64) ^ 0x9E37_79B9_7F4A_7C15 ^ e.cpu.icount;
-            for i in 0..n {
-                x ^= x << 13;
-                x ^= x >> 7;
-                x ^= x << 17;
-                e.w8(p + i, x as u8);
-            }
+            let (p, n) = (a0, e.arg(1) as u32 as usize);
+            let b = crate::random_bytes(n);
+            let _ = e.mmu.write_bytes(p, &b);
             1
         }
         // the old CryptoAPI: only its random numbers (Python seeds its hashes with them)

@@ -86,6 +86,35 @@ impl Engine {
         a
     }
     /// Loads the CPU from a CONTEXT (registers, flags, rip, XMM).
+    /// Starts ntdll's KiUserExceptionDispatcher for an exception raised with `rec` and `ctx`:
+    /// below the context's stack go the context, its (empty) CONTEXT_EX, the record and a
+    /// machine frame (Wine's exc_stack_layout, 0x5c0 bytes).
+    pub(crate) fn user_exception(&mut self, rec: u64, ctx: u64) -> Option<u64> {
+        let nt = crate::pe::find_module(self, "wine-ntdll.dll").map(|i| self.s.modules[i].base)?;
+        let disp = crate::pe::export_addr(self, nt, "KiUserExceptionDispatcher")?;
+        let rsp = self.r64(ctx + 0x98) & !15;
+        let st = (rsp - 0x5c0) & !63;
+        let mut c = vec![0u8; 0x4d0];
+        let _ = self.mmu.read_bytes(ctx, &mut c);
+        let mut r = vec![0u8; 0x98];
+        let _ = self.mmu.read_bytes(rec, &mut r);
+        self.zero_n(st, 0x5c0);
+        let _ = self.mmu.write_bytes(st, &c);
+        let flags = self.r32(st + 0x30) & !0x40; // no XSTATE part
+        self.w32(st + 0x30, flags);
+        let _ = self.mmu.write_bytes(st + 0x4f0, &r);
+        let (rip, sp) = (self.r64(ctx + 0xF8), self.r64(ctx + 0x98));
+        self.w64(st + 0x590, rip);
+        self.w64(st + 0x598, 0x33);
+        let fl = self.r32(ctx + 0x44) as u64;
+        self.w64(st + 0x5a0, fl);
+        self.w64(st + 0x5a8, sp);
+        self.w64(st + 0x5b0, 0x2b);
+        self.cpu.regs[4] = st;
+        self.cpu.rip = disp;
+        Some(crate::kernel32::NO_RETURN)
+    }
+
     pub fn load_context(&mut self, c: u64) {
         let flags = self.r32(c + 0x30);
         for i in 0..16 {

@@ -105,6 +105,36 @@ impl Registry {
             vals.push((path.as_str(), "", 1, sz(&format!("C:\\Windows\\System32\\{}", dll))));
             vals.push((path.as_str(), "ThreadingModel", 1, sz("Both")));
         }
+        // CryptoAPI providers (what rsaenh's DllRegisterServer writes): CryptAcquireContext
+        // finds its DLL here, and crypt32 checks certificate signatures with it
+        let cp = "\\Registry\\Machine\\Software\\Microsoft\\Cryptography\\Defaults";
+        let provs: Vec<(String, u32)> = [
+            ("Microsoft Base Cryptographic Provider v1.0", 1u32),
+            ("Microsoft Enhanced Cryptographic Provider v1.0", 1),
+            ("Microsoft Strong Cryptographic Provider", 1),
+            ("Microsoft RSA SChannel Cryptographic Provider", 12),
+            ("Microsoft Enhanced RSA and AES Cryptographic Provider", 24),
+        ]
+        .iter()
+        .map(|(n, t)| (format!("{}\\Provider\\{}", cp, n), *t))
+        .collect();
+        for (path, t) in &provs {
+            vals.push((path.as_str(), "Image Path", 1, sz("rsaenh.dll")));
+            vals.push((path.as_str(), "SigInFile", 4, 0u32.to_le_bytes().to_vec()));
+            vals.push((path.as_str(), "Type", 4, t.to_le_bytes().to_vec()));
+        }
+        let types: Vec<(String, &str, &str)> = [
+            (1, "Microsoft Base Cryptographic Provider v1.0", "RSA Full (Signature and Key Exchange)"),
+            (12, "Microsoft RSA SChannel Cryptographic Provider", "RSA SChannel"),
+            (24, "Microsoft Enhanced RSA and AES Cryptographic Provider", "RSA Full and AES"),
+        ]
+        .iter()
+        .map(|(t, n, tn)| (format!("{}\\Provider Types\\Type {:03}", cp, t), *n, *tn))
+        .collect();
+        for (path, n, tn) in &types {
+            vals.push((path.as_str(), "Name", 1, sz(n)));
+            vals.push((path.as_str(), "TypeName", 1, sz(tn)));
+        }
         // Direct3D (wined3d) draws on the program's own thread: no command-stream thread
         // spinning against it on a single core
         let d3d = format!("\\Registry\\User\\{}\\Software\\Wine\\Direct3D", USER_SID);
@@ -114,6 +144,42 @@ impl Registry {
             if let Some(k) = self.keys.get_mut(&path.to_lowercase()) {
                 if !k.values.iter().any(|(m, _, _)| m.eq_ignore_ascii_case(n)) {
                     k.values.push((n.to_string(), t, d));
+                }
+            }
+        }
+    }
+    /// The trusted root certificates (roots.der, DER one after another) as Wine's crypt32
+    /// keeps them once imported: HKLM\...\SystemCertificates\Root\Certificates\<SHA-1>
+    /// with a "Blob" (the certificate as a serialized store element) and a mark under
+    /// HKLM\Software\Wine\HostImportedCertificates. crypt32 then finds them all at hand
+    /// instead of checking each one's signature on the first secure connection (seconds of
+    /// RSA in emulated code, longer than programs wait for a TLS handshake).
+    pub fn seed_roots(&mut self, der: &[u8]) {
+        self.ensure_roots();
+        let store = "\\Registry\\Machine\\Software\\Microsoft\\SystemCertificates\\Root\\Certificates";
+        let marks = "\\Registry\\Machine\\Software\\Wine\\HostImportedCertificates";
+        self.create(store);
+        self.create(marks);
+        let mut off = 0;
+        while let Some(n) = crate::unixlib::der_len(&der[off..]) {
+            let cert = &der[off..off + n];
+            off += n;
+            let hash: String = crate::hash::sha1(cert).iter().map(|b| format!("{:02X}", b)).collect();
+            let key = format!("{}\\{}", store, hash);
+            if !self.create(&key) {
+                continue; // already there (kept from an earlier run, or put by the program)
+            }
+            let mut blob = Vec::with_capacity(12 + n);
+            for v in [32u32, 1, n as u32] {
+                blob.extend_from_slice(&v.to_le_bytes()); // CERT_CERT_PROP_ID, 1, size
+            }
+            blob.extend_from_slice(cert);
+            if let Some(k) = self.keys.get_mut(&key.to_lowercase()) {
+                k.values.push(("Blob".into(), 3, blob));
+            }
+            if let Some(k) = self.keys.get_mut(&marks.to_lowercase()) {
+                if !k.values.iter().any(|(m, _, _)| m == &hash) {
+                    k.values.push((hash, 4, 1u32.to_le_bytes().to_vec()));
                 }
             }
         }
@@ -419,6 +485,38 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             } else {
                 0x103 // STATUS_PENDING
             }
+        }
+        // (key, new name): moves the key and every subkey under the new last component;
+        // open handles to the key follow it
+        "NtRenameKey" => {
+            let Some(p) = e.key_of_handle(a0) else { return Some(INVALID_HANDLE) };
+            let us = e.arg(1);
+            let nn = e.us_read(us);
+            if nn.is_empty() || nn.contains('\\') {
+                return Some(0xC000_000D); // INVALID_PARAMETER
+            }
+            let parent = &p[..p.rfind('\\').unwrap_or(0)];
+            let np = format!("{}\\{}", parent, nn.to_lowercase());
+            if np != p && e.s.fs.reg.keys.contains_key(&np) {
+                return Some(0xC000_0035); // OBJECT_NAME_COLLISION
+            }
+            let pre = format!("{}\\", p);
+            let moved: Vec<String> = e.s.fs.reg.keys.keys().filter(|k| **k == p || k.starts_with(&pre)).cloned().collect();
+            for k in moved {
+                let mut v = e.s.fs.reg.keys.remove(&k).unwrap();
+                if k == p {
+                    v.name = nn.clone();
+                }
+                e.s.fs.reg.keys.insert(format!("{}{}", np, &k[p.len()..]), v);
+            }
+            for h in e.s.fs.handles.values_mut() {
+                if let Handle::Key { path } = h {
+                    if *path == p || path.starts_with(&pre) {
+                        *path = format!("{}{}", np, &path[p.len()..]);
+                    }
+                }
+            }
+            OK
         }
         "NtFlushKey" => {
             if e.key_of_handle(a0).is_some() {

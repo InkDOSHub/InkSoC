@@ -47,6 +47,14 @@ extern "C" {
     fn host_console(ptr: *const u8, len: u32);
     pub fn host_now_ms() -> f64;
     pub fn host_epoch_ms() -> f64;
+    fn host_random(ptr: *mut u8, len: u32);
+}
+
+/// Random bytes from the browser's cryptographic generator (crypto.getRandomValues).
+pub(crate) fn random_bytes(n: usize) -> Vec<u8> {
+    let mut v = vec![0u8; n];
+    unsafe { host_random(v.as_mut_ptr(), n as u32) };
+    v
 }
 
 /// The host's clock: milliseconds since the page started (monotonic), and since 1970.
@@ -161,6 +169,12 @@ pub struct Shared {
     pub wow64_ctx: u64,
     /// images mapped by map_image (base -> size)
     pub images: HashMap<u64, u64>,
+    /// file names of the images mapped as sections (NtMapViewOfSection): base -> name
+    pub image_files: HashMap<u64, String>,
+    /// where each moved image file was last mapped (a reload goes back there)
+    pub image_slots: HashMap<String, u64>,
+    /// crypt32's enum_root_certs: where the next certificate starts in roots.der
+    pub root_off: usize,
     /// global atom table (NtAddAtom): atom 0xC000 + index
     pub atoms: Vec<String>,
 }
@@ -209,7 +223,7 @@ pub extern "C" fn init(pool_mb: u32, target_mb: u32) {
             init_queue: Vec::new(), resume: Vec::new(), user_shared: false, win: Default::default(), gdi: Default::default(), gl: Default::default(), audio: Default::default(), net: Default::default(), unix_dispatcher: 0, next_luid: 0, win_ki: 0, recent: [(0, 0); 16], recent_n: 0, wine_exports: HashMap::new(), ldr_entries: HashMap::new(), loadlib: Vec::new(),
             stack_top: 0, exe_entry: 0, exe_base: 0, cmdline: (0, 0), unknown_calls: 0, crt: Default::default(), fs: Default::default(),
             sched: Default::default(), cores: 1, insns: 0, jit_on: true, lx: None, names: HashMap::new(),
-            wpid: 0, procs: HashMap::new(), pinfo: HashMap::new(), std: [3, 1, 2], dll_dirs: Vec::new(), wow64: false, wow64_ntdll: 0, wow64_ctx: 0, images: HashMap::new(), atoms: Vec::new(),
+            wpid: 0, procs: HashMap::new(), pinfo: HashMap::new(), std: [3, 1, 2], dll_dirs: Vec::new(), wow64: false, wow64_ntdll: 0, wow64_ctx: 0, images: HashMap::new(), image_files: HashMap::new(), root_off: 0, image_slots: HashMap::new(), atoms: Vec::new(),
         });
         ENGINE = Some(Engine {
             mmu: Mmu::new(pool_mb as usize, target_mb as u64),
@@ -312,6 +326,9 @@ pub extern "C" fn start() -> i32 {
     let name = pe::norm(&String::from_utf8_lossy(&b[..nl]));
     let cmd = String::from_utf8_lossy(b.get(nl + 1..).unwrap_or(&[])).into_owned();
     let e = eng();
+    if let Some(d) = e.s.files.get("roots.der").cloned() {
+        e.s.fs.reg.seed_roots(&d);
+    }
     match e.boot(&name, &cmd) { Ok(()) => 0, Err(m) => { e.set_error(m); -1 } }
 }
 
@@ -535,6 +552,13 @@ pub extern "C" fn guest_read32(addr: u64) -> u32 {
 impl Engine {
     pub fn fault(&mut self, addr: u64) {
         let mut m = format!("access violation at 0x{:x} (rip 0x{:x})", addr, self.cpu.rip);
+        // inside a DLL that a loader mapped as a section (WoW64's 32-bit ones): name it
+        let rip = self.cpu.rip;
+        if let Some((&b, _)) = self.s.images.iter().find(|(b, n)| **b <= rip && rip < **b + **n) {
+            if let Some(f) = self.s.image_files.get(&b) {
+                m += &format!(" [{}+0x{:x}]", f.rsplit(['\\', '/']).next().unwrap_or(f), rip - b);
+            }
+        }
         // a jump to a null function pointer: say who called it
         if self.cpu.rip < 0x10000 {
             if let Ok(r) = self.mmu.read64(self.cpu.regs[4]) {
@@ -572,9 +596,7 @@ impl Engine {
     /// Reserves address space only (pages are backed when first touched).
     pub fn reserve(&mut self, size: u64) -> Option<u64> {
         let size = (size.max(1) + 0xFFFF) & !0xFFFF;
-        if self.s.next_alloc + size > 0x7F00_0000_0000 { return None; }
-        let a = self.s.next_alloc;
-        self.s.next_alloc += size + 0x10000;
+        let a = self.next_free(size)?;
         self.mmu.add_reserved(a, size);
         Some(a)
     }
@@ -583,9 +605,22 @@ impl Engine {
     pub fn alloc(&mut self, size: u64) -> Option<u64> {
         let size = (size.max(1) + 0xFFFF) & !0xFFFF;
         if self.mmu.sh.committed + size > self.mmu.sh.target_bytes { return None; }
-        let a = self.s.next_alloc;
-        self.s.next_alloc += size + 0x10000;
+        let a = self.next_free(size)?;
         self.mmu.add_region(a, size);
+        Some(a)
+    }
+
+    /// The next free stretch of `size` bytes from the allocation pointer, stepping over
+    /// anything already there (an image at its preferred base, a fixed allocation), with a
+    /// 64 KB gap after it. A 32-bit program's memory stays below 4 GB.
+    fn next_free(&mut self, size: u64) -> Option<u64> {
+        let limit = if self.s.next_alloc < 0x1_0000_0000 { 0xFFFF_0000 } else { 0x7F00_0000_0000 };
+        let mut a = self.s.next_alloc;
+        while let Some(end) = self.mmu.overlap_end(a, a + size) {
+            a = (end + 0xFFFF) & !0xFFFF;
+        }
+        if a + size > limit { return None; }
+        self.s.next_alloc = a + size + 0x10000;
         Some(a)
     }
 

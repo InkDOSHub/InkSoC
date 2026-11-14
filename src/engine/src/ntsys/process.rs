@@ -135,6 +135,16 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             } else {
                 (a0 as u32, e.arg(3), e.arg(4) as u32 as u64, e.arg(5))
             };
+            // SystemInterruptInformation: Wine's RtlGenRandom, ProcessPrng and BCryptGenRandom
+            // read random bytes from it
+            if class == 0x17 {
+                let b = crate::random_bytes(len.min(1 << 20) as usize);
+                let _ = e.mmu.write_bytes(buf, &b);
+                if ret != 0 {
+                    e.w32(ret, b.len() as u32);
+                }
+                return Some(OK);
+            }
             let need: u64 = match class {
                 0 | 0x3E => 64,
                 1 | 0x3F => 12,

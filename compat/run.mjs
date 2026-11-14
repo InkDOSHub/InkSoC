@@ -51,7 +51,7 @@ async function runOne({ files, exe, args }) {
   const env = {
     // with TRACE the call log goes straight to its file (it can pass node's string limit)
     host_console: (p, n) => { const t = new TextDecoder().decode(new Uint8Array(mem.buffer, p, n).slice()); if (traceFd !== null && t.startsWith('[call]')) fs.writeSync(traceFd, t); else out += t; },
-    host_now_ms: () => performance.now(), host_epoch_ms: () => Date.now(),
+    host_now_ms: () => performance.now(), host_epoch_ms: () => Date.now(), host_random: (p, n) => { const v = new Uint8Array(mem.buffer, p >>> 0, n); for (let i = 0; i < n; i += 65536) { const b = new Uint8Array(Math.min(65536, n - i)); crypto.getRandomValues(b); v.set(b, i); } },
     host_swap_write: (s, p) => ram.set(s, view(p).slice()), host_swap_read: (s, p) => view(p).set(ram.get(s)), // the spill file (closed big files) in a temporary file, as OPFS holds it in the browser
     host_drive_write: (id, off, p, n) => { spillFd ??= fs.openSync(path.join(os.tmpdir(), 'inksoc-spill-' + process.pid), 'w+'); return fs.writeSync(spillFd, new Uint8Array(mem.buffer, p >>> 0, n), 0, n, off); },
     host_drive_read: (id, off, p, n) => spillFd === null ? 0 : fs.readSync(spillFd, new Uint8Array(mem.buffer, p >>> 0, n), 0, n, off),
@@ -62,7 +62,7 @@ async function runOne({ files, exe, args }) {
       try {
         const m = new WebAssembly.Module(new Uint8Array(mem.buffer, p, n).slice());
         const i = new WebAssembly.Instance(m, { env: { memory: mem, rd: x.jit_rd, wr: x.jit_wr, step: x.jit_step, cond: x.jit_cond } });
-        const t = x.__indirect_function_table; const k = t.grow(1); t.set(k, i.exports.f); if (process.env.DUMPJIT) fs.writeFileSync(path.join(process.env.DUMPJIT, k + '.wasm'), new Uint8Array(mem.buffer, p, n).slice()); return k;
+        const t = x.__indirect_function_table; const k = t.grow(1); if (process.env.DBG && k % 5000 === 0) console.error('jit blocks', k); t.set(k, i.exports.f); if (process.env.DUMPJIT) fs.writeFileSync(path.join(process.env.DUMPJIT, k + '.wasm'), new Uint8Array(mem.buffer, p, n).slice()); return k;
       } catch { return -1; }
     },
   };
@@ -95,13 +95,14 @@ async function runOne({ files, exe, args }) {
   const grab = () => { const p = x.win_frame ? x.win_frame() : 0; if (p) frame = new Uint8Array(mem.buffer, p, 1024 * 768 * 4).slice(); };
   // sockets: plain TCP from Node stands in for the page's wisp tunnel (see worker.js)
   const socks = new Map();
-  const netIn = (id, kind, d) => { put(d || new Uint8Array(0)); x.win_net_in(id, kind); };
+  const netIn = (id, kind, d) => { if (process.env.NETLOG) console.error((performance.now() / 1000).toFixed(1), 'net in', id, kind, d ? d.length : 0); put(d || new Uint8Array(0)); x.win_net_in(id, kind); };
   const pumpNet = async () => {
     const n = x.win_net_poll ? x.win_net_poll() : 0; if (!n) return;
     const net = await import('net');
     const b = new Uint8Array(mem.buffer, (x.out_ptr() >>> 0), n).slice(), v = new DataView(b.buffer);
     for (let o = 0; o < n;) {
       const op = b[o], id = v.getUint32(o + 1, true), len = v.getUint32(o + 5, true), d = b.slice(o + 9, o + 9 + len); o += 9 + len;
+      if (process.env.NETLOG) console.error((performance.now() / 1000).toFixed(1), 'net out', op, id, len, op === 1 ? new TextDecoder().decode(d) : Buffer.from(d.slice(0, 80)).toString('hex'));
       if (op === 1) { const s = new TextDecoder().decode(d), k = s.lastIndexOf(':'); const c = net.connect(+s.slice(k + 1), s.slice(0, k)); let any = false; socks.set(id, c); c.on('data', (q) => { any = true; netIn(id, 1, q); }); c.on('close', () => { if (socks.delete(id)) netIn(id, any ? 2 : 2); }); c.on('error', () => { if (socks.delete(id)) netIn(id, 3); }); }
       else if (op === 2) socks.get(id)?.write(d);
       else if (op === 3) { const c = socks.get(id); socks.delete(id); c?.end(); }

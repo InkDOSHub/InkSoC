@@ -95,6 +95,14 @@ impl Jit {
         if f == NONE { None } else { Some(f) }
     }
 
+    /// Forgets the blocks that start in [start, end) (new code is mapped there).
+    pub fn forget(&mut self, start: u64, end: u64) {
+        if self.map.is_empty() && self.hits.is_empty() { return; }
+        self.map.retain(|k, _| *k < start || *k >= end);
+        self.hits.retain(|k, _| *k < start || *k >= end);
+        for x in self.l1.iter_mut() { if x.0 >= start && x.0 < end { *x = (u64::MAX, NONE); } }
+    }
+
     /// Forgets every block (code was overwritten).
     pub fn flush(&mut self) {
         self.map.clear();

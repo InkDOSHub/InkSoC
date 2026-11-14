@@ -54,8 +54,15 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "NtFlushInstructionCache" | "NtLockVirtualMemory" | "NtUnlockVirtualMemory" => OK,
         "NtQueryVirtualMemory" => {
             let (addr, class, buf, len, ret) = (e.arg(1), e.arg(2) as u32, e.arg(3), e.arg(4), e.arg(5));
-            if class == crate::unixlib::MEMORY_WINE_UNIX_FUNCS {
-                let Some(h) = crate::unixlib::handle_of(e, addr) else { return Some(INVALID_INFO_CLASS) };
+            if class == crate::unixlib::MEMORY_WINE_UNIX_FUNCS || class == crate::unixlib::MEMORY_WINE_UNIX_WOW64_FUNCS {
+                let wow64 = class == crate::unixlib::MEMORY_WINE_UNIX_WOW64_FUNCS;
+                let Some(h) = crate::unixlib::handle_of(e, addr, wow64) else {
+                    if unsafe { crate::TRACE } {
+                        let m = e.s.modules.iter().find(|m| m.base == addr).map(|m| m.name.clone()).or_else(|| e.s.image_files.get(&addr).cloned()).unwrap_or_default();
+                        crate::console(&format!("[unixlib] no Unix side for {} ({:x})\n", m, addr));
+                    }
+                    return Some(INVALID_INFO_CLASS);
+                };
                 e.w64(buf, h);
                 return Some(OK);
             }

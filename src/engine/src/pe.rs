@@ -304,7 +304,9 @@ pub fn entry_rva(b: &[u8]) -> Option<u64> { let (pe, _) = hdr(b).ok()?; Some(u32
 
 /// Maps headers and sections at the preferred base when it is free (else below
 /// 2 GB for 32-bit images), applying relocations. Returns (base, size, moved).
-pub fn map_image(e: &mut Engine, b: &[u8]) -> Result<(u64, u64, bool), String> {
+/// Maps a PE image: at its preferred base when free, else at `slot` (where the same file
+/// sat before it was unmapped, as Windows tends to reuse) when free, else anywhere.
+pub fn map_image(e: &mut Engine, b: &[u8], slot: Option<u64>) -> Result<(u64, u64, bool), String> {
     let (pe, is32) = hdr(b)?;
     let opt = pe + 24;
     let nsec = u16_at(b, pe + 6)? as usize;
@@ -314,10 +316,17 @@ pub fn map_image(e: &mut Engine, b: &[u8]) -> Result<(u64, u64, bool), String> {
     let hsize = u32_at(b, opt + 60)? as usize;
     let dirs = opt + if is32 { 96 } else { 112 };
     let (rel_rva, rel_size) = (u32_at(b, dirs + 40)? as u64, u32_at(b, dirs + 44)? as u64);
+    let mut same_place = false;
     let base = if pref != 0 && !e.mmu.overlaps(pref, pref + size) { e.mmu.add_region(pref, size); pref } else {
         if rel_rva == 0 { return Err("image cannot be moved (no relocations)".into()); }
-        e.alloc(size).ok_or("out of memory")?
+        match slot {
+            Some(s) if s != 0 && !e.mmu.overlaps(s, s + size) => { e.mmu.add_region(s, size); same_place = true; s }
+            _ => e.alloc(size).ok_or("out of memory")?,
+        }
     };
+    // compiled code of whatever ran here before is stale (the same file back at the same
+    // place compiles to the same blocks, so those stay)
+    if !same_place { e.jit.forget(base, base + size); }
     let err = |_| "mapping failed".to_string();
     e.mmu.write_bytes(base, &b[..hsize.min(b.len())]).map_err(err)?;
     let sec0 = opt + opt_size;

@@ -60,7 +60,9 @@ pub(crate) struct Pend {
     pid: u32,
     sock: u32,
     kind: Kind,
+    /// where the result goes; for a 32-bit program its own 32-bit block (see `pend_iosb`)
     iosb: u64,
+    iosb32: bool,
     event: u64,
 }
 enum Kind {
@@ -176,6 +178,35 @@ impl Net {
 }
 
 impl Engine {
+    // A 32-bit program (WoW64) hands over its own layouts: 4-byte pointers and handles.
+    fn ptr_size(&self) -> u64 {
+        if self.s.wow64 { 4 } else { 8 }
+    }
+    pub(crate) fn rptr(&mut self, a: u64) -> u64 {
+        if self.s.wow64 { self.r32(a) as u64 } else { self.r64(a) }
+    }
+    fn wptr(&mut self, a: u64, v: u64) {
+        if self.s.wow64 { self.w32(a, v as u32) } else { self.w64(a, v) }
+    }
+    /// One AFD poll entry: handle, flags, status.
+    fn poll_entry(&self) -> u64 {
+        if self.s.wow64 { 12 } else { 16 }
+    }
+    /// Buffer i of a WSABUF array: (length, address).
+    fn wsabuf(&mut self, bufs: u64, i: u64) -> (usize, u64) {
+        if self.s.wow64 {
+            (self.r32(bufs + 8 * i) as usize, self.r32(bufs + 8 * i + 4) as u64)
+        } else {
+            (self.r32(bufs + 16 * i) as usize, self.r64(bufs + 16 * i + 8))
+        }
+    }
+    /// The I/O block a waiting call finishes later: a 32-bit program's call came through
+    /// wow64's NtDeviceIoControlFile, whose own block is gone by then; its first field still
+    /// points at the program's 32-bit block, which gets the result instead.
+    fn pend_iosb(&mut self, iosb: u64) -> (u64, bool) {
+        if self.s.wow64 && iosb != 0 { (self.r64(iosb), true) } else { (iosb, false) }
+    }
+
     fn sock_of(&self, h: u64) -> Option<u32> {
         match self.s.fs.handles.get(&h) {
             Some(Handle::Afd { id }) => Some(*id),
@@ -264,7 +295,7 @@ impl Engine {
             0x1_208B => self.afd_get_events(id, out),
             0x1_200B => (NOT_SUPPORTED, 0), // listen: no server sockets yet
             // socket options (IOCTL_AFD_WINE_GET_*/SET_*): taken, and read back as 0
-            c if (0x12_0378..=0x12_04C0).contains(&c) => {
+            c if c == 0x12_0358 || (0x12_036C..=0x12_04C0).contains(&c) => {
                 if out != 0 && outl >= 4 {
                     self.w32(out, 0);
                     (OK, outl.min(4))
@@ -281,6 +312,9 @@ impl Engine {
         };
         if r.0 != PENDING {
             self.iosb(iosb, r.0, r.1);
+        }
+        if unsafe { crate::WINE_DEBUG } > 1 {
+            crate::console(&format!("[afd] socket {} ioctl {:x}: {:x} ({} bytes)\n", id, code, r.0, r.1));
         }
         Some(r.0)
     }
@@ -376,7 +410,7 @@ impl Engine {
         }
         let mut data = Vec::new();
         for i in 0..count.min(1024) as u64 {
-            let (len, at) = (self.r32(bufs + 16 * i) as usize, self.r64(bufs + 16 * i + 8));
+            let (len, at) = self.wsabuf(bufs, i);
             let k = data.len();
             data.resize(k + len, 0);
             if self.mmu.read_bytes(at, &mut data[k..]).is_err() {
@@ -411,7 +445,7 @@ impl Engine {
         }
         let mut total = 0u64;
         for i in 0..count.min(1024) as u64 {
-            let (len, at) = (self.r32(bufs + 16 * i) as usize, self.r64(bufs + 16 * i + 8));
+            let (len, at) = self.wsabuf(bufs, i);
             let s = self.s.net.socks.get_mut(&id)?;
             let k = len.min(s.rx.len());
             if k == 0 {
@@ -452,7 +486,8 @@ impl Engine {
             self.event_set(event, false);
         }
         let pid = self.s.wpid;
-        self.s.net.pend.push(Pend { pid, sock: id, kind: Kind::Recv { bufs, count, flags }, iosb, event });
+        let (iosb, iosb32) = self.pend_iosb(iosb);
+        self.s.net.pend.push(Pend { pid, sock: id, kind: Kind::Recv { bufs, count, flags }, iosb, iosb32, event });
         (PENDING, 0)
     }
 
@@ -461,8 +496,8 @@ impl Engine {
         let count = self.r32(params + 8).min(1024) as u64;
         let mut found = Vec::new();
         for i in 0..count {
-            let at = params + 16 + 16 * i;
-            let (h, want) = (self.r64(at), self.r32(at + 8));
+            let at = params + 16 + self.poll_entry() * i;
+            let (h, want) = (self.rptr(at), self.r32(at + self.ptr_size()));
             let have = match self.sock_of(h).and_then(|id| self.s.net.socks.get(&id)) {
                 Some(s) => Net::ready(s),
                 None => POLL_CLOSE,
@@ -472,10 +507,14 @@ impl Engine {
             }
         }
         for (k, (h, f)) in found.iter().enumerate() {
-            let at = out + 16 + 16 * k as u64;
-            self.w64(at, *h);
-            self.w32(at + 8, *f);
-            self.w32(at + 12, 0);
+            let (at, ps) = (out + 16 + self.poll_entry() * k as u64, self.ptr_size());
+            if ps == 4 {
+                self.w32(at, *h as u32);
+            } else {
+                self.w64(at, *h);
+            }
+            self.w32(at + ps, *f);
+            self.w32(at + ps + 4, 0);
         }
         self.w32(out + 8, found.len() as u32);
         found.len() as u32
@@ -492,7 +531,7 @@ impl Engine {
         }
         let n = self.poll_ready(inp, out);
         if n > 0 || timeout == 0 {
-            return (OK, 16 + 16 * n as u64);
+            return (OK, 16 + self.poll_entry() * n as u64);
         }
         let now = crate::now_ms();
         let deadline = if timeout == i64::MAX {
@@ -506,13 +545,14 @@ impl Engine {
             self.event_set(event, false);
         }
         let pid = self.s.wpid;
-        self.s.net.pend.push(Pend { pid, sock: 0, kind: Kind::Poll { params: inp, out, deadline }, iosb, event });
+        let (iosb, iosb32) = self.pend_iosb(iosb);
+        self.s.net.pend.push(Pend { pid, sock: 0, kind: Kind::Poll { params: inp, out, deadline }, iosb, iosb32, event });
         (PENDING, 0)
     }
 
     /// IOCTL_AFD_EVENT_SELECT (event, mask): the event is set when one of those things happens.
     fn afd_event_select(&mut self, id: u32, p: u64) -> (u64, u64) {
-        let (ev, mask) = (self.r64(p), self.r32(p + 8));
+        let (ev, mask) = (self.rptr(p), self.r32(p + self.ptr_size()));
         if let Some(s) = self.s.net.socks.get_mut(&id) {
             s.ev = ev;
             s.ev_mask = mask;
@@ -576,13 +616,13 @@ impl Engine {
                 i += 1;
                 continue;
             }
-            let (sock, iosb, event) = (p.sock, p.iosb, p.event);
+            let (sock, iosb, iosb32, event) = (p.sock, p.iosb, p.iosb32, p.event);
             let done = match p.kind {
                 Kind::Recv { bufs, count, flags } => self.sock_take(sock, bufs, count, flags),
                 Kind::Poll { params, out, deadline } => {
                     let n = self.poll_ready(params, out);
                     if n > 0 {
-                        Some((OK, 16 + 16 * n as u64))
+                        Some((OK, 16 + self.poll_entry() * n as u64))
                     } else if now >= deadline {
                         Some((OK, 16))
                     } else {
@@ -593,7 +633,12 @@ impl Engine {
             match done {
                 Some((st, n)) => {
                     self.s.net.pend.remove(i);
-                    self.iosb(iosb, st, n);
+                    if iosb32 {
+                        self.w32(iosb, st as u32);
+                        self.w32(iosb + 4, n as u32);
+                    } else {
+                        self.iosb(iosb, st, n);
+                    }
                     if event != 0 {
                         self.event_set(event, true);
                     }
@@ -617,7 +662,7 @@ impl Engine {
             2 => self.ws_gethostbyname(p),
             3 => {
                 // gethostname (name, size)
-                let (name, size) = (self.r64(p), self.r32(p + 8));
+                let (name, size) = (self.rptr(p), self.r32(p + self.ptr_size()));
                 if size < 7 {
                     return 10014; // WSAEFAULT
                 }
@@ -631,7 +676,10 @@ impl Engine {
 
     /// getaddrinfo (node, service, hints, info, size*): one IPv4 address per socket type.
     fn ws_getaddrinfo(&mut self, p: u64) -> u64 {
-        let (node, service, hints, info, sizep) = (self.r64(p), self.r64(p + 8), self.r64(p + 16), self.r64(p + 24), self.r64(p + 32));
+        let ps = self.ptr_size();
+        let (node, service, hints, info, sizep) = (self.rptr(p), self.rptr(p + ps), self.rptr(p + 2 * ps), self.rptr(p + 3 * ps), self.rptr(p + 4 * ps));
+        // addrinfo: flags, family, socktype, protocol, addrlen (size_t), canonname, addr, next
+        let ai = if ps == 4 { 32 } else { 48 };
         let (mut flags, mut family, mut ty, mut proto) = (0, 0, 0, 0);
         if hints != 0 {
             flags = self.r32(hints);
@@ -667,23 +715,24 @@ impl Engine {
             self.s.net.addr_of(&n)
         };
         let types: Vec<(u32, u32)> = if ty != 0 { vec![(ty, if proto != 0 { proto } else if ty == 2 { 17 } else { 6 })] } else { vec![(1, 6), (2, 17)] };
-        let need = (48 + 16) * types.len() as u32;
+        let need = (ai + 16) * types.len() as u32;
         if self.r32(sizep) < need {
             self.w32(sizep, need);
             return 122; // ERROR_INSUFFICIENT_BUFFER
         }
         for (k, (t, pr)) in types.iter().enumerate() {
-            let at = info + 64 * k as u64;
-            let sa = at + 48;
-            for i in 0..64 {
+            let one = (ai + 16) as u64;
+            let at = info + one * k as u64;
+            let sa = at + ai as u64;
+            for i in 0..one {
                 self.w8(at + i, 0);
             }
             self.w32(at + 4, 2);
             self.w32(at + 8, *t);
             self.w32(at + 12, *pr);
-            self.w64(at + 16, 16);
-            self.w64(at + 32, sa);
-            self.w64(at + 40, if k + 1 < types.len() { at + 64 } else { 0 });
+            self.wptr(at + 16, 16);
+            self.wptr(at + 16 + 2 * ps, sa);
+            self.wptr(at + 16 + 3 * ps, if k + 1 < types.len() { at + one } else { 0 });
             self.w16(sa, 2);
             let _ = self.mmu.write_bytes(sa + 2, &port.to_be_bytes());
             let _ = self.mmu.write_bytes(sa + 4, &addr);
@@ -693,24 +742,27 @@ impl Engine {
 
     /// gethostbyname (name, hostent, size*): the name with its one address.
     fn ws_gethostbyname(&mut self, p: u64) -> u64 {
-        let (name, host, sizep) = (self.r64(p), self.r64(p + 8), self.r64(p + 16));
+        let ps = self.ptr_size();
+        let (name, host, sizep) = (self.rptr(p), self.rptr(p + ps), self.rptr(p + 2 * ps));
         let n = if name == 0 { "inksoc".to_string() } else { self.read_cstr(name, 256) };
         let addr = if name == 0 { [10, 0, 2, 15] } else { self.s.net.addr_of(&n) };
-        let need = 32 + 8 + 16 + 4 + n.len() as u32 + 1;
+        // hostent: name, aliases, type (2), length (2), address list; then the lists, the address, the name
+        let he = 4 * ps; // 32 bytes (16 for a 32-bit program)
+        let need = (he + ps + 2 * ps + 4) as u32 + n.len() as u32 + 1;
         if self.r32(sizep) < need {
             self.w32(sizep, need);
             return 122;
         }
-        // hostent: name, aliases, type, length, address list; then the lists, the address, the name
-        let (aliases, list, a, s) = (host + 32, host + 40, host + 56, host + 60);
-        self.w64(host, s);
-        self.w64(host + 8, aliases);
-        self.w16(host + 16, 2);
-        self.w16(host + 18, 4);
-        self.w64(host + 24, list);
-        self.w64(aliases, 0);
-        self.w64(list, a);
-        self.w64(list + 8, 0);
+        let (aliases, list) = (host + he, host + he + ps);
+        let (a, s) = (list + 2 * ps, list + 2 * ps + 4);
+        self.wptr(host, s);
+        self.wptr(host + ps, aliases);
+        self.w16(host + 2 * ps, 2);
+        self.w16(host + 2 * ps + 2, 4);
+        self.wptr(host + 3 * ps, list);
+        self.wptr(aliases, 0);
+        self.wptr(list, a);
+        self.wptr(list + ps, 0);
         let _ = self.mmu.write_bytes(a, &addr);
         let mut b = n.into_bytes();
         b.push(0);
@@ -720,8 +772,10 @@ impl Engine {
 
     /// getnameinfo (addr, len, host, host len, serv, serv len, flags): the name behind a stand-in address, the port as a number.
     fn ws_getnameinfo(&mut self, p: u64) -> u64 {
-        let (addr, len) = (self.r64(p), self.r32(p + 8) as u64);
-        let (host, hl, serv, sl, flags) = (self.r64(p + 16), self.r32(p + 24) as usize, self.r64(p + 32), self.r32(p + 40) as usize, self.r32(p + 44));
+        // (addr, addr len, host, host len, serv, serv len, flags): pointers then 4-byte values
+        let ps = self.ptr_size();
+        let (addr, len) = (self.rptr(p), self.r32(p + ps) as u64);
+        let (host, hl, serv, sl, flags) = (self.rptr(p + 2 * ps), self.r32(p + 3 * ps) as usize, self.rptr(p + 4 * ps), self.r32(p + 5 * ps) as usize, self.r32(p + 5 * ps + 4));
         let Some((ip, port)) = self.sockaddr_v4(addr, len) else { return 10047 }; // WSAEAFNOSUPPORT
         let numeric = flags & 2 != 0; // NI_NUMERICHOST
         let h = if numeric { format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3]) } else { self.s.net.host_of(ip) };

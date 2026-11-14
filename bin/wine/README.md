@@ -14,3 +14,9 @@ Wine is free software under the GNU Lesser General Public License 2.1 or later
 (https://www.winehq.org/license). The source for this exact version is the
 Wine
 11.0 release (https://dl.winehq.org/wine/source/11.0/).
+
+`roots.der` is not part of Wine: it is Mozilla's list of trusted root certificates
+(as packaged by Debian's `ca-certificates`), one DER certificate after another.
+The engine hands it to crypt32 the way Wine's Unix side hands over the system's
+roots, so programs that check HTTPS certificates with CryptoAPI trust the same
+authorities as a browser.

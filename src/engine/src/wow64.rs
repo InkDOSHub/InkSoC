@@ -99,8 +99,8 @@ impl Engine {
 
         // 32-bit ntdll and the program
         let nt32 = self.s.files.get("wine32-ntdll.dll").cloned().ok_or("wine32-ntdll.dll is missing")?;
-        let (ntdll32, _, _) = pe::map_image(self, &nt32)?;
-        let (exe, _, _) = pe::map_image(self, bytes)?;
+        let (ntdll32, _, _) = pe::map_image(self, &nt32, None)?;
+        let (exe, _, _) = pe::map_image(self, bytes, None)?;
         self.s.exe_base = exe;
         self.s.wow64_ntdll = ntdll32;
 

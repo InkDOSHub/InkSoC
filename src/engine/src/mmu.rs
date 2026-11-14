@@ -190,6 +190,10 @@ impl Mmu {
     pub fn region_of(&self, addr: u64) -> Option<(u64, u64)> {
         self.sh.regions.iter().copied().find(|&(s, e)| addr >= s && addr < e)
     }
+    /// The end of the furthest region that [start, end) runs into, if any.
+    pub fn overlap_end(&self, start: u64, end: u64) -> Option<u64> {
+        self.sh.regions.iter().filter(|&&(s, e)| start < e && end > s).map(|&(_, e)| e).max()
+    }
     pub fn overlaps(&self, start: u64, end: u64) -> bool {
         self.sh.regions.iter().any(|&(s, e)| start < e && end > s)
     }

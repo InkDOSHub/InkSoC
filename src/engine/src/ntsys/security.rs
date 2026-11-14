@@ -100,7 +100,8 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
         | "NtSetValueKey"
         | "NtNotifyChangeKey"
         | "NtNotifyChangeMultipleKeys"
-        | "NtFlushKey" => return crate::registry::call(e, name),
+        | "NtFlushKey"
+        | "NtRenameKey" => return crate::registry::call(e, name),
         _ => return e.not_mine(),
     })
 }

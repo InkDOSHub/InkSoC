@@ -455,6 +455,8 @@ impl Engine {
             "USERDOMAIN=INKSOC",
             "USERNAME=user",
             "USERPROFILE=C:\\InkSoC",
+            // Wine's own GetUserNameW (the 32-bit advapi32 of a WoW64 program) reads this
+            "WINEUSERNAME=user",
             "windir=C:\\Windows",
         ];
         let env: Vec<u16> = (vars.join("\0") + "\0\0").encode_utf16().collect();
