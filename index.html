@@ -96,6 +96,10 @@
   .pop .mh{color:var(--muted);font-size:12px;padding:8px 12px 2px}
   .pop .none{color:var(--muted);font-size:13px;padding:4px 12px 8px}
   #setp{width:320px}
+  #walls{display:flex;flex-wrap:wrap;gap:8px;padding:2px 12px 8px}
+  #walls [data-wall]{width:44px;height:30px;border-radius:7px;border:2px solid transparent;cursor:pointer;padding:0;box-shadow:0 0 0 1px var(--border)}
+  #walls [data-wall].on{border-color:var(--accent)}
+  #walls label{display:flex;align-items:center;justify-content:center;background:var(--hover);color:var(--muted);font-size:18px}
   #status{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
   #clock{color:var(--muted);font-size:13px;white-space:nowrap}
   .con.win{background:#fff;color:#111;width:min(720px,calc(100% - 24px));height:min(460px,calc(100% - 24px))}
@@ -140,6 +144,8 @@
   <div class="set">Arguments <input type="text" id="args" placeholder="for the next program (optional)"></div>
   <div class="set">Cores <select id="cores"><option>1</option><option>2</option><option>3</option><option>4</option></select>
     <label><input type="checkbox" id="jit" checked> JIT</label></div>
+  <div class="set">Wallpaper</div>
+  <div id="walls"></div>
   <div class="set">Last program <span id="speed">–</span></div>
   <div class="set">Drive C: <span id="csize">empty</span> <button class="it" id="cerase" style="width:auto;padding:4px 10px;margin-left:auto">Erase</button></div>
   <a class="it" href="tests.html">Engine tests (developers) →</a>
@@ -162,5 +168,6 @@
 <div class="bar"><button id="start">Start</button><div id="tasks"></div><span id="status"></span><span id="clock"></span></div>
 <script src="desktop.js?v=39"></script>
 <script src="pad.js?v=1"></script>
+<script src="wall.js?v=1"></script>
 </body>
 </html>
