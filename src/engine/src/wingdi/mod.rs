@@ -125,6 +125,21 @@ pub struct Surf {
     pub px: Vec<u32>,
 }
 
+/// A process's own DC attribute pool (it lives in that process's memory).
+#[derive(Default)]
+pub struct AttrPool { next: u64, end: u64, free: Vec<u64> }
+
+impl Gdi {
+    /// Trades the running process's DC attribute pool for another one's.
+    pub fn swap_attrs(&mut self, p: &mut AttrPool) {
+        std::mem::swap(&mut self.attr_next, &mut p.next);
+        std::mem::swap(&mut self.attr_end, &mut p.end);
+        std::mem::swap(&mut self.attr_free, &mut p.free);
+    }
+    /// Bytes of the handle table in use (copied into a new process).
+    pub fn table_used(&self) -> u64 { 24 * self.next as u64 }
+}
+
 #[derive(Default)]
 pub struct Gdi {
     pub table: u64,

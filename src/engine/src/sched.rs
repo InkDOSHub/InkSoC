@@ -219,7 +219,10 @@ impl Engine {
             Some(Handle::Timer { due, .. }) => crate::now_ms() >= *due,
             Some(Handle::Process { pid }) => self.s.pinfo.get(pid).map_or(true, |i| i.exit.is_some()),
             Some(Handle::NPipe { .. }) => self.np_idle(h),
-            _ => true,
+            other => {
+                if unsafe { crate::WINE_DEBUG } > 1 { crate::console(&format!("[wait] handle {:x} counts as signaled: {}\n", h, other.map_or("none", |_| "other kind"))); }
+                true
+            }
         }
     }
     pub(crate) fn acquire(&mut self, h: u64, me: u32) {

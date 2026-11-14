@@ -39,6 +39,17 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "NtFreeVirtualMemory" => {
             let (bp, sp, kind) = (e.arg(1), e.arg(2), e.arg(3) as u32);
             let (a, size) = (e.r64(bp), e.r64(sp));
+            if unsafe { crate::WINE_DEBUG } > 1 {
+                let mut chain = String::new();
+                if let Some(c) = e.wow_ctx_of(u64::MAX - 1) {
+                    let (mut bp, sp) = (e.r32(c + 0xB4) as u64, e.r32(c + 0xC4) as u64);
+                    chain += &format!(" eip {:x} esp {:x}:", e.r32(c + 0xB8), sp);
+                    for i in 0..24 { chain += &format!(" {:x}", e.mmu.read32(sp + i * 4).unwrap_or(0)); }
+                    chain += " | bp:";
+                    for _ in 0..12 { let r = e.mmu.read32(bp + 4).unwrap_or(0); chain += &format!(" {:x}", r); bp = e.mmu.read32(bp).unwrap_or(0) as u64; if bp == 0 { break; } }
+                }
+                crate::console(&format!("[mem] free {:x} {:x} kind {:x} region {:x?} tid {}{}\n", a, size, kind, e.mmu.region_of(a), e.cur_tid(), chain));
+            }
             if kind & 0x8000 != 0 {
                 e.mmu.release_region(a);
             } else {

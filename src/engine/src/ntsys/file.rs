@@ -31,6 +31,10 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             }
             let at = file_offset(e, offp);
             let Some(got) = e.file_read(a0, at, buf, n) else { return Some(INVALID_HANDLE) };
+            if unsafe { crate::WINE_DEBUG } > 1 {
+                let (h0, t0) = (e.r32(buf), e.r32(buf + got.saturating_sub(4) as u64));
+                crate::console(&format!("[ntdll] NtReadFile {:x} at {:?} want {} got {} into {:x} ({:08x}..{:08x})\n", a0, at, n, got, buf, h0, t0));
+            }
             if got == 0 && n > 0 {
                 e.iosb(iosb, END_OF_FILE, 0);
                 return Some(END_OF_FILE);
@@ -140,9 +144,13 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 16 => 4,
                 34 => 56,
                 59 => 24,
+                68 => 72,
                 _ => 0,
             };
             if need == 0 {
+                if unsafe { crate::WINE_DEBUG } > 0 {
+                    crate::console(&format!("[ntdll] NtQueryInformationFile class {} not handled\n", class));
+                }
                 return Some(INVALID_INFO_CLASS);
             }
             if len < need {
@@ -182,6 +190,18 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 }
                 8 => {
                     e.w32(buf, 0x12019F);
+                }
+                // FileStatInformation (what ucrt's stat asks): id, 4 times, sizes, attributes, links, access
+                68 => {
+                    e.w64(buf, a0);
+                    for o in [8, 16, 24, 32] {
+                        e.w64(buf + o, ft);
+                    }
+                    e.w64(buf + 40, (size + 4095) & !4095);
+                    e.w64(buf + 48, size);
+                    e.w32(buf + 56, attr);
+                    e.w32(buf + 64, 1);
+                    e.w32(buf + 68, 0x1F01FF);
                 }
                 34 => {
                     for o in [0, 8, 16, 24] {
@@ -320,8 +340,9 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                     e.iosb(iosb, OK, 20);
                     OK
                 }
-                3 | 7 => {
-                    e.zero_n(buf, len.min(32));
+                // FileFsSizeInformation: clusters (total, free), sectors per cluster, bytes per sector
+                3 => {
+                    e.zero_n(buf, len.min(24));
                     e.w64(buf, 1 << 24);
                     e.w64(buf + 8, 1 << 23);
                     e.w32(buf + 16, 8);
@@ -329,7 +350,23 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                     e.iosb(iosb, OK, 24);
                     OK
                 }
-                _ => INVALID_INFO_CLASS,
+                // FileFsFullSizeInformation: total, free for the caller, free on the volume, then the same two
+                7 => {
+                    e.zero_n(buf, len.min(32));
+                    e.w64(buf, 1 << 24);
+                    e.w64(buf + 8, 1 << 23);
+                    e.w64(buf + 16, 1 << 23);
+                    e.w32(buf + 24, 8);
+                    e.w32(buf + 28, 512);
+                    e.iosb(iosb, OK, 32);
+                    OK
+                }
+                _ => {
+                    if unsafe { crate::WINE_DEBUG } > 0 {
+                        crate::console(&format!("[ntdll] NtQueryVolumeInformationFile class {} not handled\n", class));
+                    }
+                    INVALID_INFO_CLASS
+                }
             }
         }
         "NtQueryAttributesFile" | "NtQueryFullAttributesFile" => {
@@ -463,7 +500,7 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 OBJECT_NAME_NOT_FOUND
             }
         }
-        "NtQueryDirectoryFile" | "NtQueryDirectoryFileEx" => NO_MORE_FILES, // STATUS_NO_MORE_FILES
+        "NtQueryDirectoryFile" | "NtQueryDirectoryFileEx" => e.query_directory(a0, name == "NtQueryDirectoryFileEx"),
         "NtDeviceIoControlFile" | "NtFsControlFile" => {
             if name == "NtFsControlFile" {
                 let (ev, iosb, code, inp, inl, out, outl) =

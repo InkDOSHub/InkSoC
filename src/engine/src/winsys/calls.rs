@@ -178,6 +178,7 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 menu_name: mn,
                 menu_name_a: mna,
                 builtin: false,
+                pid: 0,
             }) as u64
         }
         "NtUserGetClassInfoEx" => {

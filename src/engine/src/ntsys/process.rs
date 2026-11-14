@@ -283,6 +283,87 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
         }
         "NtQueryObject" => INVALID_INFO_CLASS,
         "NtDisplayString" => OK,
+        // CreateProcess from Wine's kernelbase (a 32-bit program's, through WoW64)
+        "NtCreateUserProcess" => create_user_process(e),
+        // kernel transactions (CreateTransaction): like Wine, a placeholder handle, and
+        // commit or rollback do nothing (the file changes were made directly)
+        "NtCreateTransaction" => {
+            let h = e.new_handle(crate::files::Handle::Event { set: true, manual: true });
+            e.w64(a0, h);
+            OK
+        }
+        "NtCommitTransaction" | "NtRollbackTransaction" => OK,
         _ => return e.not_mine(),
     })
+}
+
+/// NtCreateUserProcess(&process, &thread, access, access, attr, attr, process_flags,
+/// thread_flags, params, create_info, attribute_list): the program and its command line
+/// come from the process parameters; the attribute list asks for the ids and image info.
+fn create_user_process(e: &mut Engine) -> u64 {
+    let (ph_out, th_out) = (e.arg(0), e.arg(1));
+    let (tflags, params, attrs) = (e.arg(7) as u32, e.arg(8), e.arg(10));
+    // the parameters may hold offsets instead of pointers (not normalized)
+    let base = if e.r32(params + 8) & 1 == 0 { params } else { 0 };
+    let ustr = |e: &mut Engine, at: u64| -> String {
+        let len = e.r16(at) as u64 / 2;
+        let buf = e.r64(at + 8);
+        if buf == 0 { return String::new(); }
+        let buf = buf + base;
+        let v: Vec<u16> = (0..len).map(|i| e.r16(buf + 2 * i)).collect();
+        String::from_utf16_lossy(&v)
+    };
+    let image = ustr(e, params + 0x60);
+    let cmd = ustr(e, params + 0x70);
+    let image = image.strip_prefix("\\??\\").unwrap_or(&image).to_string();
+    let envp = e.r64(params + 0x80);
+    let env: Vec<u16> = if envp == 0 { e.env_vec() } else {
+        let envp = envp + base;
+        let n = e.r64(params + 0x3F0) / 2;
+        let mut v: Vec<u16> = (0..n).map(|i| e.r16(envp + 2 * i)).collect();
+        while v.len() >= 2 && v[v.len() - 1] == 0 && v[v.len() - 2] == 0 && v.len() > 2 { v.pop(); }
+        if v.len() < 2 || v[v.len() - 1] != 0 || v[v.len() - 2] != 0 { v.push(0); v.push(0); }
+        v
+    };
+    let std = [e.r64(params + 0x20), e.r64(params + 0x28), e.r64(params + 0x30)];
+    let image = crate::pe::norm(&image);
+    let Some(bytes) = e.s.files.get(&image).cloned() else {
+        if unsafe { crate::WINE_DEBUG } > 0 { crate::console(&format!("[inksoc] CreateProcess: {} not found\n", image)); }
+        return 0xC000_0034; // OBJECT_NAME_NOT_FOUND
+    };
+    let (pid, tid, th) = match e.create_process(&image, &cmd, env, std, tflags & 1 != 0) {
+        Ok(r) => r,
+        Err(m) => {
+            crate::console(&format!("[inksoc] CreateProcess {}: {}\n", image, m));
+            return 0xC000_0034;
+        }
+    };
+    if unsafe { crate::WINE_DEBUG } > 1 { crate::console(&format!("[inksoc] CreateProcess {} -> pid {} tid {}\n", cmd, pid, tid)); }
+    let ph = e.new_handle(Handle::Process { pid });
+    e.w64(ph_out, ph);
+    e.w64(th_out, th);
+    // the attribute list: ULONG_PTR total length, then {attribute, size, value, return length}
+    if attrs != 0 {
+        let total = e.r64(attrs);
+        let mut a = attrs + 8;
+        while a + 32 <= attrs + total {
+            let (kind, size, val) = (e.r64(a), e.r64(a + 8), e.r64(a + 16));
+            match kind & 0xFFFF {
+                3 if size >= 16 => { e.w64(val, pid as u64); e.w64(val + 8, tid as u64); } // client id
+                6 if size >= 0x40 => { // SECTION_IMAGE_INFORMATION
+                    e.zero_n(val, 0x40);
+                    e.w64(val + 0x10, 0x10_0000);
+                    e.w64(val + 0x18, 0x1000);
+                    e.w32(val + 0x20, crate::pe::subsystem(&bytes).unwrap_or(2) as u32);
+                    e.w16(val + 0x26, 6);
+                    e.w16(val + 0x30, if crate::wow64::is_pe32(&bytes) { 0x14C } else { 0x8664 });
+                    e.w8(val + 0x32, 1);
+                    e.w32(val + 0x38, bytes.len() as u32);
+                }
+                _ => {}
+            }
+            a += 32;
+        }
+    }
+    OK
 }

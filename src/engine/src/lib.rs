@@ -106,6 +106,7 @@ pub struct Engine {
 /// Everything the cores share (used under the engine lock with several cores).
 pub struct Shared {
     pub exited: bool,
+    pub main_done: bool,   // the first process ended while child processes still run
     pub exit_code: u32,
     pub error: Option<String>,
     pub next_alloc: u64,
@@ -213,7 +214,7 @@ pub extern "C" fn buffer(len: u32) -> *mut u8 {
 pub extern "C" fn init(pool_mb: u32, target_mb: u32) {
     unsafe {
         SHARED = Some(Shared {
-            exited: false, exit_code: 0, error: None,
+            exited: false, main_done: false, exit_code: 0, error: None,
             next_alloc: 0x0000_0200_0000_0000, // 2 TB: far above 4 GB on purpose
             next_dll: 0x0000_7FF0_0000_0000,
             bridge_calls: 0,
@@ -402,6 +403,10 @@ pub extern "C" fn run(budget: u32) -> i32 {
     if e.s.error.is_some() { 2 } else if e.s.exited { 1 } else if idle { 3 } else { 0 }
 }
 
+/// Debug: stop-free watch point (NOJIT); up to 8.
+#[no_mangle]
+pub extern "C" fn add_watch(a: u32) { unsafe { if let Some(w) = cpu::WATCH.iter_mut().find(|w| **w == 0) { *w = a as u64; } } }
+
 static mut TRACE: bool = false;
 /// Prints every native call (debugging).
 #[no_mangle]
@@ -568,6 +573,7 @@ impl Engine {
                 }
             }
         }
+        if unsafe { WINE_DEBUG } > 1 { { let iat = self.mmu.read64(0x7a406000).unwrap_or(1); console(&format!("[fault] tid {} pid {} {} region {:x?} wow64cpu iat {:x}\n", self.cur_tid(), self.s.wpid, m, self.mmu.region_of(addr), iat)); } }
         self.set_error(m);
     }
     /// Stops the program with a message (the first error wins).
@@ -619,7 +625,14 @@ impl Engine {
         while let Some(end) = self.mmu.overlap_end(a, a + size) {
             a = (end + 0xFFFF) & !0xFFFF;
         }
-        if a + size > limit { return None; }
+        if a + size > limit {
+            // the address space is used up to the top: go back for room that was freed
+            // (a 32-bit program that allocates and frees big buffers gets there quickly)
+            let from = if limit < 0x1_0000_0000 { crate::wow64::LOW_ALLOC } else { 0x0000_0200_0000_0000 };
+            let a = self.mmu.first_gap(from, limit, size, 0x10000)?;
+            self.jit.forget(a, a + size);
+            return Some(a);
+        }
         self.s.next_alloc = a + size + 0x10000;
         Some(a)
     }
