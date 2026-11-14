@@ -344,6 +344,12 @@ pub(crate) fn reg_loc(r: u8, size: u32, rex: u8) -> Loc {
 
 macro_rules! g { ($e:expr, $x:expr) => { match $x { Ok(v) => v, Err(_) => return } } }
 
+#[cfg(feature = "ophist")]
+pub static mut OPHIST: [u64; 512] = [0; 512];
+#[cfg(feature = "ophist")]
+#[no_mangle]
+pub extern "C" fn ophist(i: u32) -> f64 { unsafe { OPHIST[(i as usize) & 511] as f64 } }
+
 fn step_raw(e: &mut Engine) {
     let mut buf = [0u8; 16];
     let rip = e.cpu.rip;
@@ -369,6 +375,8 @@ fn step_raw(e: &mut Engine) {
         }
     }
     if (0x40..0x50).contains(&op) && !e.cpu.mode32 { rex = op; op = d.u8(); }
+    #[cfg(feature = "ophist")]
+    unsafe { let k = if op == 0x0F { 0x100 + d.b[d.p.min(15)] as usize } else { op as usize }; OPHIST[k] += 1; }
     // lock prefix (and xchg with memory): atomic against the other cores
     let _atomic = if crate::lock::MT && (locked || ((op == 0x86 || op == 0x87) && d.b[d.p.min(15)] >> 6 != 3)) {
         crate::lock::count_locked();

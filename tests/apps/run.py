@@ -55,6 +55,7 @@ for r in json.load(open(os.path.join(here, 'request.json'))):
     clicks = []
     for t, x, y in r.get('clicks', []): clicks += [[t * 1000, 1, x, y, 0], [t * 1000 + 50, 2, x, y, 0], [t * 1000 + 150, 3, x, y, 0]]
     env = dict(os.environ, LIMIT=str(r.get('limit', 600)), INPUT=json.dumps(clicks), SHOT=os.path.join(out, r['name'] + '.ppm'))
+    if r.get('ophist'): env['WASM'] = os.path.join(here, 'ophist.wasm')
     if r.get('prof'): env['PROF'] = os.path.join(out, r['name'] + '-prof')
     log = open(os.path.join(out, r['name'] + '.log'), 'w')
     jobs.append((r['name'], time.time(), subprocess.Popen([os.path.join(inksoc, 'compat/app.sh'), d, exe, args], env=env, stdout=log, stderr=subprocess.STDOUT), log))
@@ -68,6 +69,8 @@ for name, t0, p, log in jobs:
     res = text[-1] if text else ''
     try: j = json.loads(res); print('RESULT', name, j['status'], j['error'][:300].replace('\n', ' | '), len(j['files']), 'files,', j.get('mips'), 'MIPS,', secs, 's')
     except Exception: print('RESULT', name, 'crashed', ' | '.join(text[-5:])[:300])
+    for l in text:
+        if l.startswith('OPHIST'): print(l)
     # where the time went (node --cpu-prof): functions by own time, wasm ones by name
     pd = os.path.join(out, name + '-prof')
     for pf in (os.listdir(pd) if os.path.isdir(pd) else []):

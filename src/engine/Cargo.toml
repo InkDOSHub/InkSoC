@@ -16,6 +16,8 @@ codegen-units = 1
 
 [features]
 prof = []
+# measurement only: counts the opcodes the interpreter runs (export ophist)
+ophist = []
 # instruction-by-instruction check against a reference CPU (tools/diff)
 diff = []
 ab_tlb = []

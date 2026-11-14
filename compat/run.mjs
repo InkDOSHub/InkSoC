@@ -129,5 +129,6 @@ async function runOne({ files, exe, args }) {
   const missing = [...new Set((out.match(/\[inksoc\] \S+ is not available yet/g) || []).map((s) => s.split(' ')[1]))];
   const ms = performance.now() - t0;
   if (process.env.PROF && x.prof_dump) { x.prof_dump(); console.error('PROF\n' + msg()); }
+  if (x.ophist) { const h = []; for (let i = 0; i < 512; i++) h.push([x.ophist(i), i]); h.sort((a, b) => b[0] - a[0]); const t = h.reduce((s, v) => s + v[0], 0) || 1; for (const [n, i] of h.slice(0, 30)) console.log('OPHIST ' + (i >= 256 ? '0F ' + (i - 256).toString(16) : i.toString(16)) + ' ' + (100 * n / t).toFixed(1) + '% ' + n); }
   console.log('\n' + JSON.stringify({ status, exitCode: x.stat(6), error: st === 2 ? msg() : (status === 'timeout' ? 'still running after ' + LIMIT_S + ' s' : ''), missing, out: out.slice(-4000), files: outFiles, mips: Math.round(x.stat(0) / ms / 1000) }));
 }
