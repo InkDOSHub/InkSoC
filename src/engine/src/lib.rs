@@ -325,7 +325,13 @@ pub extern "C" fn start() -> i32 {
     let b = unsafe { std::mem::take(&mut BUF) };
     let nl = b.iter().position(|&c| c == 0).unwrap_or(b.len());
     let name = pe::norm(&String::from_utf8_lossy(&b[..nl]));
-    let cmd = String::from_utf8_lossy(b.get(nl + 1..).unwrap_or(&[])).into_owned();
+    let mut cmd = String::from_utf8_lossy(b.get(nl + 1..).unwrap_or(&[])).into_owned();
+    // a program path with spaces starts the command line in quotes, as Windows writes it
+    // (else the program reads "C:\Program" and "Files\..." as two arguments)
+    let raw = String::from_utf8_lossy(&b[..nl]).into_owned();
+    if raw.contains(' ') && cmd.to_ascii_lowercase().starts_with(&raw.to_ascii_lowercase()) {
+        cmd = format!("\"{}\"{}", &cmd[..raw.len()], &cmd[raw.len()..]);
+    }
     let e = eng();
     if let Some(d) = e.s.files.get("roots.der").cloned() {
         e.s.fs.reg.seed_roots(&d);
