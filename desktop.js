@@ -177,7 +177,7 @@ function run(files, exe, args, label, home, opts = {}) {
   raise(p);
   p.label = label;
   p.icon = opts.icon || 'application-x-executable';
-  const w = p.w = new Worker('worker.js?v=70');
+  const w = p.w = new Worker('worker.js?v=71');
   w.onmessage = (ev) => {
     const d = ev.data;
     if (d.type === 'log') { out.textContent += d.text.replace(/\r/g, ''); out.scrollTop = out.scrollHeight; }
@@ -362,7 +362,7 @@ setInterval(tick, 1000);
 // File Explorer, Command Prompt, System Monitor: tools.js loads the first time one is opened
 let toolsReady = null;
 function loadTools() {
-  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=13'; s.onload = ok; s.onerror = fail; document.head.append(s); });
+  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=14'; s.onload = ok; s.onerror = fail; document.head.append(s); });
   return toolsReady;
 }
 async function tool(name, arg) {
