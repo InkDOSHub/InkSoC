@@ -73,7 +73,7 @@ function toolWindow(label, cls) {
   p.con.classList.add(cls);
   p.con.querySelector('span').textContent = label;
   p.con.querySelector('table').remove();
-  if (cls === 'win') p.con.style.left = 110 + (progs.length % 5) * 28 + 'px'; // the desktop icons stay visible
+  if (cls === 'win') p.con.style.left = Math.max(0, Math.min(110 + (progs.length % 5) * 28, desk.clientWidth - p.con.offsetWidth)) + 'px'; // the desktop icons stay visible (on a phone it fits the screen)
   raise(p);
   return p;
 }
@@ -250,7 +250,7 @@ function openDiag() {
     try {
       const t0 = performance.now();
       const done = await new Promise((res) => {
-        const w = new Worker('worker.js?v=64');
+        const w = new Worker('worker.js?v=65');
         const stop = setTimeout(() => { w.terminate(); res({ ok: false, error: 'no answer in 60 s' }); }, 60000);
         w.onmessage = (ev) => { if (ev.data.type === 'done') { clearTimeout(stop); w.terminate(); res(ev.data); } };
         w.onerror = (e) => { clearTimeout(stop); res({ ok: false, error: e.message }); };

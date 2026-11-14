@@ -26,7 +26,8 @@
   .con table{font:11px system-ui;color:#aaa;border-collapse:collapse;margin:0 10px 8px}.con td{padding:1px 6px 1px 0}
   .bar{position:fixed;bottom:0;left:0;right:0;height:48px;background:var(--bar);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;padding:0 10px;z-index:10}
   .bar button{font:inherit;border-radius:9px;padding:7px 12px;cursor:pointer;color:inherit;white-space:nowrap}
-  #start{background:var(--soft);color:var(--softfg);font-weight:600;border:0}
+  #start{background:var(--accent);color:#fff;font-weight:600;border:0;padding:7px 18px;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+  #start:active{transform:translateY(1px);box-shadow:none}
   #tasks{display:flex;gap:6px;overflow-x:auto;flex:1;min-width:0}
   .task{background:var(--bg);border:1px solid var(--border)}
   .task.on{border-color:var(--accent)}
@@ -40,8 +41,17 @@
   .pop .set{display:flex;gap:10px;align-items:center;padding:6px 12px;color:var(--muted);font-size:13px}
   .pop input[type=text],.pop select{font:inherit;padding:5px 8px;border-radius:7px;border:1px solid var(--border);background:var(--bg);color:inherit}
   .pop input[type=text]{width:100%}
-  #infop{left:auto;right:10px;width:min(360px,calc(100% - 20px));padding:12px 14px;font-size:13px;line-height:1.45;color:var(--fg)}
+  #more{font:20px system-ui;background:none;border:0;color:var(--fg);cursor:pointer;padding:4px 6px}
+  #infop{left:auto;right:10px;top:50px;bottom:auto;width:min(360px,calc(100% - 20px));padding:12px 14px;font-size:13px;line-height:1.45;color:var(--fg)}
   #infop p{margin:0 0 8px}
+  .tabs{display:flex;gap:4px;margin-bottom:10px;background:var(--hover);border-radius:8px;padding:3px}
+  .tabs button{flex:1;font:inherit;border:0;border-radius:6px;padding:6px;background:none;color:inherit;cursor:pointer}
+  .tabs button.on{background:var(--menu);box-shadow:0 1px 2px rgba(0,0,0,.15);font-weight:600}
+  .sw{display:flex;gap:8px;align-items:center;font-weight:600;margin-bottom:8px}
+  .con .grip{position:absolute;right:0;bottom:0;width:26px;height:26px;cursor:nwse-resize;touch-action:none;background:linear-gradient(135deg,transparent 55%,rgba(128,128,128,.7) 55%,rgba(128,128,128,.7) 62%,transparent 62%,transparent 72%,rgba(128,128,128,.7) 72%,rgba(128,128,128,.7) 79%,transparent 79%)}
+  #off{position:fixed;inset:0;z-index:50;background:#000;color:#ddd;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font:16px system-ui}
+  #off[hidden]{display:none}
+  #off button{margin-top:14px;font:15px system-ui;padding:8px 20px;border-radius:9px;border:0;background:var(--accent);color:#fff;cursor:pointer}
   /* on-screen game controls (touch screens): arrows on the left, action keys on the right */
   #pad{position:fixed;left:0;right:0;bottom:56px;height:0;z-index:15;pointer-events:none}
   #pad[hidden]{display:none}
@@ -78,7 +88,7 @@
   #setp{width:320px}
   #status{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
   #clock{color:var(--muted);font-size:13px;white-space:nowrap}
-  .con.win{background:#fff;color:#111;width:min(720px,calc(100% - 24px));height:min(460px,calc(100% - 24px));resize:both}
+  .con.win{background:#fff;color:#111;width:min(720px,calc(100% - 24px));height:min(460px,calc(100% - 24px))}
   .con.win .t{background:#eef1f5;color:#111}.con.win .t button{color:#333}
   .con.win .fbar{background:#fff;color:#333;border-bottom:1px solid #e3e3e3}
   .con.win .fbar button,.con.win .fbar label{background:#f1f1f1;color:#222}
@@ -101,7 +111,7 @@
 </style>
 </head>
 <body>
-<div class="top"><a href="/">&lt; InkDOS Hub</a><b>🖥 InkSoC</b><span class="r"></span></div>
+<div class="top"><a href="/">&lt; InkDOS Hub</a><b>🖥 InkSoC</b><span class="r"><button id="more" title="Menu">☰</button></span></div>
 <div id="desk"><div id="icons"></div></div>
 <div class="pop" id="menu" hidden>
   <input type="search" id="find" placeholder="🔍 Search programs" autocomplete="off" spellcheck="false">
@@ -125,10 +135,18 @@
   <a class="it" href="tests.html">Engine tests (developers) →</a>
 </div>
 <div class="pop" id="infop" hidden>
+  <div class="tabs"><button class="on" data-tab="about">Info</button><button data-tab="controls">Controls</button></div>
+  <div data-pane="controls" hidden>
+    <label class="sw"><input type="checkbox" id="padon"> On-screen controls</label>
+    <p>Arrow keys on the left, action keys (Z, X, A, S, Q, Esc) on the right, over the program's screen, like the touch controls of an emulator. Several can be held at once. A real keyboard works too and hides them.</p>
+  </div>
+  <div data-pane="about">
   <p><b>InkSoC</b> runs Windows programs (.exe, 64-bit and 32-bit) in this tab with its own engine: no Wine install, no Linux, nothing sent to a server.</p>
   <p>Drive C: lives in this browser's private storage and stays after a reload. To bring a program in, drop its file on the desktop or use "Copy here…" in File Explorer; it lands in Downloads, and a double tap opens it there (.exe runs, .msi installs, .zip unpacks). Installed programs appear in Start.</p>
-  <p>Each running program gets a button in the bar: tap it to bring it to the front or hide it. Several cores need the hub.inkdos.workers.dev address.</p>
+  <p>Each running program gets a button in the bar: tap it to bring it to the front or hide it. Windows move by their title bar and change size by their bottom-right corner; □ fills the screen. Several cores need the hub.inkdos.workers.dev address.</p>
+  </div>
 </div>
+<div id="off" hidden><p>InkSoC is shut down.<br><small>Every program stopped and drive C: is saved.</small></p><button onclick="location.reload()">Turn on</button></div>
 <div id="pad" hidden>
   <div class="k d" data-vk="38" style="left:72px;bottom:128px">▲</div>
   <div class="k d" data-vk="37" style="left:12px;bottom:68px">◀</div>
@@ -141,7 +159,7 @@
   <div class="k s" data-vk="65" style="right:118px;bottom:190px">A</div>
   <div class="k s" data-vk="83" style="right:170px;bottom:190px">S</div>
 </div>
-<div class="bar"><button id="start">⊞ Start</button><div id="tasks"></div><span id="status"></span><button id="padbtn" title="Game controls" hidden>🎮</button><button id="info" title="About">i</button><span id="clock"></span></div>
-<script src="desktop.js?v=35"></script>
+<div class="bar"><button id="start">Start</button><div id="tasks"></div><span id="status"></span><span id="clock"></span></div>
+<script src="desktop.js?v=36"></script>
 </body>
 </html>

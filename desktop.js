@@ -43,11 +43,33 @@ function consoleWindow(p, title) {
   const n = progs.length;
   c.style.left = 12 + (n % 5) * 28 + 'px';
   c.style.top = 12 + (n % 5) * 28 + 'px';
-  c.innerHTML = '<div class="t"><span></span><button title="Hide">–</button><button title="Stop">✕</button></div><table></table><pre></pre>';
-  c.querySelector('span').textContent = title + ' — Console';
-  const [hide, stop] = c.querySelectorAll('button');
+  c.innerHTML = '<div class="t"><span></span><button title="Hide">–</button><button title="Fill the screen">□</button><button title="Close">✕</button></div><table></table><pre></pre><div class="grip" title="Resize"></div>';
+  c.querySelector('span').textContent = title;
+  const [hide, max, stop] = c.querySelectorAll('.t button');
   hide.onclick = () => setHidden(p, true);
   stop.onclick = () => close(p);
+  // □: fill the desktop, again: back to the size it had
+  let before = null;
+  max.onclick = () => {
+    if (before) { Object.assign(c.style, before); before = null; return; }
+    before = { left: c.style.left, top: c.style.top, width: c.style.width, height: c.style.height };
+    Object.assign(c.style, { left: '0px', top: '0px', width: desk.clientWidth + 'px', height: desk.clientHeight + 'px' });
+  };
+  // resize by the bottom-right corner (works with a finger: pointer events, not CSS resize)
+  const grip = c.querySelector('.grip');
+  grip.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    raise(p);
+    grip.setPointerCapture(e.pointerId);
+    const w0 = c.offsetWidth - e.clientX, h0 = c.offsetHeight - e.clientY;
+    grip.onpointermove = (m) => {
+      c.style.width = Math.max(220, Math.min(desk.clientWidth - c.offsetLeft, w0 + m.clientX)) + 'px';
+      c.style.height = Math.max(140, Math.min(desk.clientHeight - c.offsetTop, h0 + m.clientY)) + 'px';
+      before = null;
+    };
+    grip.onpointerup = () => { grip.onpointermove = null; };
+  });
   // drag by the title bar
   const t = c.querySelector('.t');
   t.addEventListener('pointerdown', (e) => {
@@ -63,6 +85,8 @@ function consoleWindow(p, title) {
   });
   c.addEventListener('pointerdown', () => raise(p));
   desk.append(c);
+  // a phone: the window starts inside the screen
+  if (c.offsetLeft + c.offsetWidth > desk.clientWidth) c.style.left = Math.max(0, desk.clientWidth - c.offsetWidth) + 'px';
   return c;
 }
 
@@ -137,7 +161,7 @@ function run(files, exe, args, label, home, opts = {}) {
   const out = p.con.querySelector('pre');
   if (opts.typing) typingLine(p, out);
   raise(p);
-  const w = p.w = new Worker('worker.js?v=64');
+  const w = p.w = new Worker('worker.js?v=65');
   w.onmessage = (ev) => {
     const d = ev.data;
     if (d.type === 'log') { out.textContent += d.text.replace(/\r/g, ''); out.scrollTop = out.scrollHeight; }
@@ -275,10 +299,10 @@ for (const k of document.querySelectorAll('#pad .k')) {
   k.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 // the 🎮 button shows on touch screens; the controls stay hidden until it is tapped
-if (matchMedia('(pointer: coarse)').matches) $('padbtn').hidden = false;
-$('padbtn').onclick = () => { const on = $('pad').hidden; $('pad').hidden = !on; $('padbtn').classList.toggle('on', on); };
+// they are switched on in ☰ > Controls
+$('padon').onchange = () => { $('pad').hidden = !$('padon').checked; };
 // a real keyboard got connected and used: the on-screen controls step aside (🎮 brings them back)
-addEventListener('keydown', (e) => { if (e.target.tagName !== 'INPUT' && !$('pad').hidden) { $('pad').hidden = true; $('padbtn').classList.remove('on'); } }, true);
+addEventListener('keydown', (e) => { if (e.target.tagName !== 'INPUT' && !$('pad').hidden) { $('pad').hidden = true; $('padon').checked = false; } }, true);
 addEventListener('keydown', key(4));
 addEventListener('keyup', key(5));
 
@@ -287,7 +311,14 @@ const pops = ['menu', 'setp', 'infop'];
 function closePops() { for (const id of pops) $(id).hidden = true; }
 function togglePop(id) { const h = $(id).hidden; closePops(); $(id).hidden = !h; return h; }
 $('start').onclick = (e) => { e.stopPropagation(); if (togglePop('menu')) { listDrive(); $('find').value = ''; showMenu(); } };
-$('info').onclick = (e) => { e.stopPropagation(); togglePop('infop'); };
+$('more').onclick = (e) => { e.stopPropagation(); togglePop('infop'); };
+// ☰ has two tabs: Info and Controls
+for (const b of document.querySelectorAll('.tabs button')) {
+  b.onclick = () => {
+    for (const x of document.querySelectorAll('.tabs button')) x.classList.toggle('on', x === b);
+    for (const pane of document.querySelectorAll('[data-pane]')) pane.hidden = pane.dataset.pane !== b.dataset.tab;
+  };
+}
 document.addEventListener('click', (e) => { if (!e.target.closest('.pop')) closePops(); });
 $('find').oninput = () => showMenu();
 $('find').onkeydown = (e) => { if (e.key === 'Enter') { const b = $('installed').querySelector('button'); if (b) b.click(); } };
@@ -301,7 +332,7 @@ setInterval(tick, 15000);
 // File Explorer, Command Prompt, Diagnostics: tools.js loads the first time one is opened
 let toolsReady = null;
 function loadTools() {
-  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=4'; s.onload = ok; s.onerror = fail; document.head.append(s); });
+  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=5'; s.onload = ok; s.onerror = fail; document.head.append(s); });
   return toolsReady;
 }
 async function tool(name, arg) {
@@ -315,8 +346,14 @@ for (const b of document.querySelectorAll('[data-tool]')) b.onclick = (e) => { e
 // Shut down: every program stops and keeps its files on drive C:
 $('shutdown').onclick = () => {
   closePops();
+  const busy = progs.some((p) => p.w);
   for (const p of progs.slice()) close(p);
-  note('All programs stopped; drive C: saved');
+  // a dark screen, like a computer that is off; programs get up to 5 s to save drive C: first
+  const msg = $('off').querySelector('small');
+  $('off').querySelector('button').hidden = busy;
+  msg.textContent = busy ? 'Saving drive C:…' : 'Every program stopped and drive C: is saved.';
+  $('off').hidden = false;
+  if (busy) setTimeout(() => { msg.textContent = 'Every program stopped and drive C: is saved.'; $('off').querySelector('button').hidden = false; }, 5200);
 };
 
 /* ---------- opening a file that is on drive C: (by its Windows path) ---------- */
