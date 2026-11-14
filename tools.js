@@ -250,7 +250,7 @@ function openDiag() {
     try {
       const t0 = performance.now();
       const done = await new Promise((res) => {
-        const w = new Worker('worker.js?v=65');
+        const w = new Worker('worker.js?v=66');
         const stop = setTimeout(() => { w.terminate(); res({ ok: false, error: 'no answer in 60 s' }); }, 60000);
         w.onmessage = (ev) => { if (ev.data.type === 'done') { clearTimeout(stop); w.terminate(); res(ev.data); } };
         w.onerror = (e) => { clearTimeout(stop); res({ ok: false, error: e.message }); };

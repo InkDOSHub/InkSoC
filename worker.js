@@ -178,7 +178,7 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
   };
   let jitErr = 0;
   let wine;
-  let [wasm, wineWasm] = await Promise.all([mt ? 'inksoc-mt.wasm?v=50' : 'inksoc.wasm?v=73', 'wine.wasm?v=2'].map((u) => fetch(u).then((r) => r.arrayBuffer())));
+  let [wasm, wineWasm] = await Promise.all([mt ? 'inksoc-mt.wasm?v=51' : 'inksoc.wasm?v=74', 'wine.wasm?v=2'].map((u) => fetch(u).then((r) => r.arrayBuffer())));
   // test: the same engine on a shared memory (what several cores need), to compare speed
   if (mt) {
     importScripts('sharedmem.js?v=1');
@@ -450,7 +450,7 @@ async function runLinux({ files, cmd, poolMb, jit, rows, cols }) {
       } catch (e) { return -1; }
     },
   };
-  const wasm = await fetch('inksoc.wasm?v=73').then((r) => r.arrayBuffer());
+  const wasm = await fetch('inksoc.wasm?v=74').then((r) => r.arrayBuffer());
   x = (await WebAssembly.instantiate(wasm, { env })).instance.exports;
   mem = x.memory;
   const enc = new TextEncoder();
@@ -670,6 +670,7 @@ onmessage = (ev) => {
   if (d.winedebug) self.wineDebug = d.winedebug;
   if (d.winetrace) self.wineTrace = d.winetrace;
   if (d.type === 'win') { if (winX) winX.win_input(d.k, d.x, d.y, d.d); return; }
+  if (d.type === 'pad') { if (winX && winX.win_pad) winX.win_pad(d.on, d.b, d.l, d.r); return; }
   if (d.type === 'stdin') { if (typeIn) typeIn(d.text); return; }
   if (d.type === 'key') { if (lxs) lxs.key(d.data); return; }
   if (d.type === 'resize') { if (lxs) lxs.resize(d.rows, d.cols); return; }

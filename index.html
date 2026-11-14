@@ -55,13 +55,22 @@
   /* on-screen game controls (touch screens): arrows on the left, action keys on the right */
   #pad{position:fixed;left:0;right:0;bottom:56px;height:0;z-index:15;pointer-events:none}
   #pad[hidden]{display:none}
-  #pad .k{position:absolute;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;border:1px solid rgba(255,255,255,.35);background:rgba(20,20,24,.38);color:#fff;font:600 17px -apple-system,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
-  #pad .k.down{background:rgba(124,58,237,.6)}
-  #pad .d{width:56px;height:56px;border-radius:12px}
-  #pad .b{width:66px;height:66px;border-radius:50%;font-size:20px}
-  #pad .s{width:46px;height:30px;border-radius:8px;font-size:12px;font-weight:500}
-  #padbtn{background:none;border:1px solid var(--border);flex:none}
-  #padbtn.on{border-color:var(--accent)}
+  #pad .gp{position:absolute;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;border:1.5px solid rgba(255,255,255,.45);background:rgba(20,20,24,.32);color:#fff;font:600 18px -apple-system,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)}
+  #pad .gp.down{background:rgba(124,58,237,.55)}
+  #pad .btn,#pad .stick{border-radius:50%}
+  #pad .trig,#pad .small{border-radius:10px;font-size:13px}
+  #pad .small{font-size:12px;font-weight:500}
+  #pad .stick i{width:46%;height:46%;border-radius:50%;background:rgba(255,255,255,.4);border:1.5px solid rgba(255,255,255,.6)}
+  #pad .dpad{border:0;background:none;-webkit-backdrop-filter:none;backdrop-filter:none}
+  #pad .dpad svg{width:100%;height:100%}
+  #pad .dpad path{fill:rgba(20,20,24,.32);stroke:rgba(255,255,255,.45);stroke-width:1.5}
+  #pad .dpad path.ar{fill:rgba(255,255,255,.75);stroke:none}
+  #pad .dpad:not([data-dir=""])[data-dir] path:first-child{fill:rgba(124,58,237,.45)}
+  #pad.editing .gp{outline:1px dashed rgba(255,255,255,.7)}
+  #pad .gp.picked{outline:2px solid #facc15}
+  #pad .gpbar{position:absolute;left:50%;transform:translateX(-50%);bottom:8px;pointer-events:auto;display:flex;gap:6px;align-items:center;background:rgba(20,20,24,.5);border-radius:10px;padding:4px 6px;color:#fff;font:12px system-ui}
+  #pad .gpbar button{font:12px system-ui;border:0;border-radius:7px;padding:4px 10px;background:rgba(255,255,255,.2);color:#fff;cursor:pointer}
+  #pad .gpbar input{width:90px}
   /* Files and Console (tools.js) */
   .con .fbar{display:flex;gap:8px;align-items:center;padding:6px 10px;background:#1b1b1b;font:12px system-ui;color:#bbb}
   .con .fbar span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:Menlo,ui-monospace,monospace}
@@ -139,7 +148,7 @@
   <div class="tabs"><button class="on" data-tab="about">Info</button><button data-tab="controls">Controls</button></div>
   <div data-pane="controls" hidden>
     <label class="sw"><input type="checkbox" id="padon"> On-screen controls</label>
-    <p>Arrow keys on the left, action keys (Z, X, A, S, Q, Esc) on the right, over the program's screen, like the touch controls of an emulator. Several can be held at once. A real keyboard works too and hides them.</p>
+    <p>A full controller over the program's screen: two sticks, D-pad, A B X Y, L1 R1 L2 R2, Select and Start. Games that support controllers see an Xbox controller; games that only read the keyboard get arrows, Z X A S, Q W E R, Enter and Esc. "Edit" moves controls and changes their size. A controller connected to this device (Bluetooth or USB) works too, even with these hidden.</p>
   </div>
   <div data-pane="about">
   <p><b>InkSoC</b> runs Windows programs (.exe, 64-bit and 32-bit) in this tab with its own engine: no Wine install, no Linux, nothing sent to a server.</p>
@@ -148,19 +157,10 @@
   </div>
 </div>
 <div id="off" hidden><p>InkSoC is shut down.<br><small>Every program stopped and drive C: is saved.</small></p><button onclick="location.reload()">Turn on</button></div>
-<div id="pad" hidden>
-  <div class="k d" data-vk="38" style="left:72px;bottom:128px">▲</div>
-  <div class="k d" data-vk="37" style="left:12px;bottom:68px">◀</div>
-  <div class="k d" data-vk="39" style="left:132px;bottom:68px">▶</div>
-  <div class="k d" data-vk="40" style="left:72px;bottom:8px">▼</div>
-  <div class="k b" data-vk="88" style="right:92px;bottom:28px">X</div>
-  <div class="k b" data-vk="90" style="right:14px;bottom:78px">Z</div>
-  <div class="k s" data-vk="27" style="right:14px;bottom:190px">Esc</div>
-  <div class="k s" data-vk="81" style="right:66px;bottom:190px">Q</div>
-  <div class="k s" data-vk="65" style="right:118px;bottom:190px">A</div>
-  <div class="k s" data-vk="83" style="right:170px;bottom:190px">S</div>
+<div id="pad" hidden></div>
 </div>
 <div class="bar"><button id="start">Start</button><div id="tasks"></div><span id="status"></span><span id="clock"></span></div>
-<script src="desktop.js?v=38"></script>
+<script src="desktop.js?v=39"></script>
+<script src="pad.js?v=1"></script>
 </body>
 </html>
