@@ -7,7 +7,8 @@
 <title>InkSoC · InkDOS Hub</title>
 <style>
   :root{--bg:#fff;--fg:#111;--muted:#666;--border:#ddd;--accent:#7c3aed;--soft:#ede9fe;--softfg:#5b21b6;--bar:rgba(255,255,255,.92);--menu:#fff;--hover:#f3f0ff;--desk:#3a6ea5}
-  @media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--muted:#999;--border:#333;--soft:#2e1065;--softfg:#ddd6fe;--bar:rgba(28,28,30,.92);--menu:#1c1c1e;--hover:#2e1065}}
+  @media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#111;--fg:#eee;--muted:#999;--border:#333;--soft:#2e1065;--softfg:#ddd6fe;--bar:rgba(28,28,30,.92);--menu:#1c1c1e;--hover:#2e1065}}
+  :root[data-theme=dark]{--bg:#111;--fg:#eee;--muted:#999;--border:#333;--soft:#2e1065;--softfg:#ddd6fe;--bar:rgba(28,28,30,.92);--menu:#1c1c1e;--hover:#2e1065}
   *{box-sizing:border-box}
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--fg);font:14px -apple-system,system-ui,sans-serif;overflow:hidden}
@@ -121,6 +122,26 @@
   .con.diag .flist{padding:6px 12px;font:13px system-ui;line-height:1.5}
   .con.diag .chk{display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #eee}
   .con.diag .chk b{width:18px;flex:none}.con.diag .chk small{color:#666;display:block}
+  html[data-icons=none] #icons{display:none}
+  html[data-icons=small] .ico{width:70px;font-size:11px}html[data-icons=small] .ico .ic{width:32px;height:32px}
+  html[data-icons=large] .ico{width:100px;font-size:13px}html[data-icons=large] .ico .ic{width:60px;height:60px}
+  html[data-smooth="0"] #desk canvas{image-rendering:pixelated}
+  /* context menu (right click, or touch and hold) */
+  .ctx{position:fixed;z-index:40;min-width:190px;background:var(--menu);color:var(--fg);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.3);padding:5px;font:14px -apple-system,system-ui,sans-serif}
+  .ctx button{display:flex;align-items:center;width:100%;text-align:left;border:0;background:none;color:inherit;font:inherit;padding:8px 10px;border-radius:7px;cursor:pointer}
+  .ctx button:hover{background:var(--hover)}
+  .ctx button:disabled{opacity:.4}
+  .ctx hr{border:0;border-top:1px solid var(--border);margin:4px 0}
+  .con.win .frow .n input{font:13px system-ui;padding:1px 4px;width:70%}
+  .con.win .tbtn{margin-left:auto}
+  /* Settings window */
+  .con.sets .flist{padding:4px 14px 14px;font:13px system-ui;color:#222}
+  .con.sets h4{margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#7c3aed}
+  .con.sets .row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #eee}
+  .con.sets .row>span{flex:1}
+  .con.sets .row small{display:block;color:#777}
+  .con.sets select,.con.sets button{font:13px system-ui;padding:4px 8px;border-radius:7px;border:1px solid #ccc;background:#f6f6f6;color:#111;cursor:pointer}
+  .con.sets #walls{padding:4px 0}
   @media (max-width:520px){.con.win .side{display:none}#status{display:none}}
 </style>
 </head>
@@ -139,17 +160,6 @@
   <hr>
   <button class="it" id="shutdown"><img class="ic" src="icons/system-shutdown.svg" alt="">Shut down</button>
 </div>
-<div class="pop" id="setp" hidden>
-  <div class="mh">Settings</div>
-  <div class="set">Arguments <input type="text" id="args" placeholder="for the next program (optional)"></div>
-  <div class="set">Cores <select id="cores"><option>1</option><option>2</option><option>3</option><option>4</option></select>
-    <label><input type="checkbox" id="jit" checked> JIT</label></div>
-  <div class="set">Wallpaper</div>
-  <div id="walls"></div>
-  <div class="set">Last program <span id="speed">–</span></div>
-  <div class="set">Drive C: <span id="csize">empty</span> <button class="it" id="cerase" style="width:auto;padding:4px 10px;margin-left:auto">Erase</button></div>
-  <a class="it" href="tests.html">Engine tests (developers) →</a>
-</div>
 <div class="pop" id="infop" hidden>
   <div class="tabs"><button class="on" data-tab="about">Info</button><button data-tab="controls">Controls</button></div>
   <div data-pane="controls" hidden>
@@ -166,8 +176,9 @@
 <div id="pad" hidden></div>
 </div>
 <div class="bar"><button id="start">Start</button><div id="tasks"></div><span id="status"></span><span id="clock"></span></div>
-<script src="desktop.js?v=40"></script>
+<script src="prefs.js?v=1"></script>
+<script src="desktop.js?v=41"></script>
 <script src="pad.js?v=1"></script>
-<script src="wall.js?v=1"></script>
+<script src="wall.js?v=2"></script>
 </body>
 </html>

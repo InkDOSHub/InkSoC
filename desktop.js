@@ -122,7 +122,7 @@ function play(p, d) {
   const key = p.id + ':' + d.id;
   if (d.stop) { soundStop(key); return; }
   const ctx = sound.ctx;
-  if (!ctx || ctx.state !== 'running') return;
+  if (!ctx || ctx.state !== 'running' || !prefs.sound) return;
   let s = sound.streams.get(key);
   if (!s) sound.streams.set(key, s = { next: 0, nodes: new Set() });
   const frames = d.data.length / d.ch, b = ctx.createBuffer(d.ch, frames, d.rate);
@@ -180,7 +180,7 @@ function run(files, exe, args, label, home, opts = {}) {
       const gips = d.insns / d.ms / 1e6;
       const tb = p.con.querySelector('table');
       if (tb) tb.innerHTML = '<tr><td>' + fmt(d.insns / d.ms / 1000) + ' MIPS · ' + (d.jit ? 'JIT' : 'interpreter') + ' · ' + d.cores + (d.cores > 1 ? ' cores' : ' core') + (d.threads > 1 ? ' · ' + d.threads + ' threads' : '') + ' · RAM ' + fmt(d.resident * 4 / 1024) + '/' + fmt(d.frames * 4 / 1024) + ' MB' + (d.swapOut || d.swapIn ? ' · swap ' + fmt(d.swapOut * 4 / 1024) + ' MB out, ' + fmt(d.swapIn * 4 / 1024) + ' MB in, ' + fmt(d.swapMs) + ' ms on ' + (d.opfs ? 'OPFS' : 'RAM') : '') + '</td></tr>';
-      $('speed').textContent = d.cores + (d.cores > 1 ? ' cores' : ' core') + ' · ' + (gips >= 1 ? gips.toFixed(1) + ' GIPS' : fmt(gips * 1000) + ' MIPS');
+      lastSpeed = d.cores + (d.cores > 1 ? ' cores' : ' core') + ' · ' + (gips >= 1 ? gips.toFixed(1) + ' GIPS' : fmt(gips * 1000) + ' MIPS');
     } else if (d.type === 'frame') frame(p, d);
     else if (d.type === 'audio') play(p, d);
     else if (d.type === 'done') {
@@ -207,7 +207,7 @@ function run(files, exe, args, label, home, opts = {}) {
     }
   };
   w.postMessage({ type: 'exec', files, exe, cmd: (/\s/.test(exe) ? '"' + exe + '"' : exe) + (args ? ' ' + args : ''), drive: true, home, poolMb: poolMb(), targetMb: 8192,
-    jit: $('jit').checked, cores: opts.typing ? 1 : +$('cores').value, typing: !!opts.typing, strong: new URLSearchParams(location.search).get('strong') !== '0', opt: new URLSearchParams(location.search).get('opt') !== '0', winedebug: +new URLSearchParams(location.search).get('winedebug') || 0, winetrace: new URLSearchParams(location.search).get('winetrace') || '' },
+    jit: prefs.jit, cores: opts.typing ? 1 : coresFor(), typing: !!opts.typing, strong: new URLSearchParams(location.search).get('strong') !== '0', opt: new URLSearchParams(location.search).get('opt') !== '0', winedebug: +new URLSearchParams(location.search).get('winedebug') || 0, winetrace: new URLSearchParams(location.search).get('winetrace') || '' },
   files ? files.map((f) => f.data).filter(Boolean) : []);
 }
 
@@ -307,7 +307,7 @@ addEventListener('keydown', key(4));
 addEventListener('keyup', key(5));
 
 /* ---------- Start menu, settings and info ---------- */
-const pops = ['menu', 'setp', 'infop'];
+const pops = ['menu', 'infop'];
 function closePops() { for (const id of pops) $(id).hidden = true; }
 function togglePop(id) { const h = $(id).hidden; closePops(); $(id).hidden = !h; return h; }
 $('start').onclick = (e) => { e.stopPropagation(); if (togglePop('menu')) { listDrive(); $('find').value = ''; showMenu(); } };
@@ -323,23 +323,36 @@ document.addEventListener('click', (e) => { if (!e.target.closest('.pop')) close
 $('find').oninput = () => showMenu();
 $('find').onkeydown = (e) => { if (e.key === 'Enter') { const b = $('installed').querySelector('button'); if (b) b.click(); } };
 const note = (t) => { $('status').textContent = t; };
+let lastSpeed = '', driveBytes = 0; // shown in Settings
+// the Recycle Bin: deleted files and folders wait in C:\$Recycle.Bin; this list (OPFS
+// "inksoc-trash.json") remembers where each came from: [{ id, name, from, at, dir, size }]
+let trashFull = false;
+async function readTrash() {
+  try { return JSON.parse(await (await (await (await navigator.storage.getDirectory()).getFileHandle('inksoc-trash.json')).getFile()).text()) || []; } catch (e) { return []; }
+}
+async function writeTrash(list) {
+  const w = await (await (await navigator.storage.getDirectory()).getFileHandle('inksoc-trash.json', { create: true })).createWritable();
+  await w.write(JSON.stringify(list));
+  await w.close();
+  trashFull = list.length > 0;
+  showIcons();
+}
 
 // the clock in the bar
-const tick = () => { $('clock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); };
+const tick = () => { $('clock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: prefs.seconds ? '2-digit' : undefined, hour12: !prefs.clock24 }); };
 tick();
-setInterval(tick, 15000);
+setInterval(tick, 1000);
 
 // File Explorer, Command Prompt, Diagnostics: tools.js loads the first time one is opened
 let toolsReady = null;
 function loadTools() {
-  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=7'; s.onload = ok; s.onerror = fail; document.head.append(s); });
+  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=8'; s.onload = ok; s.onerror = fail; document.head.append(s); });
   return toolsReady;
 }
 async function tool(name, arg) {
   closePops();
-  if (name === 'settings') { $('setp').hidden = false; listDrive(); return; }
   await loadTools();
-  ({ files: openFiles, console: openConsole, diag: openDiag })[name](arg);
+  ({ files: openFiles, console: openConsole, diag: openDiag, settings: openSettings })[name](arg);
 }
 for (const b of document.querySelectorAll('[data-tool]')) b.onclick = (e) => { e.stopPropagation(); tool(b.dataset.tool); };
 
@@ -360,12 +373,12 @@ $('shutdown').onclick = () => {
 const folderOf = (path) => path.slice(0, path.lastIndexOf('\\'));
 const baseName = (path) => path.split('\\').pop();
 function runPath(path, label) {
-  run([], path, $('args').value.trim(), label || baseName(path).replace(/\.exe$/i, ''), folderOf(path));
+  run([], path, '', label || baseName(path).replace(/\.exe$/i, ''), folderOf(path));
 }
 // a Windows Installer package: Windows' own msiexec installs it
 async function installMsi(path) {
   const data = await fetch('bin/wine/wine-msiexec.exe?v=1').then((r) => r.arrayBuffer());
-  run([{ name: 'msiexec.exe', data }], 'msiexec.exe', '/i "' + path + '"' + ($('args').value.trim() ? ' ' + $('args').value.trim() : ''), baseName(path).replace(/\.msi$/i, ''), folderOf(path), { icon: 'application-x-msi' });
+  run([{ name: 'msiexec.exe', data }], 'msiexec.exe', '/i "' + path + '"', baseName(path).replace(/\.msi$/i, ''), folderOf(path), { icon: 'application-x-msi' });
 }
 // what a double tap does in File Explorer or on the desktop
 async function openPath(path, file) {
@@ -455,7 +468,7 @@ async function listDrive() {
   const walk = async (dir, path, depth) => {
     for await (const [name, h] of dir.entries()) {
       const p = path + '\\' + name;
-      if (h.kind === 'directory') { await walk(h, p, depth + 1); continue; }
+      if (h.kind === 'directory') { if (name !== '$Recycle.Bin') await walk(h, p, depth + 1); continue; }
       const f = await h.getFile();
       bytes += f.size;
       const win = p.replace(/^C/, 'C:');
@@ -470,7 +483,7 @@ async function listDrive() {
     try { await walk(await root.getDirectoryHandle('C'), 'C', 1); } catch (e) { /* nothing installed yet */ }
     for await (const [, h] of root.entries()) if (h.kind === 'file') bytes += (await h.getFile()).size;
   }
-  $('csize').textContent = bytes ? fmt(bytes / 1048576) + ' MB' : 'empty';
+  driveBytes = bytes;
   // a shortcut names its program better than the .exe file does
   const byTarget = new Map();
   for (const l of links) {
@@ -480,6 +493,7 @@ async function listDrive() {
   for (const path of exes) if (!byTarget.has(path.toLowerCase())) byTarget.set(path.toLowerCase(), { name: baseName(path).replace(/\.exe$/i, ''), path });
   programs = [...byTarget.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   desktopItems = onDesk;
+  trashFull = (await readTrash()).length > 0;
   showMenu();
   showIcons();
   return programs;
@@ -500,12 +514,55 @@ function showMenu() {
   }) : [none]));
 }
 
+/* ---------- context menu: right click, or touch and hold ---------- */
+// items: [label, icon, action] or '-' for a line; an item without action shows disabled
+function contextMenu(x, y, items) {
+  closeMenu();
+  const m = document.createElement('div');
+  m.className = 'ctx';
+  for (const it of items) {
+    if (it === '-') { m.append(document.createElement('hr')); continue; }
+    const [label, ic, act] = it;
+    const b = document.createElement('button');
+    labelled(b, ic, label);
+    b.disabled = !act;
+    b.onclick = (e) => { e.stopPropagation(); closeMenu(); act(); };
+    m.append(b);
+  }
+  document.body.append(m);
+  m.style.left = Math.max(4, Math.min(x, innerWidth - m.offsetWidth - 4)) + 'px';
+  m.style.top = Math.max(4, Math.min(y, innerHeight - m.offsetHeight - 4)) + 'px';
+  setTimeout(() => addEventListener('pointerdown', closeOutside, true), 0);
+}
+function closeOutside(e) { if (!e.target.closest('.ctx')) closeMenu(); }
+function closeMenu() {
+  for (const m of document.querySelectorAll('.ctx')) m.remove();
+  removeEventListener('pointerdown', closeOutside, true);
+}
+// calls open(x, y) on a right click, or when a finger stays still on el for half a second;
+// the tap that follows a long press does nothing else
+function onHold(el, open) {
+  el.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); open(e.clientX, e.clientY); });
+  let timer = 0, x0 = 0, y0 = 0;
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') return;
+    x0 = e.clientX; y0 = e.clientY;
+    clearTimeout(timer);
+    timer = setTimeout(() => { el.dataset.held = '1'; open(x0, y0); }, 500);
+  });
+  el.addEventListener('pointermove', (e) => { if (Math.hypot(e.clientX - x0, e.clientY - y0) > 10) clearTimeout(timer); });
+  el.addEventListener('pointerup', () => clearTimeout(timer));
+  el.addEventListener('pointercancel', () => clearTimeout(timer));
+  el.addEventListener('click', (e) => { if (el.dataset.held) { delete el.dataset.held; e.stopPropagation(); e.preventDefault(); } }, true);
+}
+
 /* ---------- desktop icons: This PC, Command Prompt, Downloads, then the Desktop folder ---------- */
 function showIcons() {
   const items = [
     { icon: 'computer', name: 'This PC', open: () => tool('files', 'C:') },
     { icon: 'utilities-terminal', name: 'Command Prompt', open: () => tool('console') },
     { icon: 'folder-download', name: 'Downloads', open: () => tool('files', HOME + '\\Downloads') },
+    { icon: trashFull ? 'user-trash-full' : 'user-trash', name: 'Recycle Bin', open: () => tool('files', 'C:\\$Recycle.Bin') },
     ...desktopItems.map((d) => ({ icon: 'application-x-executable', name: baseName(d.path).replace(/\.(lnk|exe)$/i, ''), open: () => openPath(d.path, d.file) })),
   ];
   $('icons').replaceChildren(...items.map((it) => {
@@ -521,24 +578,25 @@ function showIcons() {
 // icons sit under the program screens, so the desktop finds them by position:
 // a tap selects, a second tap on the same icon opens it (like a double click)
 let lastIcon = null, lastTap = 0;
+const iconAt = (e) => [...$('icons').children].find((c) => { const r = c.getBoundingClientRect(); return e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom; });
+// touch and hold, or right click, on an icon: Open; on the empty desktop: the usual places
+let iconHold = 0;
+function iconMenu(x, y) {
+  const el = iconAt({ clientX: x, clientY: y });
+  if (el) contextMenu(x, y, [['Open', 'folder', () => el.open()]]);
+  else contextMenu(x, y, [['File Explorer', 'system-file-manager', () => tool('files')], ['Command Prompt', 'utilities-terminal', () => tool('console')], '-', ['Change wallpaper…', 'preferences-system', () => tool('settings')]]);
+}
+desk.addEventListener('contextmenu', (e) => { if (e.target === desk && !hit(...at(e))) iconMenu(e.clientX, e.clientY); });
 function iconTap(e) {
-  const el = [...$('icons').children].find((c) => { const r = c.getBoundingClientRect(); return e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom; });
+  clearTimeout(iconHold);
+  if (e.pointerType !== 'mouse') { const x = e.clientX, y = e.clientY; iconHold = setTimeout(() => iconMenu(x, y), 550); desk.addEventListener('pointerup', () => clearTimeout(iconHold), { once: true }); }
+  const el = iconAt(e);
   for (const c of $('icons').children) c.classList.toggle('sel', c === el);
   if (el && el === lastIcon && Date.now() - lastTap < 500) { el.classList.remove('sel'); lastIcon = null; el.open(); return; }
   lastIcon = el;
   lastTap = Date.now();
 }
 
-// erase: a second tap within 4 seconds confirms
-let eraseAsk = 0;
-$('cerase').onclick = async (e) => {
-  e.stopPropagation();
-  if (Date.now() - eraseAsk > 4000) { eraseAsk = Date.now(); $('cerase').textContent = 'Tap again'; setTimeout(() => { $('cerase').textContent = 'Erase'; }, 4000); return; }
-  eraseAsk = 0;
-  $('cerase').textContent = 'Erase';
-  try { await (await navigator.storage.getDirectory()).removeEntry('inksoc-c', { recursive: true }); } catch (err) { /* already empty */ }
-  listDrive();
-};
 // keep drive C: when the browser runs short of space
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 // the usual folders of the user's profile are there from the start
@@ -547,6 +605,4 @@ if (navigator.storage && navigator.storage.persist) navigator.storage.persist().
   listDrive();
 })();
 
-// default: up to 4 cores where the page is isolated (shared memory), 1 elsewhere
-$('cores').value = String(self.crossOriginIsolated ? Math.max(1, Math.min(navigator.hardwareConcurrency || 2, 4)) : 1);
 fit();
