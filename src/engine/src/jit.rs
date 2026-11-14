@@ -258,6 +258,11 @@ fn decode(e: &mut Engine, rip: u64) -> Option<Ins> {
         _ => d.u64_full(),
     };
     if d.p > 15 { return None; }
+    // 32-bit INC/DEC r32 (0x40-0x4F, REX in 64-bit code) = INC/DEC with a register operand
+    if m32 && (0x40..0x50).contains(&op) {
+        ins.op = 0xFF;
+        ins.m = Some(ModRm { md: 3, reg: (op >= 0x48) as u8, rm: op & 7, base: None, index: None, scale: 0, disp: 0, riprel: false });
+    }
     ins.next = rip + d.p as u64;
     Some(ins)
 }
@@ -767,6 +772,15 @@ impl G {
         self.dirty = 0;
     }
 
+    /// PUSH in 32-bit code: ESP - 4, wrapping at 4 GB.
+    fn push32(&mut self, v: u32) {
+        self.ensure(4);
+        self.get(R0 + 4); self.i64c(4); self.b(I64SUB); self.i64c(0xFFFF_FFFF); self.b(I64AND); self.set(L_A2);
+        self.store(L_A2, v, 32);
+        self.get(L_A2); self.set(R0 + 4);
+        self.dirty |= 1 << 4;
+    }
+
     fn push(&mut self, v: u32) {
         self.ensure(4);
         self.get(R0 + 4); self.i64c(8); self.b(I64SUB); self.set(L_A2);
@@ -784,7 +798,7 @@ fn reg_opd(r: u8, size: u32, rex: u8) -> Opd {
 fn native(g: &mut G, i: &Ins, live: bool, n: u32) -> bool {
     // 32-bit code: what uses the stack, implicit addresses or differs from 64-bit mode runs in the interpreter
     if g.m32 && (i.a67 || match i.op {
-        0x06 | 0x07 | 0x0E | 0x16 | 0x17 | 0x1E | 0x1F | 0x27 | 0x2F | 0x37 | 0x3F | 0x40..=0x6F | 0x82 | 0x8F | 0x9A | 0x9C | 0x9D
+        0x06 | 0x07 | 0x0E | 0x16 | 0x17 | 0x1E | 0x1F | 0x27 | 0x2F | 0x37 | 0x3F | 0x40..=0x4F | 0x60..=0x63 | 0x6C..=0x6F | 0x82 | 0x8F | 0x9A | 0x9C | 0x9D
         | 0xA0..=0xAF | 0xC2..=0xCF | 0xD4..=0xD7 | 0xE0..=0xEA | 0xF4 => true,
         0xFF => i.m.map_or(true, |m| m.reg & 7 >= 2),
         _ => false,
@@ -863,6 +877,28 @@ fn native(g: &mut G, i: &Ins, live: bool, n: u32) -> bool {
             let r = g.tmp();
             g.get(a); g.get(b); g.b(I64AND); g.set(r);
             g.set_prod(LZ_LOGIC, size, a, b, r);
+        }
+        // 32-bit code: 4-byte pushes and pops on ESP
+        0x50..=0x57 if g.m32 => {
+            if osz == 16 { return false; }
+            let v = g.val(Opd::Reg((i.op & 7) as u8, false), 32);
+            g.push32(v);
+        }
+        0x58..=0x5F if g.m32 => {
+            let r = (i.op & 7) as u8;
+            if osz == 16 || r == 4 { return false; }
+            g.ensure(4);
+            g.get(R0 + 4); g.set(L_A2);
+            let v = g.tmp();
+            g.load(L_A2, 32); g.set(v);
+            g.get(L_A2); g.i64c(4); g.b(I64ADD); g.i64c(0xFFFF_FFFF); g.b(I64AND); g.set(R0 + 4); g.dirty |= 1 << 4;
+            g.wr_reg(r, false, 32, v);
+        }
+        0x68 | 0x6A if g.m32 => {
+            if osz == 16 { return false; }
+            let v = g.tmp();
+            g.i64c(i.imm); g.set(v);
+            g.push32(v);
         }
         0x50..=0x57 => {
             if osz == 16 { return false; }

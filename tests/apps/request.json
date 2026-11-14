@@ -1,2 +1,4 @@
 [ { "name": "stk-install", "url": "https://github.com/supertuxkart/stk-code/releases/download/1.4/SuperTuxKart-1.4-installer-x86_64.exe",
-    "args": "/S", "runs": 1, "limit": 900, "prof": true } ]
+    "args": "/S", "runs": 1, "limit": 900, "prof": true },
+  { "name": "7zip32", "url": "https://www.7-zip.org/a/7z2409.exe", "args": "/S", "runs": 1, "limit": 300 },
+  { "name": "npp32", "url": "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.7.1/npp.8.7.1.Installer.exe", "args": "/S", "runs": 1, "limit": 600 } ]
