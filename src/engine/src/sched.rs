@@ -70,6 +70,8 @@ pub enum W {
     MsgOrObjs {
         hs: Vec<u64>,
     },
+    /// ReadConsole: until the page sends a typed line (then the call runs again)
+    ConIn,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -343,6 +345,7 @@ impl Engine {
                     None
                 }
             }
+            W::ConIn => (!self.s.con_in.is_empty()).then_some(RETRY),
             W::Pipe(id) => match self.s.fs.pipes.get(id) {
                 Some(p) if p.buf.is_empty() && p.writers > 0 => None,
                 _ => Some(RETRY),
@@ -676,7 +679,7 @@ impl Engine {
                     }
                     soonest = soonest.min(dl);
                     // a window thread: page input can come at any time, timers are due later
-                    if matches!(w, W::Msg { .. } | W::MsgOrObjs { .. }) {
+                    if matches!(w, W::Msg { .. } | W::MsgOrObjs { .. } | W::ConIn) {
                         soonest = soonest.min((t_now + 30.0).min(self.next_timer(id)));
                     }
                     // a waitable timer in the wait: wake up when it is due

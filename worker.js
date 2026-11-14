@@ -92,7 +92,7 @@ async function saveDrive(changes, reg, spill) {
 }
 
 /* Runs a program on the engine. files: [{ name, data }], exe: file name to start. */
-async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared, cores, strong, opt, drive, home, reg }) {
+async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared, cores, strong, opt, drive, home, reg, typing }) {
   // several cores need a shared memory, which needs an isolated page (hub.inkdos.workers.dev)
   if (cores > 1 && !self.crossOriginIsolated) { post('log', { text: '[engine] several cores need an isolated page (open it on hub.inkdos.workers.dev); using 1 core\n' }); cores = 1; }
   const mt = cores > 1;
@@ -178,7 +178,7 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
   };
   let jitErr = 0;
   let wine;
-  let [wasm, wineWasm] = await Promise.all([mt ? 'inksoc-mt.wasm?v=47' : 'inksoc.wasm?v=70', 'wine.wasm?v=2'].map((u) => fetch(u).then((r) => r.arrayBuffer())));
+  let [wasm, wineWasm] = await Promise.all([mt ? 'inksoc-mt.wasm?v=48' : 'inksoc.wasm?v=71', 'wine.wasm?v=2'].map((u) => fetch(u).then((r) => r.arrayBuffer())));
   // test: the same engine on a shared memory (what several cores need), to compare speed
   if (mt) {
     importScripts('sharedmem.js?v=1');
@@ -262,6 +262,12 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
   } })).instance.exports;
   // an installed program runs from its own folder on drive C:
   if (home && x.set_home) { put(enc(home)); x.set_home(); }
+  // a console the user types in (the Command Prompt): typed lines reach the program's console input
+  if (typing && x.win_stdin) {
+    put(new Uint8Array(0));
+    x.win_stdin(0);
+    typeIn = (t) => { const b = enc(t); put(b); x.win_stdin(b.length); };
+  }
   for (const f of files) {
     const name = enc(f.name), data = new Uint8Array(f.data), b = new Uint8Array(name.length + 1 + data.length);
     b.set(name); b.set(data, name.length + 1);
@@ -360,7 +366,7 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
     if (st !== 0) break;
     post('stats', stats());
     // a program with windows: let mouse and keyboard messages in
-    if (!mt && x.win_count()) await yieldNow();
+    if (!mt && (x.win_count() || typeIn)) await yieldNow();
     // let the other cores' output in (a message channel does not wait 4 ms like setTimeout)
     if (mt) await yieldNow();
   }
@@ -444,7 +450,7 @@ async function runLinux({ files, cmd, poolMb, jit, rows, cols }) {
       } catch (e) { return -1; }
     },
   };
-  const wasm = await fetch('inksoc.wasm?v=70').then((r) => r.arrayBuffer());
+  const wasm = await fetch('inksoc.wasm?v=71').then((r) => r.arrayBuffer());
   x = (await WebAssembly.instantiate(wasm, { env })).instance.exports;
   mem = x.memory;
   const enc = new TextEncoder();
@@ -566,7 +572,7 @@ async function runExec(d) {
     }
   }
   try {
-    return await runEngine({ files, exe: d.exe || 'stage1.exe', cmd: d.cmd, poolMb: d.poolMb, targetMb: d.targetMb, jit: d.jit, shared: d.shared, cores: d.cores, strong: d.strong, opt: d.opt, drive: d.drive, home: d.home, reg });
+    return await runEngine({ files, exe: d.exe || 'stage1.exe', cmd: d.cmd, poolMb: d.poolMb, targetMb: d.targetMb, jit: d.jit, shared: d.shared, cores: d.cores, strong: d.strong, opt: d.opt, drive: d.drive, home: d.home, reg, typing: d.typing });
   } finally {
     if (spill) await (await navigator.storage.getDirectory()).removeEntry(spill.name, { recursive: true }).catch(() => {});
   }
@@ -657,13 +663,14 @@ async function texDone() {
   try { await root.removeEntry('inksoc-tex.bin'); } catch (e) {}
 }
 
-let winX = null;
+let winX = null, typeIn = null;
 onmessage = (ev) => {
   const d = ev.data;
   if (d.type === 'stop') { stopAsked = true; return; }
   if (d.winedebug) self.wineDebug = d.winedebug;
   if (d.winetrace) self.wineTrace = d.winetrace;
   if (d.type === 'win') { if (winX) winX.win_input(d.k, d.x, d.y, d.d); return; }
+  if (d.type === 'stdin') { if (typeIn) typeIn(d.text); return; }
   if (d.type === 'key') { if (lxs) lxs.key(d.data); return; }
   if (d.type === 'resize') { if (lxs) lxs.resize(d.rows, d.cols); return; }
   if (d.type === 'put') { if (lxs) lxs.put(d.name, d.data); return; }

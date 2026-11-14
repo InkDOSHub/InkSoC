@@ -5,6 +5,7 @@
 
 use crate::{console, Engine};
 
+mod console;
 mod locale;
 mod misc;
 mod module;
@@ -233,7 +234,7 @@ fn locale_info(t: u32) -> Option<String> {
 
 /// Each family of calls lives in its own file; the first one that knows the name answers.
 pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
-    const FAMILIES: [fn(&mut Engine, &str) -> Option<u64>; 6] = [locale::call, system::call, module::call, process::call, rtl::call, misc::call];
+    const FAMILIES: [fn(&mut Engine, &str) -> Option<u64>; 7] = [console::call, locale::call, system::call, module::call, process::call, rtl::call, misc::call];
     for family in FAMILIES {
         e.not_mine = false;
         let r = family(e, name);
@@ -242,6 +243,11 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         }
     }
     None // e.not_mine stays set: no family has this name
+}
+
+/// Reading the console input handle while the page sends typed lines (ReadFile on it).
+pub fn console_read(e: &mut Engine, name: &str) -> Option<u64> {
+    console::call(e, name)
 }
 
 /// Windows command-line rules (CommandLineToArgvW).

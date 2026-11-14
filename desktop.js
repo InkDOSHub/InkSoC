@@ -119,7 +119,7 @@ function close(p) {
   if (focus === p) focus = null;
 }
 
-function run(files, exe, args, label, home) {
+function run(files, exe, args, label, home, opts = {}) {
   // Files and Console step aside: the program gets the screen (they use no CPU while hidden)
   for (const q of progs) if (q.tool && !q.hidden) setHidden(q, true);
   const p = { id: nextId++, z: 0, hidden: false, conAway: false };
@@ -135,14 +135,16 @@ function run(files, exe, args, label, home) {
   $('tasks').append(p.btn);
   p.con = consoleWindow(p, label);
   const out = p.con.querySelector('pre');
+  if (opts.typing) typingLine(p, out);
   raise(p);
   const w = p.w = new Worker('worker.js?v=63');
   w.onmessage = (ev) => {
     const d = ev.data;
-    if (d.type === 'log') { out.textContent += d.text; out.scrollTop = out.scrollHeight; }
+    if (d.type === 'log') { out.textContent += d.text.replace(/\r/g, ''); out.scrollTop = out.scrollHeight; }
     else if (d.type === 'stats') {
       const gips = d.insns / d.ms / 1e6;
-      p.con.querySelector('table').innerHTML = '<tr><td>' + fmt(d.insns / d.ms / 1000) + ' MIPS · ' + (d.jit ? 'JIT' : 'interpreter') + ' · ' + d.cores + (d.cores > 1 ? ' cores' : ' core') + (d.threads > 1 ? ' · ' + d.threads + ' threads' : '') + ' · RAM ' + fmt(d.resident * 4 / 1024) + '/' + fmt(d.frames * 4 / 1024) + ' MB' + (d.swapOut || d.swapIn ? ' · swap ' + fmt(d.swapOut * 4 / 1024) + ' MB out, ' + fmt(d.swapIn * 4 / 1024) + ' MB in, ' + fmt(d.swapMs) + ' ms on ' + (d.opfs ? 'OPFS' : 'RAM') : '') + '</td></tr>';
+      const tb = p.con.querySelector('table');
+      if (tb) tb.innerHTML = '<tr><td>' + fmt(d.insns / d.ms / 1000) + ' MIPS · ' + (d.jit ? 'JIT' : 'interpreter') + ' · ' + d.cores + (d.cores > 1 ? ' cores' : ' core') + (d.threads > 1 ? ' · ' + d.threads + ' threads' : '') + ' · RAM ' + fmt(d.resident * 4 / 1024) + '/' + fmt(d.frames * 4 / 1024) + ' MB' + (d.swapOut || d.swapIn ? ' · swap ' + fmt(d.swapOut * 4 / 1024) + ' MB out, ' + fmt(d.swapIn * 4 / 1024) + ' MB in, ' + fmt(d.swapMs) + ' ms on ' + (d.opfs ? 'OPFS' : 'RAM') : '') + '</td></tr>';
       $('speed').textContent = d.cores + (d.cores > 1 ? ' cores' : ' core') + ' · ' + (gips >= 1 ? gips.toFixed(1) + ' GIPS' : fmt(gips * 1000) + ' MIPS');
     } else if (d.type === 'frame') frame(p, d);
     else if (d.type === 'audio') play(p, d);
@@ -170,8 +172,35 @@ function run(files, exe, args, label, home) {
     }
   };
   w.postMessage({ type: 'exec', files, exe, cmd: (/\s/.test(exe) ? '"' + exe + '"' : exe) + (args ? ' ' + args : ''), drive: true, home, poolMb: poolMb(), targetMb: 8192,
-    jit: $('jit').checked, cores: +$('cores').value, strong: new URLSearchParams(location.search).get('strong') !== '0', opt: new URLSearchParams(location.search).get('opt') !== '0', winedebug: +new URLSearchParams(location.search).get('winedebug') || 0, winetrace: new URLSearchParams(location.search).get('winetrace') || '' },
+    jit: $('jit').checked, cores: opts.typing ? 1 : +$('cores').value, typing: !!opts.typing, strong: new URLSearchParams(location.search).get('strong') !== '0', opt: new URLSearchParams(location.search).get('opt') !== '0', winedebug: +new URLSearchParams(location.search).get('winedebug') || 0, winetrace: new URLSearchParams(location.search).get('winetrace') || '' },
   files ? files.map((f) => f.data).filter(Boolean) : []);
+}
+
+// a console the user types in (Command Prompt): the line below the output; Enter sends it to
+// the program's console input, and it shows in the output the way a console echoes typing
+function typingLine(p, out) {
+  const line = document.createElement('input');
+  line.className = 'cline';
+  line.autocapitalize = 'off';
+  line.autocomplete = 'off';
+  line.spellcheck = false;
+  out.after(line);
+  p.con.querySelector('table').remove();
+  const history = [];
+  let at = 0;
+  line.onkeydown = (e) => {
+    if (e.key === 'ArrowUp' && at > 0) { line.value = history[--at]; e.preventDefault(); return; }
+    if (e.key === 'ArrowDown') { at = Math.min(at + 1, history.length); line.value = history[at] || ''; e.preventDefault(); return; }
+    if (e.key !== 'Enter' || !p.w) return;
+    const text = line.value;
+    line.value = '';
+    if (text.trim()) { history.push(text); at = history.length; }
+    out.textContent += text + '\n';
+    out.scrollTop = out.scrollHeight;
+    p.w.postMessage({ type: 'stdin', text: text + '\n' });
+  };
+  p.con.addEventListener('pointerup', () => { if (!getSelection().toString()) line.focus(); });
+  setTimeout(() => line.focus(), 0);
 }
 
 // a program's screen: shown the first time it draws a window; its console steps aside
@@ -272,7 +301,7 @@ setInterval(tick, 15000);
 // File Explorer, Command Prompt, Diagnostics: tools.js loads the first time one is opened
 let toolsReady = null;
 function loadTools() {
-  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=2'; s.onload = ok; s.onerror = fail; document.head.append(s); });
+  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=3'; s.onload = ok; s.onerror = fail; document.head.append(s); });
   return toolsReady;
 }
 async function tool(name, arg) {
