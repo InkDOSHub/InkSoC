@@ -13,7 +13,7 @@ const STDIN: u64 = 3;
 
 pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
     if !e.s.con_live {
-        return None;
+        return e.not_mine();
     }
     let a0 = e.arg(0);
     Some(match name {
@@ -26,7 +26,7 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             e.w32(out, n);
             1
         }
-        _ => return None,
+        _ => return e.not_mine(),
     })
 }
 
