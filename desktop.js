@@ -343,7 +343,7 @@ setInterval(tick, 15000);
 // File Explorer, Command Prompt, Diagnostics: tools.js loads the first time one is opened
 let toolsReady = null;
 function loadTools() {
-  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=6'; s.onload = ok; s.onerror = fail; document.head.append(s); });
+  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=7'; s.onload = ok; s.onerror = fail; document.head.append(s); });
   return toolsReady;
 }
 async function tool(name, arg) {
@@ -554,7 +554,7 @@ $('cerase').onclick = async (e) => {
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 // the usual folders of the user's profile are there from the start
 (async () => {
-  for (const f of ['Desktop', 'Documents', 'Downloads']) try { await driveDir(HOME + '\\' + f, true); } catch (e) { /* no OPFS here */ }
+  for (const f of [HOME + '\\Desktop', HOME + '\\Documents', HOME + '\\Downloads', 'C:\\Program Files', 'C:\\Program Files (x86)']) try { await driveDir(f, true); } catch (e) { /* no OPFS here */ }
   listDrive();
 })();
 
