@@ -90,6 +90,8 @@ impl Jit {
             None => NONE,
         };
         e.jit.ms += crate::now_ms() - t0;
+        #[cfg(feature = "ophist")]
+        if f == NONE { crate::console(&format!("OPRIP nojit {:x} m32={}\n", rip, e.cpu.mode32)); }
         e.jit.map.insert(rip, f);
         e.jit.l1[k] = (rip, f);
         if f == NONE { None } else { Some(f) }
@@ -146,6 +148,8 @@ pub extern "C" fn jit_step(next: u64) -> u32 {
     #[cfg(feature = "prof")]
     { let rip = e.cpu.rip; let op = decode(e, rip).map_or(0xFFFFFF, |i| i.op | if i.lock { 0x1000000 } else { 0 }); prof::add(op, 1); }
     e.materialize();
+    #[cfg(feature = "ophist")]
+    unsafe { static mut N: u64 = 0; N += 1; if N & 0xFFFFF == 0 { crate::console(&format!("OPRIP jitstep {:x}\n", e.cpu.rip)); } }
     crate::cpu::step_one(e);
     if e.s.error.is_some() { e.cpu.jit_limit = 0; }
     (e.s.error.is_some() || e.s.exited || e.cpu.rip != next) as u32
