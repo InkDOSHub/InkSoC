@@ -265,11 +265,15 @@ function hit(x, y) {
   for (const p of list) if (p.px[(y * W + x) * 4 + 3]) return p;
   return null;
 }
+// a shell window (console, File Explorer) under a program's window: the program is on top
+// when it was raised later, so the touch goes to it and not to the window below
+const zOf = (el) => { const w = el.closest && el.closest('.con'); return w && w.offsetParent ? (parseFloat(w.style.zIndex) || 0) : -1; };
 desk.addEventListener('pointerdown', (e) => {
   seen.taps++;
-  if (e.target !== desk) return;
   const [x, y] = at(e);
   const p = hit(x, y);
+  if (e.target !== desk && !(p && p.z > zOf(e.target))) return;
+  if (e.target !== desk) e.stopPropagation();
   closePops();
   if (!p) { iconTap(e); return; }
   held = p; focus = p;
@@ -277,7 +281,7 @@ desk.addEventListener('pointerdown', (e) => {
   desk.setPointerCapture(e.pointerId);
   send(p, 1, x, y, 0); send(p, 2, x, y, e.button);
   e.preventDefault();
-});
+}, true);
 desk.addEventListener('pointermove', (e) => {
   const [x, y] = at(e);
   const p = held || hit(x, y);
