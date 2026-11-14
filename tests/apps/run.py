@@ -12,6 +12,9 @@ jobs = []
 def drive_job(r, d, f):
     root = os.path.join(d, 'c'); os.makedirs(root, exist_ok=True)
     subprocess.run(['7z', 'x', '-y', '-o' + root, f], stdout=subprocess.DEVNULL, check=True)
+    exes = [os.path.relpath(os.path.join(a, x), root) for a, _, xs in os.walk(root) for x in xs if x.lower().endswith('.exe')]
+    print('EXES', r['name'], exes[:20])
+    if not os.path.exists(os.path.join(root, r['exe'].replace('\\', '/'))): print('MISSING', r['exe']); return
     fs = []
     for w in ['bin/wine', 'bin/wine32']:
         fs += [os.path.join(inksoc, w, x) for x in sorted(os.listdir(os.path.join(inksoc, w))) if x.endswith(('.dll', '.nls', '.drv'))]
@@ -29,7 +32,7 @@ def drive_job(r, d, f):
     text = open(os.path.join(out, r['name'] + '.log')).read().strip().splitlines()
     try: j = json.loads(text[-1]); print('RESULT', r['name'], j['status'], j['error'][:600].replace('\n', ' | '))
     except Exception: print('RESULT', r['name'], 'crashed', ' | '.join(text[-5:])[:600])
-    notes = [l for l in text if l.startswith('[') and not l.startswith('[20')]
+    notes = [l for l in text if (l.startswith('[') and not l.startswith('[20')) or ':err:' in l]
     if notes: print('--- engine notes (last 40) ---'); print('\n'.join(n[:300] for n in notes[-40:]))
     b = os.path.join(root, 'logs/bootstrap_log.txt')
     if os.path.exists(b): print('--- bootstrap_log (end) ---'); print('\n'.join(open(b, errors='replace').read().splitlines()[-30:]))

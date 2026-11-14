@@ -1,4 +1,4 @@
 [
-  { "name": "steam", "url": "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe",
-    "drive": "C:\\Program Files\\Steam", "exe": "steam.exe", "runs": 1, "limit": 1200 }
+  { "name": "supertuxkart", "url": "https://github.com/supertuxkart/stk-code/releases/download/1.4/SuperTuxKart-1.4-installer-x86_64.exe",
+    "drive": "C:\\Program Files\\SuperTuxKart", "exe": "supertuxkart.exe", "runs": 1, "limit": 900 }
 ]
