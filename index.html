@@ -120,7 +120,11 @@
   .con.win .frow .z{color:#777}
   .con.win .empty{color:#888}
   .con.win.drop .flist{outline:2px dashed #6b8fd6;outline-offset:-4px}
-  .con.diag .flist{padding:6px 12px;font:13px system-ui;line-height:1.5}
+  .con.diag .hint{margin:0 0 4px;color:#777;font-size:12px}
+  .con.diag pre.res{margin:4px 0 8px;padding:8px 10px;max-height:220px;overflow:auto;background:#f4f4f6;border-radius:8px;font:12px ui-monospace,Menlo,monospace;white-space:pre-wrap}
+  .con.diag .again,.con.diag .row button{padding:5px 14px;border-radius:8px;border:1px solid #ccc;background:#f4f4f4;font:13px system-ui;cursor:pointer}
+  .con.diag .again{margin:8px 0}
+  .con.diag .gpuview{width:100%;max-width:512px;aspect-ratio:16/9;border-radius:8px;background:#000}
   .con.diag .chk{display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #eee}
   .con.diag .chk b{width:18px;flex:none}.con.diag .chk small{color:#666;display:block}
   html[data-icons=none] #icons{display:none}
@@ -178,7 +182,7 @@
 </div>
 <div class="bar"><button id="start">Start</button><div id="tasks"></div><span id="status"></span><span id="clock"></span></div>
 <script src="prefs.js?v=1"></script>
-<script src="desktop.js?v=43"></script>
+<script src="desktop.js?v=45"></script>
 <script src="pad.js?v=1"></script>
 <script src="wall.js?v=2"></script>
 </body>
