@@ -43,6 +43,16 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             e.w32(c, 0xF000_0000 | 19045);
             0
         }
+        // (major, minor, sp major, sp minor, &type): Windows 10 Pro. Wine's reads a version
+        // block its own startup fills, which ours does not run.
+        "RtlGetProductInfo" | "GetProductInfo" => {
+            let ty = e.arg(4);
+            if ty == 0 {
+                return Some(0);
+            }
+            e.w32(ty, 0x30); // PRODUCT_PROFESSIONAL
+            1
+        }
         "VerSetConditionMask" => a0,
         "VerifyVersionInfoW" | "VerifyVersionInfoA" => 1,
         "RtlVerifyVersionInfo" => 0, // we are Windows 10: every check passes
