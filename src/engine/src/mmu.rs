@@ -84,6 +84,8 @@ pub struct MmuShared {
     pub swap_slots: u32,
     /// several address spaces (Linux processes): frames of the others must not be evicted
     pub no_evict: bool,
+    /// committed ranges (add_region only); the write check reads these, not `regions`
+    commits: Vec<(u64, u64)>,
 }
 
 /// A saved address space (a Linux process that is not running).
@@ -123,7 +125,7 @@ impl Mmu {
             free: (0..n as u32).rev().collect(), limbo: Vec::new(),
             hand: 0,
             table: HashMap::new(),
-            regions: Vec::new(),
+            regions: Vec::new(), commits: Vec::new(),
             committed: 0,
             target_bytes: target_mb << 20,
             faults: 0, swap_ins: 0, swap_outs: 0, swap_slots: 0, no_evict: false,
@@ -175,9 +177,11 @@ impl Mmu {
 
     pub fn add_region(&mut self, start: u64, size: u64) {
         self.sh.regions.push((start, start + size));
+        self.sh.commits.push((start, start + size));
         self.sh.committed += size;
     }
     /// Address space only (MEM_RESERVE): not counted against the memory target.
+    /// Not in `commits`, so the range check refuses it.
     pub fn add_reserved(&mut self, start: u64, size: u64) {
         self.sh.regions.push((start, start + size));
     }
@@ -186,7 +190,8 @@ impl Mmu {
         self.sh.regions.iter().any(|&(s, e)| addr >= s && addr < e)
     }
 
-    /// True when every page touched by `a..a+n` is in committed address space.
+    /// True when every page touched by `a..a+n` is committed (MEM_COMMIT or add_region).
+    /// Reserved-only address space is refused.
     /// Read-only: it does not materialize pages, count a fault, or touch frames.
     /// A range whose end overflows u64 is refused.
     pub fn can_write_range(&self, a: u64, n: u64) -> bool {
@@ -197,7 +202,7 @@ impl Mmu {
         let last_page = last & !(PAGE - 1);
         let mut page = a & !(PAGE - 1);
         loop {
-            if !self.in_region(page) {
+            if !self.sh.commits.iter().any(|&(s, e)| page >= s && page < e) {
                 return false;
             }
             if page == last_page {
@@ -262,6 +267,9 @@ impl Mmu {
 
     /// Releases a whole region (VirtualFree MEM_RELEASE).
     pub fn release_region(&mut self, start: u64) -> bool {
+        if let Some(i) = self.sh.commits.iter().position(|&(s, _)| s == start) {
+            self.sh.commits.swap_remove(i);
+        }
         if let Some(i) = self.sh.regions.iter().position(|&(s, _)| s == start) {
             let (s, e) = self.sh.regions.swap_remove(i);
             self.drop_pages(s, e);
@@ -594,5 +602,29 @@ mod range_tests {
         assert_eq!(m.sh.table.len(), pages, "range check materialized a page");
         assert_eq!(m.sh.faults, faults, "range check counted a fault");
         assert_eq!(m.sh.frames.iter().filter(|f| f.used).count(), frames, "range check took a frame");
+    }
+
+    #[test]
+    fn reserved_only_range_is_not_writable() {
+        let mut m = Mmu::new(1, 1);
+        m.add_region(0x5A00_0000, 0x1_0000);
+        m.add_reserved(0x5B00_0000, 0x1_0000);
+        let pages = m.sh.table.len();
+        let faults = m.sh.faults;
+        let frames = m.sh.frames.iter().filter(|f| f.used).count();
+        let committed = m.sh.committed;
+
+        // reserved address space is not committed memory
+        assert!(!m.can_write_range(0x5B00_0000, 104));
+        assert!(!m.can_write_range(0x5B00_FF00, 0x100));
+        // a committed range that runs into a reserved one is still refused
+        assert!(!m.can_write_range(0x5A00_FFF0, 104));
+        // committed memory is unchanged by the reservation
+        assert!(m.can_write_range(0x5A00_0000, 104));
+
+        assert_eq!(m.sh.table.len(), pages, "reserved check materialized a page");
+        assert_eq!(m.sh.faults, faults, "reserved check counted a fault");
+        assert_eq!(m.sh.frames.iter().filter(|f| f.used).count(), frames, "reserved check took a frame");
+        assert_eq!(m.sh.committed, committed, "reservation changed the commit count");
     }
 }
