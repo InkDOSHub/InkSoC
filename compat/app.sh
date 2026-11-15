@@ -7,8 +7,9 @@ J=$(python3 - "$1" "$2" "$3" <<'P'
 import os, json, sys
 d, exe, args = sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else ''
 fs = [os.path.join(d, f) for f in sorted(os.listdir(d))]
-for w in ['bin/wine', 'bin/wine32']:
-    fs += [os.path.join(w, f) for f in sorted(os.listdir(w)) if f.endswith(('.dll', '.nls'))]
+# what the page loads for every program (bin/wine/list.json), plus the 32-bit DLLs
+fs += [os.path.join('bin/wine', f) for f in json.load(open('bin/wine/list.json'))]
+fs += [os.path.join('bin/wine32', f) for f in sorted(os.listdir('bin/wine32')) if f.endswith(('.dll', '.nls'))]
 print(json.dumps({'files': fs, 'exe': exe, 'args': args}))
 P
 )

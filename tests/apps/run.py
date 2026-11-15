@@ -16,9 +16,8 @@ def drive_job(r, d, f):
     print('EXES', r['name'], exes[:20])
     if not os.path.exists(os.path.join(root, r['exe'].replace('\\', '/'))): print('MISSING', r['exe']); return
     fs = []
-    for w in ['bin/wine', 'bin/wine32']:
-        fs += [os.path.join(inksoc, w, x) for x in sorted(os.listdir(os.path.join(inksoc, w))) if x.endswith(('.dll', '.nls', '.drv'))]
-    fs.append(os.path.join(inksoc, 'bin/wine/roots.der'))
+    fs += [os.path.join(inksoc, 'bin/wine', x) for x in json.load(open(os.path.join(inksoc, 'bin/wine/list.json')))]
+    fs += [os.path.join(inksoc, 'bin/wine32', x) for x in sorted(os.listdir(os.path.join(inksoc, 'bin/wine32'))) if x.endswith(('.dll', '.nls', '.drv'))]
     j = json.dumps({'files': fs, 'exe': r['drive'] + '\\' + r['exe'], 'args': r.get('args', '')})
     log = open(os.path.join(out, r['name'] + '.log'), 'w')
     for i in range(r.get('runs', 1)):
@@ -31,7 +30,10 @@ def drive_job(r, d, f):
     # the summary goes to the job log too (readable without downloading the artifact)
     text = open(os.path.join(out, r['name'] + '.log')).read().strip().splitlines()
     try: j = json.loads(text[-1]); print('RESULT', r['name'], j['status'], j['error'][:600].replace('\n', ' | '))
-    except Exception: print('RESULT', r['name'], 'crashed', ' | '.join(text[-5:])[:600])
+    except Exception: j = None; print('RESULT', r['name'], 'crashed', ' | '.join(text[-5:])[:600])
+    summary = {'name': r['name'], 'status': 'crashed', 'error': ' | '.join(text[-3:])[:400]}
+    if j: summary = {'name': r['name'], 'status': j['status'], 'exit': j.get('exitCode'), 'error': j['error'][:400], 'wins': j.get('wins'), 'mips': j.get('mips'), 'missing': j.get('missing', [])}
+    json.dump(summary, open(os.path.join(out, r['name'] + '-result.json'), 'w'))
     notes = [l for l in text if (l.startswith('[') and not l.startswith('[20')) or ':err:' in l]
     if notes: print('--- engine notes (last 40) ---'); print('\n'.join(n[:300] for n in notes[-40:]))
     b = os.path.join(root, 'logs/bootstrap_log.txt')
@@ -40,7 +42,10 @@ def drive_job(r, d, f):
         if os.path.exists(os.path.join(root, x)): shutil.copy(os.path.join(root, x), os.path.join(out, r['name'] + '-' + os.path.basename(x)))
 
 drives = []
-for r in json.load(open(os.path.join(here, 'request.json'))):
+# REQUEST=<file> runs another list (compat/apps.json); ONLY=<name> runs one entry of it
+only = os.environ.get('ONLY')
+for r in json.load(open(os.environ.get('REQUEST') or os.path.join(here, 'request.json'))):
+    if only and r['name'] != only: continue
     d = os.path.join('/tmp/apps', r['name']); os.makedirs(d, exist_ok=True)
     f = os.path.join(d, r.get('file') or r['url'].split('/')[-1].split('?')[0])
     if not os.path.exists(f): urllib.request.urlretrieve(r['url'], f)
@@ -68,7 +73,11 @@ for name, t0, p, log in jobs:
     text = open(os.path.join(out, name + '.log')).read().strip().splitlines()
     res = text[-1] if text else ''
     try: j = json.loads(res); print('RESULT', name, j['status'], j['error'][:300].replace('\n', ' | '), len(j['files']), 'files,', j.get('mips'), 'MIPS,', secs, 's')
-    except Exception: print('RESULT', name, 'crashed', ' | '.join(text[-5:])[:300])
+    except Exception: j = None; print('RESULT', name, 'crashed', ' | '.join(text[-5:])[:300])
+    # one line per app for the compatibility table (compat/apps-results.md)
+    summary = {'name': name, 'status': 'crashed', 'error': ' | '.join(text[-3:])[:400], 'secs': secs}
+    if j: summary = {'name': name, 'status': j['status'], 'exit': j.get('exitCode'), 'error': j['error'][:400], 'wins': j.get('wins'), 'files': len(j['files']), 'mips': j.get('mips'), 'secs': secs, 'missing': j.get('missing', [])}
+    json.dump(summary, open(os.path.join(out, name + '-result.json'), 'w'))
     for l in text:
         if l.startswith(('OPHIST', 'OPRIP')): print(l)
     # where the time went (node --cpu-prof): functions by own time, wasm ones by name
