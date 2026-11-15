@@ -681,13 +681,23 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
     Some(r)
 }
 
-/// True when the first and last byte of `a..a+n` can be written. A range of up
-/// to two pages is covered by its two ends, so nothing is written unless all of it is.
+/// True when every page the range `a..a+n` touches, and its last byte, can be
+/// read and written. Nothing is written by the check beyond rewriting each byte
+/// with its own value, so a refused call changes no memory.
 fn writable_range(e: &mut Engine, a: u64, n: u64) -> bool {
     if a == 0 || n == 0 {
         return false;
     }
-    [a, a + n - 1].into_iter().all(|x| {
+    let last = a + n - 1;
+    // the first byte, the first byte of every page after it, and the last byte
+    let mut probes = vec![a];
+    let mut page = (a & !0xFFF) + 0x1000;
+    while page <= last {
+        probes.push(page);
+        page += 0x1000;
+    }
+    probes.push(last);
+    probes.into_iter().all(|x| {
         let mut b = [0u8; 1];
         e.mmu.read_bytes(x, &mut b).is_ok() && e.mmu.write_bytes(x, &b).is_ok()
     })

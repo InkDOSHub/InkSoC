@@ -33,7 +33,10 @@ jobs:
         run: |
           x86_64-w64-mingw32-gcc -O2 -Wall -o tests/startup/startup-info.exe tests/startup/startup-info.c
           x86_64-w64-mingw32-gcc -O2 -Wall -DSTARTUP_FIXTURE -o tests/startup/fixture-build.exe tests/startup/startup-info.c
-          x86_64-w64-mingw32-gcc -O2 -Wall -o tests/startup/startup-info-badptr.exe tests/startup/startup-info-badptr.c
+          x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_A -DCASE_STRADDLE -o tests/startup/startup-info-badptr-a-straddle.exe tests/startup/startup-info-badptr.c
+          x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_A -DCASE_UNMAPPED -o tests/startup/startup-info-badptr-a-unmapped.exe tests/startup/startup-info-badptr.c
+          x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_W -DCASE_STRADDLE -o tests/startup/startup-info-badptr-w-straddle.exe tests/startup/startup-info-badptr.c
+          x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_W -DCASE_UNMAPPED -o tests/startup/startup-info-badptr-w-unmapped.exe tests/startup/startup-info-badptr.c
       - name: Run startup probes in InkSoC
         env:
           LIMIT: "90"
@@ -72,11 +75,26 @@ jobs:
           if "INKSOC_STARTUP_INFO_OK" not in report.get("out", ""):
               raise SystemExit(f"Fixture probe marker missing: {report}")
 
-          # 3. invalid destination: the call must fault, not return
-          report = run(os.path.abspath("tests/startup/startup-info-badptr.exe"), "startup-info-badptr.exe")
-          if "BADPTR_RETURNED" in report.get("out", ""):
-              raise SystemExit(f"Bad pointer accepted (call returned): {report}")
-          if report.get("status") == "exit":
-              raise SystemExit(f"Bad pointer probe inconclusive (exited normally): {report}")
-          print("bad pointer: call faulted as expected")
+          # 3. invalid destinations: the call must raise an access violation.
+          # Anything else (normal return, timeout, other crash, unclassified
+          # error) fails the job.
+          def classify(report):
+              if "BADPTR_RETURNED" in report.get("out", ""):
+                  return "RETURNED"
+              if report.get("status") == "exit":
+                  return "EXITED"
+              if str(report.get("error", "")).startswith("access violation"):
+                  return "ACCESS_VIOLATION"
+              if report.get("status") == "timeout":
+                  return "TIMEOUT"
+              return "UNCLASSIFIED"
+
+          for api in ("a", "w"):
+              for case in ("straddle", "unmapped"):
+                  name = f"startup-info-badptr-{api}-{case}.exe"
+                  report = run(os.path.abspath("tests/startup/" + name), name)
+                  verdict = classify(report)
+                  print(f"bad pointer {api.upper()} {case}: {verdict}")
+                  if verdict != "ACCESS_VIOLATION":
+                      raise SystemExit(f"Bad pointer probe {name} not an access violation ({verdict}): {report}")
           PY
