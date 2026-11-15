@@ -1,3 +1,16 @@
+## Atualização — 2026-11-15 — Protocolo de colaboração por eventos
+
+- Agente executor: GPT-6 (auditoria e documentação).
+- Agente revisor: pendente de revisão independente.
+- Issue/PR: PR draft de infraestrutura de colaboração, a ser aberto nesta branch.
+- Branch: `docs/collaboration-cycle-v1`.
+- Baseline verificada: `main` em `d923a3eae86669d807b15d131400636e8137b74d`.
+- Alteração: adicionados `docs/collaboration/PROTOCOL.md`, `TASK_TEMPLATE.md`, `AUDIT_TEMPLATE.md` e `INTEGRATION_DESIGN.md`. Definem ciclo por eventos, estados, contratos de evidência, auditoria cruzada, idempotência, limites de automação e alternativas de notificação.
+- Estado: **implementado (documentação)**; não compilado nem testado por Actions nesta etapa.
+- Evidências observadas: PRs #2, #3, #4 e #6 estavam abertos/draft na consulta; PR #6 head `83b81ca3fbaaf646d8a501962fda6541d3792594` tem workflow `engine` run [#43728544126](https://github.com/InkDOSHub/InkSoC/actions/runs/43728544126) concluído com sucesso. Comparações com main: PR #2 ahead 5/behind 5; #3 ahead 2/behind 2; #4 ahead 8/behind 2; #6 ahead 2/behind 1. Esses PRs estão divergentes e precisam de revisão/rebase controlado antes de eventual integração.
+- Riscos / pendências: branch `main` observada sem proteção (`protected: false`); `.github/workflows/engine.yml` em main concede `contents: write` e faz commit/push de artefatos em main. O PR #6 propõe separar build de PR e publicação, mas ainda não está integrado. O mecanismo que efetivamente dispara Claude não foi identificado; e-mail dedicado depende de provedor/secret e não foi implementado. O endpoint de branch protection não pôde ser consultado por permissão da integração.
+- Próxima ação autorizada: revisar este PR draft; depois identificar e validar a integração Claude e decidir o canal de notificação. Nenhuma alteração em runtime, workflow de publicação, configuração administrativa ou main foi feita.
+
 # InkSoC — Log técnico e passagem de contexto
 
 Este arquivo é o registro resumido do estado do projeto para o mantenedor e para agentes de IA. Atualizar somente com fatos verificáveis. O histórico completo permanece nos commits, PRs, Issues e execuções do GitHub Actions.
