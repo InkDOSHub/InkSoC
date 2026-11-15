@@ -1,6 +1,6 @@
 # Common programs on InkSoC
 
-Engine 4776d79. Each program is downloaded from its official site and its installer (or the program itself) runs on the engine in Node on GitHub Actions (.github/workflows/compat-apps.yml). "running" = still going at the time limit.
+Engine 2c4fc57. Each program is downloaded from its official site and its installer (or the program itself) runs on the engine in Node on GitHub Actions (.github/workflows/compat-apps.yml). "running" = still going at the time limit.
 
 | Program | Group | Result | Where it stopped |
 |---|---|---|---|
