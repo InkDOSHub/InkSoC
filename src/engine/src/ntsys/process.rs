@@ -324,7 +324,7 @@ fn query_object(e: &mut Engine) -> u64 {
             let name = match key {
                 Some(k) => {
                     let cased = e.s.names.get(&k).cloned().unwrap_or(k);
-                    let full = crate::files::win_path(&cased);
+                    let full = if cased == "c:" { "C:\\".to_string() } else { crate::files::win_path(&cased) };
                     format!("\\??\\{}", full.trim_end_matches('\\'))
                 }
                 None => String::new(),

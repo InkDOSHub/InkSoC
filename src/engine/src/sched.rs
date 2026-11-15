@@ -710,7 +710,26 @@ impl Engine {
         if soonest.is_finite() || busy {
             self.idle_ms = if soonest.is_finite() { (soonest - t_now).max(0.0).min(50.0) } else { 50.0 };
         } else if !self.s.exited {
-            self.set_error("all threads are waiting for each other (deadlock)".into());
+            // what each thread waits on, so the report shows the cycle
+            let mut why = String::new();
+            for t in self.s.sched.th.iter().filter(|t| t.st != St::Done) {
+                let w = match &t.wait {
+                    None => "-".to_string(),
+                    Some(W::Objs { hs, all }) => format!("objects {:x?}{}", hs, if *all { " (all)" } else { "" }),
+                    Some(W::MsgOrObjs { hs }) => format!("message or objects {:x?}", hs),
+                    Some(W::Cs(a)) => format!("critical section {:#x}", a),
+                    Some(W::SrwEx(a)) | Some(W::SrwSh(a)) => format!("SRW lock {:#x}", a),
+                    Some(W::Addr { addr, .. }) => format!("address {:#x}", addr),
+                    Some(W::Keyed(k)) => format!("keyed event {:#x}", k),
+                    Some(W::Msg { .. }) => "a window message".to_string(),
+                    Some(W::NpWait(n)) => format!("pipe {}", n),
+                    Some(W::NPipe { h, .. }) => format!("pipe handle {:#x}", h),
+                    Some(W::Port { h, .. }) => format!("completion port {:#x}", h),
+                    Some(_) => "other".to_string(),
+                };
+                why += &format!("\n  thread {} (rip {:#x}): {}", t.id, t.cpu.rip, w);
+            }
+            self.set_error(format!("all threads are waiting for each other (deadlock){}", why));
         }
         false
     }

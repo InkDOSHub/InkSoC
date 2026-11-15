@@ -434,6 +434,12 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             let k = kk.clone().unwrap_or_default();
             if kk.is_none() || k == "??" {
                 let h = e.new_handle(Handle::Dir);
+                // C:\InkSoC (key "") or C:\ (key "c:"): keep the folder for NtQueryObject / directory lists
+                let t = nm.trim_start_matches("\\??\\").trim_end_matches(|c| c == '\\' || c == '.');
+                if kk.is_none() && t.len() >= 2 && t.as_bytes()[1] == b':' {
+                    let key = if t.len() == 2 { "c:".to_string() } else { String::new() };
+                    e.s.fs.paths.insert(h, (key, false));
+                }
                 e.w64(a0, h);
                 e.iosb(iosb, OK, 1);
                 return Some(OK);
