@@ -1002,3 +1002,11 @@ impl Engine {
         }
     }
 }
+
+/// Host stand-ins for the wasm imports, so `cargo test` on the host can link.
+/// The tests never reach them except through console output.
+#[cfg(test)]
+mod host_stubs {
+    #[no_mangle]
+    pub extern "C" fn host_console(_ptr: *const u8, _len: u32) {}
+}
