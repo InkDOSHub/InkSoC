@@ -486,6 +486,8 @@ impl Engine {
         self.w64(p + 0x80, eb);
         self.w64(p + 0x3F0, 2 * env.len() as u64);
         us(self, p + 0xC0, "WinSta0\\Default"); // Desktop
+        self.s.startup_desktop_a = self.put_str("WinSta0\\Default", false);
+        self.s.startup_title_a = 0;
         self.w64(crate::PEB + 0x20, p);
         self.s.env_block = eb;
     }
