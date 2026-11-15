@@ -1,12 +1,12 @@
 # Common programs on InkSoC
 
-Engine 6637309. Each program is downloaded from its official site and its installer (or the program itself) runs on the engine in Node on GitHub Actions (.github/workflows/compat-apps.yml). "running" = still going at the time limit.
+Engine a2c6f26. Each program is downloaded from its official site and its installer (or the program itself) runs on the engine in Node on GitHub Actions (.github/workflows/compat-apps.yml). "running" = still going at the time limit.
 
 | Program | Group | Result | Where it stopped |
 |---|---|---|---|
 | chrome | browser | stopped | all threads are waiting for each other (deadlock) |
 | firefox | browser | not run |  |
-| obs | media | not run |  |
+| obs | media | finished, 2079 files written |  |
 | vlc | media | finished, 592 files written |  |
 | audacity | media | not run |  |
 | libreoffice | office | not run |  |
@@ -15,12 +15,12 @@ Engine 6637309. Each program is downloaded from its official site and its instal
 | notepadpp | tools | finished, 239 files written |  |
 | winrar | tools | finished, 28 files written |  |
 | python | tools | exit code 2147746291 |  |
-| rufus | tools | not run |  |
+| rufus | tools | running, 1 window(s) |  |
 | gimp | graphics | exit code 3221225781 |  |
-| krita | graphics | not run |  |
+| krita | graphics | finished, 3459 files written |  |
 | blender | graphics | not run |  |
 | steam | games | finished, 36 files written |  |
-| supertuxkart | games | not run |  |
+| supertuxkart | games | finished, 5554 files written |  |
 | luanti | games | exit code 3 |  |
 
 ## Most common stops
