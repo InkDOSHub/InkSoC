@@ -58,14 +58,18 @@ Não existe Claude Code GitHub Action instalada; `@claude` em comentário não i
 
 ### PR #6 — build WASM stable + multi-thread em PRs
 - PR: https://github.com/InkDOSHub/InkSoC/pull/6
-- Branch: `ci/pr-engine-build-stable-mt`
-- Head observado: `84074d8ce2b940086b0e228e4e8fc4b4d61dbe53`
-- Base observada: `main` = `4776d79412c66b867391ee3e389a0d1a861ba586` no momento da auditoria do PR.
-- Aberto, draft, não mergeado na consulta.
-- Diff auditado: somente `.github/workflows/engine.yml`; 3 commits à frente e 0 atrás da base usada na auditoria.
-- Run #43732957605, vinculada ao SHA exato `84074d8`: build stable SUCCESS, build multi-thread SUCCESS, upload de artefatos SUCCESS e job publish SKIPPED (esperado em pull_request). Artefato `engine-wasm`: 1.164.229 bytes; SHA-256 `dacb9d562fdf155c6e8b8e480beca0d16c325fad584a4dfdd991dc524ca3f847`.
-- Review GPT-6: ACCEPTED para o escopo de CI. Isto não valida o engine funcionalmente no navegador e não autoriza merge.
-- PR permanece draft; merge depende de autorização explícita.
+- Branch: `ci/pr-engine-build-stable-mt`; head atual observado: `8782e11f17821a967013a6d3dcc968d9c1c6a64b`.
+- Base atual observada: `main` = `9b9c0944aa5ed75482bc0089d6e96e2da069b047`.
+- Aberto, draft, não mergeado; diff restrito a `.github/workflows/engine.yml` (43 adições, 10 remoções), 4 commits à frente e 0 atrás da base atual.
+- Review GPT-6 anterior: ACCEPTED para CI no SHA `84074d8`; essa evidência não cobre o novo head.
+- Nova run #43737980582: iniciada em evento `pull_request` e vinculada ao SHA exato `8782e11`. Na última consulta, job build estava em andamento na etapa stable; build multi-thread e upload ainda pendentes. Não declarar validado até a conclusão desta run e conferência de publish skipped.
+- Nenhuma validação funcional do engine no navegador foi feita; merge depende de autorização explícita.
+
+### PR #10 — harmonização do guia de colaboração
+- PR: https://github.com/InkDOSHub/InkSoC/pull/10
+- Branch: `docs/harmonize-ai-collaboration`; head observado: `534ce17148b12cab80a63ff78071da201189dc49`.
+- Altera somente `AI_COLLABORATION.md`, alinhando o documento ao protocolo operacional atual e substituindo referências antigas a Claude Opus por Claude Code.
+- Auditoria GPT-6: ACCEPTED para o escopo documental; aberto, draft, não mergeado.
 
 ### PR #8 — este documento de contexto
 - PR: https://github.com/InkDOSHub/InkSoC/pull/8
