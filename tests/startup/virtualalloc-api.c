@@ -113,13 +113,29 @@ int main(void)
     unsigned char *fixed = VirtualAlloc((LPVOID)0x5B100000, 0x2000, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (fixed != (unsigned char *)0x5B100000) return bad("aligned fixed reserve and commit");
 
-    /* a misaligned fixed reservation is refused, and leaves no reservation behind */
-    if (expect_error(VirtualAlloc((LPVOID)0x5B180800, 0x1000, MEM_RESERVE, PAGE_NOACCESS) != NULL,
-                     ERR_INVALID_ADDRESS, "misaligned fixed reserve")) return 1;
-    if (expect_error(VirtualAlloc((LPVOID)0x5B180800, 0x1000, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) != NULL,
-                     ERR_INVALID_ADDRESS, "misaligned fixed reserve and commit")) return 1;
-    if (VirtualAlloc((LPVOID)0x5B180000, 0x1000, MEM_RESERVE, PAGE_NOACCESS) != (LPVOID)0x5B180000)
-        return bad("aligned reserve at the same 64 KB unit after a refused misaligned one");
+    /* a misaligned fixed reservation: the base is rounded down to its 64 KB unit and the
+       end up to a page, so 0x5B180800 + 0x1000 reserves 0x5B180000..0x5B182000 */
+    unsigned char *mis = VirtualAlloc((LPVOID)0x5B180800, 0x1000, MEM_RESERVE, PAGE_NOACCESS);
+    if (mis != (unsigned char *)0x5B180000) return bad("misaligned fixed reserve rounds the base down");
+    /* that 64 KB unit is now taken, so an aligned reservation at its base collides */
+    if (expect_error(VirtualAlloc((LPVOID)0x5B180000, 0x1000, MEM_RESERVE, PAGE_NOACCESS) != NULL,
+                     ERR_INVALID_ADDRESS, "aligned reserve over a misaligned one")) return 1;
+
+    /* a misaligned fixed reservation with commit: both pages it spans are committed and writable */
+    unsigned char *mc = VirtualAlloc((LPVOID)0x5B1F0800, 0x1000, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    if (mc != (unsigned char *)0x5B1F0000) return bad("misaligned fixed reserve and commit");
+    mc[0x0800] = 0x4D;
+    mc[0x1800] = 0x4E;
+    if (expect_byte(&mc[0x0800], 0x4D, "first page of misaligned commit")) return 1;
+    if (expect_byte(&mc[0x1800], 0x4E, "second page of misaligned commit")) return 1;
+
+    /* near the top of a 64 KB unit: the base rounds down to 0x5B1F0000, which the reservation
+       just made already holds, so this collides; a size that crosses a page boundary at the
+       top of a unit is accepted and rounds to the unit's base */
+    if (expect_error(VirtualAlloc((LPVOID)0x5B1FFFF0, 0x10, MEM_RESERVE, PAGE_NOACCESS) != NULL,
+                     ERR_INVALID_ADDRESS, "fixed reserve at the top of a unit that is in use")) return 1;
+    unsigned char *top = VirtualAlloc((LPVOID)0x5B3FFFF0, 0x20, MEM_RESERVE, PAGE_NOACCESS);
+    if (top != (unsigned char *)0x5B3F0000) return bad("fixed reserve across a page boundary at the top of a unit");
 
     /* overflowing addresses and sizes are refused with the error the engine reports */
     if (expect_error(VirtualAlloc((LPVOID)0xFFFFFFFFFFFF0000ULL, 0x20000, MEM_RESERVE, PAGE_NOACCESS) != NULL,
@@ -172,6 +188,9 @@ int main(void)
     if (!VirtualFree(r3, 0, MEM_RELEASE)) return bad("release second adjacent reservation");
     if (!VirtualFree(base, 0, MEM_RELEASE)) return bad("release");
     if (!VirtualFree(fixed, 0, MEM_RELEASE)) return bad("release fixed reservation");
+    if (!VirtualFree(mis, 0, MEM_RELEASE)) return bad("release misaligned fixed reservation");
+    if (!VirtualFree(mc, 0, MEM_RELEASE)) return bad("release misaligned fixed reservation with commit");
+    if (!VirtualFree(top, 0, MEM_RELEASE)) return bad("release fixed reservation at the top of a unit");
 
     puts("VIRTUALALLOC_API_OK");
     return 0;

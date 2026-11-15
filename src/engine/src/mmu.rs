@@ -31,6 +31,18 @@ pub fn span_after(a: u64, size: u64, gap: u64) -> Option<(u64, u64)> {
     Some((end, end.checked_add(gap)?))
 }
 
+/// Effective range of a fixed-address reservation at `a` of `size` bytes: the base rounded
+/// down to the 64 KB allocation granularity, and the end of the page that holds the last
+/// byte of `a..a+size` (a zero size counts as one byte). None when the end does not fit in
+/// a u64. The base is documented to round down; the exact end is the page-granular
+/// interpretation used here, not a value checked against Windows.
+pub fn fixed_span(a: u64, size: u64) -> Option<(u64, u64)> {
+    let start = a & !0xFFFF;
+    let last = a.checked_add(size.max(1) - 1)?;
+    let end = (last & !(PAGE - 1)).checked_add(PAGE)?;
+    Some((start, end))
+}
+
 /// `x` rounded up to a 64 KB boundary; None when that does not fit in a u64.
 pub fn round_up_64k(x: u64) -> Option<u64> {
     Some(x.checked_add(0xFFFF)? & !0xFFFF)
@@ -1021,6 +1033,21 @@ mod accounting_tests {
         // no room below the limit: refused, not wrapped
         assert_eq!(m.first_gap(BASE, BASE + 0x1000, 0x2000, 0x10000), None);
         assert_eq!(snapshot(&m), before);
+    }
+
+    #[test]
+    fn fixed_span_rounds_base_down_and_end_up_to_pages() {
+        // aligned base, whole pages
+        assert_eq!(fixed_span(0x5B10_0000, 0x2000), Some((0x5B10_0000, 0x5B10_2000)));
+        // misaligned base: the base goes down to 64 KB, the end to the page of the last byte
+        assert_eq!(fixed_span(0x5B18_0800, 0x1000), Some((0x5B18_0000, 0x5B18_2000)));
+        // near the 64 KB boundary: the last byte is in the page before the boundary
+        assert_eq!(fixed_span(0x5B1F_FFF0, 0x10), Some((0x5B1F_0000, 0x5B20_0000)));
+        // zero size is one byte
+        assert_eq!(fixed_span(0x5B18_0800, 0), Some((0x5B18_0000, 0x5B18_1000)));
+        // the end does not fit
+        assert_eq!(fixed_span(u64::MAX - 0x10, 0x100), None);
+        assert_eq!(fixed_span(u64::MAX, 0), None);
     }
 
     #[test]

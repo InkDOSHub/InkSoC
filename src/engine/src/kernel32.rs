@@ -555,7 +555,7 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 0
             } else {
                 match reserve_at(e, a0, size, commit) {
-                    Ok(()) => a0,
+                    Ok(base) => base,
                     Err(code) => {
                         e.set_last_error(code);
                         0
@@ -717,25 +717,22 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
     Some(r)
 }
 
-/// VirtualAlloc at a fixed address that is not reserved yet. Compatibility decision: a
-/// fixed reservation must start on a 64 KB boundary, as Windows requires. A misaligned
-/// address is refused (487) rather than rounded, so the address returned is always the
-/// address of the region that was created. The reservation covers whole 64 KB units from
-/// that address; with MEM_COMMIT the requested pages are committed. A failed commit
-/// leaves no reservation behind. Err: the Windows error code.
-fn reserve_at(e: &mut Engine, a0: u64, size: u64, commit: bool) -> Result<(), u32> {
-    if a0 & 0xFFFF != 0 { return Err(487); }
-    let size = size.max(1);
-    let end = crate::mmu::round_up_64k(a0.checked_add(size).ok_or(487u32)?).ok_or(487u32)?;
-    if e.mmu.overlaps(a0, end) { return Err(487); }
-    e.mmu.add_reserved(a0, end - a0).ok_or(487u32)?;
+/// VirtualAlloc at a fixed address that is not reserved yet. Windows rounds the base down to
+/// the 64 KB allocation granularity and the size up to whole pages; `fixed_span` gives that
+/// effective range, which is checked against every other reservation before anything is
+/// changed. Returns the base actually reserved. With MEM_COMMIT the requested pages are
+/// committed, and a failed commit leaves no reservation behind. Err: the Windows error code.
+fn reserve_at(e: &mut Engine, a0: u64, size: u64, commit: bool) -> Result<u64, u32> {
+    let (start, end) = crate::mmu::fixed_span(a0, size).ok_or(487u32)?;
+    if e.mmu.overlaps(start, end) { return Err(487); }
+    e.mmu.add_reserved(start, end - start).ok_or(487u32)?;
     if commit {
         if let Err(code) = e.mmu.commit_in_region(a0, size) {
-            e.mmu.release_region(a0);
+            e.mmu.release_region(start);
             return Err(code);
         }
     }
-    Ok(())
+    Ok(start)
 }
 
 /// ANSI copy of a UTF-16 string held by the process parameters. The copy is made
