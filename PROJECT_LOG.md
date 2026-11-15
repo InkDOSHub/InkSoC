@@ -1,3 +1,16 @@
+### 2026-11-15 — PR #7 integrado
+
+- Agente executor: GPT-6 (atualização documental).
+- Agente revisor: GPT-6 (conferência dos metadados do GitHub).
+- Issue/PR: [PR #7 — protocolo de colaboração humano-assistida](https://github.com/InkDOSHub/InkSoC/pull/7).
+- Branch de origem: `docs/collaboration-cycle-v1`; head antes do merge: `bc1415283849cdd30f0e7c76f6b2fbb9392acd63`.
+- Merge: squash merge concluído em 2026-11-15 às 15:50:56 UTC, autorizado explicitamente pelo mantenedor; commit integrado em `main`: `4776d79412c66b867391ee3e389a0d1a861ba586`.
+- Estado: **integrado**. PR fechado com `merged: true`; alteração exclusivamente documental. Nenhum build ou teste de runtime foi executado como parte do merge.
+- Riscos / pendências: o rodapé `Claude-Session` previamente apontado permanece como observação histórica; histórico não foi reescrito.
+- Próxima ação: manter este registro como histórico; qualquer outra atualização documental deve ocorrer em branch e PR separados.
+
+---
+
 ## Atualização — 2026-11-15 — PR #7 alinhado ao fluxo real
 
 - Agente executor: Claude Code (sessão na nuvem, branch `docs/collaboration-cycle-v1`, autorizado pelo mantenedor).

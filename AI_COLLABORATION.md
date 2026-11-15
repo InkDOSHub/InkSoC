@@ -1,153 +1,117 @@
-# InkSoC — Protocolo de colaboração multicêntrica por IA
+# InkSoC — Colaboração entre agentes e mantenedor
 
-**Status:** proposta para revisão via PR  
-**Branch de origem:** `main`  
-**Baseline:** `425ab35c2905d51cbb107aa483233553253c556a`  
-**Idioma operacional:** português para relatórios; inglês pode ser usado em nomes técnicos, código e mensagens de commit.
+**Status:** documento complementar ao protocolo operacional  
+**Fonte normativa:** [`docs/collaboration/PROTOCOL.md`](docs/collaboration/PROTOCOL.md)  
+**Última harmonização:** 2026-11-15
 
-Este documento define como diferentes agentes de IA e o mantenedor humano colaboram no InkSoC. Ele não concede autonomia para aprovar, integrar ou publicar alterações.
+Este arquivo resume responsabilidades, contratos de execução e critérios de revisão. Em caso de divergência, prevalece `docs/collaboration/PROTOCOL.md`, que descreve o fluxo real e as transições do ciclo de trabalho. O estado atual do repositório, dos PRs e das Actions deve sempre ser consultado diretamente no GitHub.
 
-## 1. Modelo de responsabilidades
+## 1. Participantes e responsabilidades
 
-| Participante | Responsabilidade principal | Não pode fazer |
+| Participante | Responsabilidade | Limites |
 |---|---|---|
-| Mantenedor humano | Define prioridades, fornece contexto, decide escopo e aprova PRs/merges | Delegar a aprovação final sem revisão |
-| GPT-6 — planejamento e auditoria | Analisar arquitetura, investigar causas, elaborar especificações, critérios de aceitação e revisão independente | Alegar que compilou/executou algo sem evidência; aprovar o próprio trabalho como validação final |
-| Claude Opus — implementação | Implementar tarefas especificadas, escrever testes, executar comandos no ambiente disponível e preparar branches/PRs | Alterar `main`, ampliar escopo sem autorização, remover testes para obter CI verde ou declarar sucesso sem logs |
-| GitHub Actions — validação automatizada | Compilar, executar testes e registrar resultados reproduzíveis | Ser interpretado como prova de compatibilidade geral quando executa apenas um teste específico |
+| Mantenedor humano | Define prioridades e escopo, transfere tarefas entre agentes e autoriza merges | A decisão final de integração permanece humana |
+| GPT-6 — coordenador técnico | Investiga o GitHub, analisa arquitetura e diffs, planeja tarefas, define critérios e faz auditoria independente | Não afirma ter executado builds/testes sem evidência; não faz merge sem autorização explícita |
+| Claude Code — executor | Recebe a tarefa do mantenedor, implementa em máquina na nuvem com o repositório clonado e entrega branch/PR e evidências | Não altera `main`, não amplia escopo, não enfraquece testes e não faz merge sem autorização |
+| GitHub | Mantém código, branches, commits, PRs, Issues, Actions e artefatos | É a fonte persistente de estado e evidência |
+| GitHub Actions | Executa os workflows configurados e registra resultados associados a SHAs | Um check verde prova somente o escopo efetivamente executado |
 
-Os modelos são colaboradores técnicos, não autoridades hierárquicas. Qualquer agente pode apontar erro no trabalho de outro. Evidência reproduzível prevalece sobre opinião ou confiança do modelo.
+O fluxo atual é humano-assistido. O mantenedor transporta a tarefa e o resultado entre GPT-6 e Claude Code. Não existe Claude Code GitHub Action instalada no repositório; comentários `@claude` não iniciam execução. Nenhum workflow atual aciona GPT-6 ou Claude Code.
 
-## 2. Fonte única de verdade e comunicação
+## 2. Fluxo operacional
 
-Antes de qualquer trabalho, cada agente deve ler, nesta ordem:
+1. GPT-6 consulta o estado atual do GitHub e identifica a próxima tarefa autorizada.
+2. GPT-6 registra uma especificação delimitada, com ID, baseline, arquivos permitidos/proibidos, invariantes, testes e critérios de aceitação.
+3. O mantenedor transfere manualmente a tarefa para Claude Code.
+4. Claude Code implementa em branch isolada, sem force-push ou alteração direta de `main`, e entrega PR normalmente em draft.
+5. GitHub Actions executa os workflows existentes; resultados devem ser associados ao SHA exato.
+6. O mantenedor traz os links e evidências para a revisão.
+7. GPT-6 inspeciona diretamente diff, commits, PR e Actions; o relato do executor não substitui essa auditoria.
+8. GPT-6 registra ACCEPTED, REVISION_REQUIRED ou BLOCKED e propõe a próxima ação.
+9. Merge depende sempre de autorização explícita e específica do mantenedor.
 
-1. `AI_COLLABORATION.md`
-2. `PROJECT_LOG.md`
-3. `ROADMAP.md`
-4. `VALIDATION_MATRIX.md`
-5. README e documentação da área afetada
-6. Código, testes, workflows e histórico de PRs relacionados à tarefa
+Detalhes do ciclo, estados, notificações, acesso do Claude ao GitHub e eventuais integrações futuras estão no [protocolo operacional](docs/collaboration/PROTOCOL.md).
 
-A comunicação entre agentes ocorre por artefatos versionados no GitHub:
+## 3. Contrato para tarefas de implementação
 
-- **Especificação:** registrada na descrição do PR ou em `docs/specs/<assunto>.md`.
-- **Implementação:** branch dedicada e commits pequenos.
-- **Evidência:** links de Actions, logs, artefatos e comandos executados.
-- **Revisão:** comentários no PR e relatório de auditoria.
-- **Estado do projeto:** atualização de `PROJECT_LOG.md` e `VALIDATION_MATRIX.md`, quando houver mudança comprovada.
+Toda tarefa enviada ao executor deve conter:
 
-Não usar conversa privada entre modelos como única fonte de contexto. Toda decisão que afete arquitetura, compatibilidade, segurança ou comportamento deve ser registrada no repositório.
+- ID e prioridade;
+- problema, impacto e evidências;
+- hipótese causal separada de fatos confirmados;
+- resultado esperado;
+- SHA-base;
+- arquivos/componentes permitidos e áreas proibidas;
+- invariantes que não podem mudar;
+- plano e comandos exatos de build/test;
+- critérios de aceitação verificáveis;
+- riscos e condições para parar.
 
-## 3. Ciclo obrigatório de trabalho
+O executor deve devolver, de forma concisa:
 
-1. **Intake:** descrever sintoma, impacto, reprodução, ambiente e resultado esperado.
-2. **Diagnóstico:** identificar código e evidências; separar fato, hipótese e incógnita.
-3. **Especificação:** delimitar arquivos, APIs, invariantes, riscos, testes e critérios de aceitação.
-4. **Autorização:** o mantenedor confirma escopo antes de mudanças de runtime/arquitetura.
-5. **Implementação:** uma tarefa lógica por branch; não misturar refatoração oportunista.
-6. **Validação:** executar verificações estáticas, build e testes direcionados; acrescentar regressão.
-7. **Revisão independente:** outro agente revisa diff, casos-limite e evidências.
-8. **PR:** documentar o que mudou, o que não mudou, riscos, resultados e limitações.
-9. **Decisão humana:** merge somente após aprovação explícita do mantenedor.
-10. **Pós-merge:** atualizar log, matriz de validação e roadmap com o SHA integrado.
+1. branch, SHA final e PR;
+2. arquivos alterados e resumo do diff;
+3. comandos executados e resultados;
+4. links de Actions e artefatos;
+5. testes não executados e limitações;
+6. riscos ou bloqueios encontrados.
 
-## 4. Regras invioláveis para evitar regressões
+Se houver conflito, ambiguidade ou necessidade de ampliar o escopo, deve parar e relatar, sem improvisar.
 
-- Nunca fazer commit, push, rebase destrutivo ou edição direta em `main`.
-- Toda alteração entra por branch e Pull Request direcionado a `main`.
-- Nunca fazer merge sem autorização explícita do mantenedor, mesmo que todos os checks estejam verdes.
-- Uma correção por branch/PR sempre que possível.
-- Não combinar mudança funcional, refatoração ampla e atualização de dependências no mesmo PR.
-- Não alterar APIs, ABI, layouts de estruturas, scheduler, memória, JIT, loader ou sincronização sem mapear consumidores e invariantes.
-- Não reativar inicialização completa de DLLs Wine, redirecionar stubs NT ou introduzir dependência de wineserver sem análise específica e testes.
-- Não editar arquivos gerados (por exemplo, `gl-funcs.js`) manualmente; localizar e alterar a fonte geradora.
+## 4. Regras de segurança e qualidade
+
+- Nunca editar `main` diretamente.
+- Nunca fazer merge sem autorização explícita.
+- Uma mudança lógica por branch/PR sempre que possível.
+- Não fazer force-push nem reescrever histórico sem autorização específica.
 - Não remover, enfraquecer ou contornar testes para obter CI verde.
-- Não classificar instalador concluído como aplicativo funcional.
-- Não classificar build bem-sucedido como compatibilidade funcional.
-- Não afirmar validação sem apontar workflow, execução, commit SHA, resultado e escopo coberto.
-- Se não houver ambiente para executar algo, declarar explicitamente **não executado**.
-- Em caso de falha, preservar logs e classificar: código, teste, ambiente, rede/download, timeout ou inconclusivo.
-- Se surgir necessidade de ampliar escopo, parar e pedir autorização antes de implementar.
+- Não alterar runtime, ABI, memória, JIT, loader, scheduler, sincronização ou dependências fora do escopo aprovado.
+- Não editar arquivos gerados manualmente; localizar a fonte geradora.
+- Não classificar build ou instalação concluídos como compatibilidade funcional.
+- Não declarar validação sem workflow/run, SHA, resultado e cobertura.
+- Preservar logs e classificar falhas como CODE, TEST, INFRA, NETWORK, TIMEOUT, ENVIRONMENT ou UNKNOWN.
+- Revalidar o diff após qualquer atualização da branch com `main`.
 
 ## 5. Estados de evidência
 
-Usar exatamente estas distinções nos relatórios:
+Usar as distinções definidas no protocolo:
 
-- **Identificado:** há indício ou observação, ainda sem causa confirmada.
-- **Diagnosticado:** causa sustentada por código, reprodução ou evidência técnica.
-- **Implementado:** código alterado; não implica que compilou.
-- **Compilado:** build terminou com sucesso para o SHA indicado.
-- **Testado:** teste específico executou; informar qual.
-- **Validado:** todos os critérios de aceitação definidos para a tarefa passaram.
-- **Confirmado funcionalmente:** comportamento foi observado no ambiente de destino e nos cenários declarados.
-- **Não validado / inconclusivo:** faltam evidências ou o ambiente impediu conclusão.
+- **Identificado:** observação ou indício, sem causa confirmada.
+- **Diagnosticado:** causa sustentada por código, reprodução ou evidência.
+- **Implementado:** código alterado; não implica build.
+- **Compilado:** build passou para o SHA indicado.
+- **Testado:** teste nomeado foi executado.
+- **Validado:** todos os critérios de aceitação da tarefa passaram.
+- **Confirmado funcionalmente:** comportamento observado no ambiente de destino nos cenários declarados.
+- **Inconclusivo:** faltam evidências ou o ambiente impediu a conclusão.
 
 Nunca promover automaticamente um estado para o seguinte.
 
-## 6. Contrato de uma tarefa para Claude Opus
+## 6. Checklist da revisão independente
 
-Toda tarefa de implementação deve receber uma especificação com:
+O revisor deve examinar o diff e verificar, conforme a área afetada:
 
-- ID e prioridade;
-- problema e evidências;
-- hipótese causal, com nível de confiança;
-- resultado esperado;
-- arquivos e componentes permitidos;
-- arquivos/áreas proibidos;
-- invariantes que não podem mudar;
-- plano de implementação;
-- testes novos e existentes;
-- comandos exatos de build/test;
-- critérios de aceitação;
-- riscos e plano de rollback.
-
-Ao terminar, Claude deve devolver:
-
-1. resumo das alterações;
-2. lista de arquivos e commits;
-3. explicação de decisões;
-4. comandos executados e seus resultados;
-5. links dos workflows e artefatos;
-6. testes que não conseguiu executar;
-7. riscos conhecidos e dúvidas;
-8. PR em draft, sem merge.
-
-## 7. Contrato da revisão independente
-
-O agente revisor deve ler o diff e verificar, no mínimo:
-
-- correspondência com a especificação;
-- alterações fora do escopo;
-- erros de lógica, memória, concorrência, ABI e tratamento de falhas;
-- compatibilidade com x86-64, WoW64 e navegadores suportados, quando aplicável;
-- efeitos em single-core e multi-core;
-- regressões nos testes existentes;
-- qualidade dos novos testes (incluindo se falhariam antes da correção);
+- aderência à especificação e ausência de alterações fora do escopo;
+- correção lógica, tratamento de erros, memória, concorrência e ABI;
+- consumidores, invariantes e efeitos em single-core/multi-core;
+- compatibilidade x86-64, WoW64 e navegadores-alvo, quando aplicável;
+- regressões e qualidade dos testes novos (inclusive se detectariam a falha anterior);
 - segurança, dependências e licenças;
-- se o relatório descreve fielmente os logs.
+- correspondência entre o relatório e os logs reais;
+- vínculo de cada resultado de CI ao SHA auditado.
 
-O revisor deve apontar bloqueadores concretos, não apenas dizer que o código parece bom. A revisão não substitui os checks automatizados nem a aprovação humana.
+A revisão deve apontar bloqueadores concretos. Aceitação técnica não substitui checks automatizados nem autorização humana.
 
-## 8. Política de branches e PRs
+## 7. Documentos relacionados
 
-- Branches com prefixos: `fix/`, `feat/`, `test/`, `docs/`, `refactor/`.
-- PRs devem ter escopo pequeno, descrição reproduzível e checklist de validação.
-- Manter PRs em draft enquanto houver testes pendentes ou dúvidas relevantes.
-- Atualizar a branch com a `main` apenas de modo não destrutivo e revisar novamente o diff.
-- Não fechar ou substituir PR de outro agente sem explicar o motivo.
-- Não empilhar dependências entre PRs sem declarar a ordem de integração.
+- [Protocolo operacional](docs/collaboration/PROTOCOL.md) — fonte normativa do fluxo humano-assistido.
+- [Contexto de sessão](docs/collaboration/SESSION_CONTEXT.md) — resumo para retomada em novas conversas; snapshots precisam ser revalidados.
+- [Registro do projeto](PROJECT_LOG.md) — histórico de marcos verificados.
+- [Roadmap](ROADMAP.md) — prioridades técnicas.
+- [Matriz de validação](VALIDATION_MATRIX.md) — níveis e critérios de evidência.
 
-## 9. Limites do ambiente
+Decisões arquiteturais duradouras devem ser registradas em `DECISIONS.md` ou ADRs em `docs/decisions/`, com contexto, alternativas, decisão, consequências e data.
 
-GitHub Actions é o ambiente de build/teste do projeto. Uma IA que apenas inspeciona o repositório não pode inferir que o build local passou. O resultado oficial é o workflow executado para o SHA exato.
+## 8. Critério de sucesso
 
-Quando um workflow não cobre o comportamento real (por exemplo, um smoke test de API não comprova compatibilidade de aplicativos comerciais), o relatório deve dizer isso expressamente.
-
-## 10. Registro de decisões
-
-Decisões arquiteturais duradouras devem ser adicionadas a `DECISIONS.md` ou a um ADR em `docs/decisions/`, contendo contexto, alternativas, decisão, consequências e data. Não criar decisão arquitetural implícita apenas em comentário de código.
-
-## 11. Critério de sucesso do processo
-
-O processo é bem-sucedido quando reduz mudanças não relacionadas, torna os resultados reproduzíveis, deixa claro o que foi e não foi testado, permite revisão cruzada entre modelos e mantém a decisão final com o mantenedor humano.
+O processo é bem-sucedido quando mantém escopo pequeno, reduz regressões, conserva evidências reproduzíveis, explicita o que foi e não foi testado e preserva com o mantenedor a decisão final de integração.
