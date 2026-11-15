@@ -1,0 +1,32 @@
+# Builds the small stand-ins for Windows tools that programs expect in System32
+# (src/stubs) and commits them to bin/wine, which every program gets.
+name: stubs
+on:
+  push:
+    branches: [main]
+    paths: [src/stubs/**]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+      - name: Build
+        run: |
+          cd src/stubs
+          for c in *.c; do
+            n=${c%.c}
+            x86_64-w64-mingw32-windres $n.rc -O coff -o $n.res
+            x86_64-w64-mingw32-gcc -O2 -s -o ../../bin/wine/$n.exe $c $n.res
+          done
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add bin/wine/*.exe
+          git diff --cached --quiet && exit 0
+          git commit -m "Build System32 stubs (src/stubs)"
+          for i in 1 2 3; do git pull --rebase -q && git push -q && break; sleep 5; done

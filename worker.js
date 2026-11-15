@@ -565,7 +565,7 @@ async function runExec(d) {
   if (!fetched) {
     // the rest of Windows: Wine 11's DLLs (cached by the browser after the first run)
     post('log', { text: '[engine] loading the Wine DLLs (40 MB the first time)\n' });
-    const list = await fetch('bin/wine/list.json?v=11').then((r) => r.json());
+    const list = await fetch('bin/wine/list.json?v=12').then((r) => r.json());
     const have = new Set(files.map((f) => f.name.toLowerCase()));
     const wine = await Promise.all(list.filter((n) => !have.has(n)).map(async (name) => ({ name, data: await fetch('bin/wine/' + name + '?v=3').then((r) => r.arrayBuffer()) })));
     files = files.concat(wine);
