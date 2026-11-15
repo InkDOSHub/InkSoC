@@ -85,7 +85,14 @@ for r in json.load(open(os.environ.get('REQUEST') or os.path.join(here, 'request
     if r.get('ophist'): env['WASM'] = os.path.join(here, 'ophist.wasm')
     if r.get('prof'): env['PROF'] = os.path.join(out, r['name'] + '-prof')
     log = open(os.path.join(out, r['name'] + '.log'), 'w')
-    jobs.append((r['name'], time.time(), subprocess.Popen([os.path.join(inksoc, 'compat/app.sh'), d, exe, args], env=env, stdout=log, stderr=subprocess.STDOUT), log))
+    try:
+        p = subprocess.Popen([os.path.join(inksoc, 'compat/app.sh'), d, exe, args],
+                             env=env, stdout=log, stderr=subprocess.STDOUT, cwd=inksoc)
+    except Exception as ex:
+        log.close()
+        failure_result(r['name'], 'crashed', f'{type(ex).__name__}: {ex}')
+        continue
+    jobs.append((r['name'], time.time(), p, log))
 for t in drives: t.join()
 for f in sorted(os.listdir(out)):
     if f.endswith('.ppm') and shutil.which('convert'):
