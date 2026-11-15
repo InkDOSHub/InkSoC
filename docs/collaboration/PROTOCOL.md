@@ -1,4 +1,4 @@
-# InkSoC — Protocolo de colaboração por eventos
+# InkSoC — Protocolo de colaboração humano-assistida
 
 **Status:** proposta v1 para revisão (revisada para o fluxo real em 2026-11-15)  
 **Baseline:** `d923a3eae86669d807b15d131400636e8137b74d`  

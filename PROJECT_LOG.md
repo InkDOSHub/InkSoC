@@ -1,15 +1,16 @@
 ## Atualização — 2026-11-15 — PR #7 alinhado ao fluxo real
 
 - Agente executor: Claude Code (sessão na nuvem, branch `docs/collaboration-cycle-v1`, autorizado pelo mantenedor).
-- Agente revisor: GPT-6 (auditoria independente pendente).
+- Agente revisor: GPT-6 (2 revisões feitas).
 - Issue/PR: [PR #7](https://github.com/InkDOSHub/InkSoC/pull/7), draft.
 - SHA inicial do PR: `41daeb3a79f419323be19b5a03abb14878fcd2fc`; `main` em `d923a3eae86669d807b15d131400636e8137b74d` (não alterada).
 - Alteração: `PROTOCOL.md` e `INTEGRATION_DESIGN.md` passam a descrever o fluxo humano-assistido vigente (GPT-6 planeja → mantenedor transfere → Claude Code implementa em branch → GitHub Actions valida → mantenedor leva evidências → GPT-6 audita). Registrado que não há Claude Code GitHub Action, nenhum workflow aciona Claude e `@claude` não inicia execução; a Action ficou descrita só como possibilidade futura (Secret, custo, permissões). Classificação de falhas e verificação por SHA explicitadas.
 - Estado: **implementado (documentação)**. Nenhum build ou teste de runtime executado; nenhum workflow alterado.
 - Riscos / pendências: nenhuma nova.
-- Próxima ação autorizada: auditoria GPT-6 do PR #7; merge só com autorização do mantenedor.
 - Observação (2026-11-15): o rodapé `Claude-Session` do commit `b07a31860ef1fcebd204a6a53df887894a026aeb` aponta para uma sessão anterior, não para a sessão que fez a alteração. O mantenedor decidiu não corrigir por reescrita de histórico (sem force-push); o conteúdo do commit não é afetado.
-- Auditoria GPT-6 do PR #7: **REVISION_REQUIRED** apenas por título/descrição do PR desatualizados; conteúdo documental considerado consistente. Título e descrição do PR atualizados em seguida.
+- 1ª revisão GPT-6: **REVISION_REQUIRED** apenas por título/descrição do PR desatualizados; conteúdo documental considerado consistente. Corrigido: título e descrição do PR atualizados e esta observação registrada (commit `194315b7ba442b6fd42a496380781238c891d217`).
+- 2ª revisão GPT-6: **REVISION_REQUIRED** por dois ajustes textuais: título da linha 1 de `PROTOCOL.md` ainda dizia "por eventos" (alterado para "humano-assistida") e este bloco ainda indicava auditoria pendente (atualizado).
+- Próxima ação autorizada: conferência final pelo GPT-6; merge só com autorização explícita do mantenedor.
 
 ## Atualização — 2026-11-15 — Protocolo de colaboração por eventos
 
