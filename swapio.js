@@ -43,7 +43,7 @@ onmessage = async (ev) => {
       Atomics.notify(ctl, 0);
       continue;
     }
-    const page = new Uint8Array(memory.buffer, ctl[3], PAGE);
+    const page = new Uint8Array(memory.buffer, ctl[3] >>> 0, PAGE);
     if (op === 1) { buf.set(page); if (swap) swap.write(buf, { at: slot * PAGE }); else ram.set(slot, buf.slice()); }
     else { if (swap) swap.read(buf, { at: slot * PAGE }); else buf.set(ram.get(slot) || new Uint8Array(PAGE)); page.set(buf); }
     Atomics.store(ctl, 0, 2);

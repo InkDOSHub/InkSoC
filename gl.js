@@ -16,11 +16,11 @@
   const enc = new TextEncoder(), dec = new TextDecoder();
 
   // ---------- guest memory ----------
-  const rd = (a, n) => (n > 0 ? new Uint8Array(mem.buffer, x.gl_read(a, n), n).slice() : new Uint8Array(0));
+  const rd = (a, n) => (n > 0 ? new Uint8Array(mem.buffer, x.gl_read(a, n) >>> 0, n).slice() : new Uint8Array(0));
   const wr = (a, bytes) => {
     if (!a || !bytes.length) return;
     const p = x.gl_scratch(bytes.length);
-    new Uint8Array(mem.buffer, p, bytes.length).set(bytes);
+    new Uint8Array(mem.buffer, p >>> 0, bytes.length).set(bytes);
     x.gl_write(a, p, bytes.length);
   };
   const rdI32 = (a, n) => new Int32Array(rd(a, 4 * n).buffer);
@@ -42,7 +42,7 @@
   // text results go back through the scratch area: the engine copies them for the program
   const text = (s) => {
     const b = enc.encode(s), p = x.gl_scratch(b.length);
-    new Uint8Array(mem.buffer, p, b.length).set(b);
+    new Uint8Array(mem.buffer, p >>> 0, b.length).set(b);
     return b.length;
   };
 
@@ -203,7 +203,7 @@
     gl.pixelStorei(gl.PACK_ALIGNMENT, prevPack);
     if (self.wineDebug >= 2 && ((swapN = (swapN || 0) + 1) <= 5 || swapN % 50 === 0)) { const c = (w * (h >> 1) + (w >> 1)) * 4, q = (w * (h >> 2) + (w >> 2)) * 4; console.log('[gl] swap', swapN, w, h, 'center', px.slice(c, c + 4).join(','), 'quarter', px.slice(q, q + 4).join(','), 'prevFb', !!prevFb); }
     // bottom-up RGBA bytes -> top-down 0xAARRGGBB words
-    const p = x.gl_scratch(w * h * 4), out = new Uint32Array(mem.buffer, p, w * h);
+    const p = x.gl_scratch(w * h * 4), out = new Uint32Array(mem.buffer, p >>> 0, w * h);
     for (let y = 0; y < h; y++) {
       const s = (h - 1 - y) * w * 4, d = y * w;
       for (let i = 0; i < w; i++) { const k = s + 4 * i; out[d + i] = (0xFF000000 | (px[k] << 16) | (px[k + 1] << 8) | px[k + 2]) >>> 0; }
@@ -619,7 +619,7 @@
     x = engine; mem = memory;
     const name = GL_FUNCS[code], f = F[name] || F[name.replace(/(ARB|EXT)$/, '')];
     if (!f) return NaN;
-    const args = Array.from(new Float64Array(mem.buffer, p, n));
+    const args = Array.from(new Float64Array(mem.buffer, p >>> 0, n));
     try {
       const r = f(args);
       // ?winedebug=2 or more: each WebGL error once per function (the program may never ask)

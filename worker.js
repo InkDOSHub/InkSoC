@@ -111,13 +111,13 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
   files = files.filter((f) => !f.handle);
   const ram = new Map();
   let mem, swapMs = 0, outBytes = 0, tooMuch = false;
-  const view = (p) => new Uint8Array(mem.buffer, p, PAGE);
+  const view = (p) => new Uint8Array(mem.buffer, p >>> 0, PAGE);
   const env = {
     host_console: (p, n) => {
       // a program stuck printing (e.g. asking a question nobody can answer) would fill the page and crash the tab
       outBytes += n;
       if (outBytes > 1 << 20) { tooMuch = true; return; }
-      post('log', { text: new TextDecoder().decode(new Uint8Array(mem.buffer, p, n).slice()) });
+      post('log', { text: new TextDecoder().decode(new Uint8Array(mem.buffer, p >>> 0, n).slice()) });
     },
     host_now_ms: () => performance.now(),
     host_console_text: (t) => {
@@ -147,17 +147,17 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
     // sound for the page (Web Audio): float samples of stream `id`, or frames = 0 to drop it
     host_audio: (id, p, frames, ch, rate) => {
       if (!frames) { post('audio', { id, stop: true }); return; }
-      const data = new Float32Array(mem.buffer, p, frames * ch).slice();
+      const data = new Float32Array(mem.buffer, p >>> 0, frames * ch).slice();
       postMessage({ type: 'audio', id, rate, ch, data }, [data.buffer]);
     },
-    host_gl: (code, p, n) => { if (!self.glCall) importScripts('gl-funcs.js?v=2', 'gl.js?v=7'); return self.glCall(x, mem, code, p, n); },
+    host_gl: (code, p, n) => { if (!self.glCall) importScripts('gl-funcs.js?v=2', 'gl.js?v=8'); return self.glCall(x, mem, code, p, n); },
     host_drive_read: (id, off, p, n) => {
       if (swapCtl) return driveCall(swapCtl, id, off, p, n);
       const h = id === SPILL ? spill : open[id];
       if (!h) return 0;
-      if (!shared) return h.read(new Uint8Array(mem.buffer, p, n), { at: off });
+      if (!shared) return h.read(new Uint8Array(mem.buffer, p >>> 0, n), { at: off });
       const b = new Uint8Array(n), got = h.read(b, { at: off });
-      new Uint8Array(mem.buffer, p, got).set(b.subarray(0, got));
+      new Uint8Array(mem.buffer, p >>> 0, got).set(b.subarray(0, got));
       return got;
     },
     // msvcrt calls into Wine's code (wine.wasm), instantiated below
@@ -165,7 +165,7 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
     // JIT: compiles one translated block and adds it to the engine's function table
     host_jit: (p, n) => {
       try {
-        const m = new WebAssembly.Module(new Uint8Array(mem.buffer, p, n).slice());
+        const m = new WebAssembly.Module(new Uint8Array(mem.buffer, p >>> 0, n).slice());
         const i = new WebAssembly.Instance(m, { env: { memory: mem, rd: x.jit_rd, wr: x.jit_wr, step: x.jit_step, cond: x.jit_cond } });
         const t = x.__indirect_function_table, k = t.grow(1);
         t.set(k, i.exports.f);
@@ -178,7 +178,7 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
   };
   let jitErr = 0;
   let wine;
-  let [wasm, wineWasm] = await Promise.all([mt ? 'inksoc-mt.wasm?v=56' : 'inksoc.wasm?v=79', 'wine.wasm?v=2'].map((u) => fetch(u).then((r) => r.arrayBuffer())));
+  let [wasm, wineWasm] = await Promise.all([mt ? 'inksoc-mt.wasm?v=57' : 'inksoc.wasm?v=80', 'wine.wasm?v=2'].map((u) => fetch(u).then((r) => r.arrayBuffer())));
   // test: the same engine on a shared memory (what several cores need), to compare speed
   if (mt) {
     importScripts('sharedmem.js?v=1');
@@ -198,7 +198,7 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
   const x = instance.exports;
   mem = mt ? env.memory : x.memory;
   if (mt) x.__wasm_init_tls(x.core_alloc(x.__tls_size.value + x.__tls_align.value));
-  const put = (bytes) => { const p = x.buffer(bytes.length); new Uint8Array(mem.buffer, p, bytes.length).set(bytes); };
+  const put = (bytes) => { const p = x.buffer(bytes.length); new Uint8Array(mem.buffer, p >>> 0, bytes.length).set(bytes); };
   const enc = (t) => new TextEncoder().encode(t);
   const msg = () => new TextDecoder().decode(new Uint8Array(mem.buffer, (x.msg_ptr() >>> 0), x.msg_len()).slice());
   // Network: the program's sockets go through a wisp v1 tunnel on our Cloudflare worker
@@ -278,14 +278,14 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
   const coreWorkers = [];
   if (mt) {
     const sab = new SharedArrayBuffer(32);
-    swapW = new Worker('swapio.js?v=4');
+    swapW = new Worker('swapio.js?v=5');
     await new Promise((res) => { swapW.onmessage = (ev) => { swapOpfs = ev.data.opfs; spillOk = !!ev.data.spill; (ev.data.drive || []).forEach((ok, i) => { open[i] = ok; }); res(); }; swapW.postMessage({ memory: mem, ctl: sab, name: 'inksoc-swap.bin', drive: lazy.map((f) => f.at), spill: spillName }); });
     swapCtl = new Int32Array(sab);
     if (!swapOpfs) post('log', { text: '[swap] OPFS sync access unavailable, using RAM instead\n' });
     const ready = [];
     for (let id = 1; id < cores; id++) {
       const stack = 1 << 20, base = x.core_alloc(stack), tls = x.core_alloc(x.__tls_size.value + x.__tls_align.value);
-      const w = new Worker('core.js?v=6');
+      const w = new Worker('core.js?v=7');
       ready.push(new Promise((res, rej) => {
         w.onmessage = (ev) => {
           const m = ev.data;
@@ -336,7 +336,7 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
     lastFrame = t;
     const p = x.win_frame();
     if (!p) return;
-    const b = new Uint8ClampedArray(new Uint8Array(mem.buffer, p, 1024 * 768 * 4));
+    const b = new Uint8ClampedArray(new Uint8Array(mem.buffer, p >>> 0, 1024 * 768 * 4));
     postMessage({ type: 'frame', w: 1024, h: 768, data: b.buffer }, [b.buffer]);
   };
   // Swap brake: swapping wears the device's flash storage. Warn when a program has been
@@ -430,7 +430,7 @@ async function runLinux({ files, cmd, poolMb, jit, rows, cols }) {
   let mem, x;
   const out = (t) => post('out', { text: t });
   const env = {
-    host_console: (p, n) => out(dec.decode(new Uint8Array(mem.buffer, p, n).slice(), { stream: true })),
+    host_console: (p, n) => out(dec.decode(new Uint8Array(mem.buffer, p >>> 0, n).slice(), { stream: true })),
     host_now_ms: () => performance.now(),
     host_epoch_ms: () => Date.now(),
     host_random: (p, n) => { const v = new Uint8Array(mem.buffer, p >>> 0, n); for (let i = 0; i < n; i += 65536) { const b = new Uint8Array(Math.min(65536, n - i)); crypto.getRandomValues(b); v.set(b, i); } },
@@ -442,7 +442,7 @@ async function runLinux({ files, cmd, poolMb, jit, rows, cols }) {
     wine_call: () => 0,
     host_jit: (p, n) => {
       try {
-        const m = new WebAssembly.Module(new Uint8Array(mem.buffer, p, n).slice());
+        const m = new WebAssembly.Module(new Uint8Array(mem.buffer, p >>> 0, n).slice());
         const i = new WebAssembly.Instance(m, { env: { memory: mem, rd: x.jit_rd, wr: x.jit_wr, step: x.jit_step, cond: x.jit_cond } });
         const t = x.__indirect_function_table, k = t.grow(1);
         t.set(k, i.exports.f);
@@ -450,11 +450,11 @@ async function runLinux({ files, cmd, poolMb, jit, rows, cols }) {
       } catch (e) { return -1; }
     },
   };
-  const wasm = await fetch('inksoc.wasm?v=79').then((r) => r.arrayBuffer());
+  const wasm = await fetch('inksoc.wasm?v=80').then((r) => r.arrayBuffer());
   x = (await WebAssembly.instantiate(wasm, { env })).instance.exports;
   mem = x.memory;
   const enc = new TextEncoder();
-  const put = (bytes) => { const p = x.buffer(bytes.length); new Uint8Array(mem.buffer, p, bytes.length).set(bytes); };
+  const put = (bytes) => { const p = x.buffer(bytes.length); new Uint8Array(mem.buffer, p >>> 0, bytes.length).set(bytes); };
   const putFile = (name, data, boot) => {
     const nm = enc.encode(name), d = new Uint8Array(data), b = new Uint8Array(nm.length + 1 + d.length);
     b.set(nm); b.set(d, nm.length + 1); put(b);

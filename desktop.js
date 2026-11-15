@@ -177,7 +177,7 @@ function run(files, exe, args, label, home, opts = {}) {
   raise(p);
   p.label = label;
   p.icon = opts.icon || 'application-x-executable';
-  const w = p.w = new Worker('worker.js?v=71');
+  const w = p.w = new Worker('worker.js?v=72');
   w.onmessage = (ev) => {
     const d = ev.data;
     if (d.type === 'log') { out.textContent += d.text.replace(/\r/g, ''); out.scrollTop = out.scrollHeight; }

@@ -33,7 +33,7 @@ onmessage = (ev) => {
   let x, wine, jitErr = 0;
   const env = {
     memory,
-    host_console: (p, n) => postMessage({ out: dec.decode(new Uint8Array(memory.buffer, p, n).slice()) }),
+    host_console: (p, n) => postMessage({ out: dec.decode(new Uint8Array(memory.buffer, p >>> 0, n).slice()) }),
     // the same clock as core 0: a time taken on one core and compared on another must agree
     host_now_ms: () => performance.now() + shift,
     host_epoch_ms: () => Date.now(),
@@ -48,7 +48,7 @@ onmessage = (ev) => {
     wine_call: (i, a, b, c, d) => wine.ink_call(i, a, b, c, d),
     host_jit: (p, n) => {
       try {
-        const m = new WebAssembly.Module(new Uint8Array(memory.buffer, p, n).slice());
+        const m = new WebAssembly.Module(new Uint8Array(memory.buffer, p >>> 0, n).slice());
         const i = new WebAssembly.Instance(m, { env: { memory, rd: x.jit_rd, wr: x.jit_wr, step: x.jit_step, cond: x.jit_cond } });
         const t = x.__indirect_function_table, k = t.grow(1);
         t.set(k, i.exports.f);

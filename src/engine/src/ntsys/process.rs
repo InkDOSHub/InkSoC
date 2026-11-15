@@ -281,7 +281,7 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             }
             OK
         }
-        "NtQueryObject" => INVALID_INFO_CLASS,
+        "NtQueryObject" => query_object(e),
         "NtDisplayString" => OK,
         // CreateProcess from Wine's kernelbase (a 32-bit program's, through WoW64)
         "NtCreateUserProcess" => create_user_process(e),
@@ -295,6 +295,63 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "NtCommitTransaction" | "NtRollbackTransaction" => OK,
         _ => return e.not_mine(),
     })
+}
+
+/// NtQueryObject(handle, class, buffer, length, &needed): basic information (0) and, for
+/// files and folders, the name (1) as "\\??\\C:\\..." (GetFinalPathNameByHandleW reads it).
+fn query_object(e: &mut Engine) -> u64 {
+    let (h, class, buf, len, ret) = (e.arg(0), e.arg(1) as u32, e.arg(2), e.arg(3) as u32 as u64, e.arg(4));
+    match class {
+        0 => {
+            // ObjectBasicInformation: attributes, access, handle count, pointer count, ...
+            if len < 56 {
+                e.w32(ret, 56);
+                return INFO_LENGTH_MISMATCH;
+            }
+            e.zero_n(buf, 56);
+            e.w32(buf + 4, 0x1F01FF);
+            e.w32(buf + 8, 1);
+            e.w32(buf + 12, 1);
+            e.w32(ret, 56);
+            OK
+        }
+        1 => {
+            let key = match e.s.fs.handles.get(&h) {
+                Some(Handle::File { name, .. }) => Some(name.clone()),
+                Some(Handle::Dir) => e.s.fs.paths.get(&h).map(|p| p.0.clone()),
+                _ => None,
+            };
+            let name = match key {
+                Some(k) => {
+                    let cased = e.s.names.get(&k).cloned().unwrap_or(k);
+                    let full = crate::files::win_path(&cased);
+                    format!("\\??\\{}", full.trim_end_matches('\\'))
+                }
+                None => String::new(),
+            };
+            let w: Vec<u16> = name.encode_utf16().collect();
+            let need = 16 + 2 * w.len() as u64 + if w.is_empty() { 0 } else { 2 };
+            e.w32(ret, need as u32);
+            if len < 16 {
+                return INFO_LENGTH_MISMATCH;
+            }
+            if len < need {
+                return BUFFER_OVERFLOW;
+            }
+            e.zero_n(buf, 16);
+            if !w.is_empty() {
+                e.w16(buf, 2 * w.len() as u16);
+                e.w16(buf + 2, 2 * w.len() as u16 + 2);
+                e.w64(buf + 8, buf + 16);
+                for (i, c) in w.iter().enumerate() {
+                    e.w16(buf + 16 + 2 * i as u64, *c);
+                }
+                e.w16(buf + 16 + 2 * w.len() as u64, 0);
+            }
+            OK
+        }
+        _ => INVALID_INFO_CLASS,
+    }
 }
 
 /// NtCreateUserProcess(&process, &thread, access, access, attr, attr, process_flags,
