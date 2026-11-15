@@ -36,6 +36,7 @@ def drive_job(r, d, f):
     json.dump(summary, open(os.path.join(out, r['name'] + '-result.json'), 'w'))
     notes = [l for l in text if (l.startswith('[') and not l.startswith('[20')) or ':err:' in l]
     if notes: print('--- engine notes (last 40) ---'); print('\n'.join(n[:300] for n in notes[-40:]))
+    if not j or j['status'] != 'exit' or j.get('exitCode'): print('--- log (end) ---'); print('\n'.join(l[:300] for l in text[-41:-1])); print((j or {}).get('out', '')[-1500:])
     b = os.path.join(root, 'logs/bootstrap_log.txt')
     if os.path.exists(b): print('--- bootstrap_log (end) ---'); print('\n'.join(open(b, errors='replace').read().splitlines()[-30:]))
     for x in ['logs/bootstrap_log.txt', 'logs/stderr.txt', 'logs/cef_log.txt']:
@@ -83,7 +84,7 @@ for name, t0, p, log in jobs:
     # what the engine and Wine said (readable in the job log without the artifact)
     notes = [l for l in text[:-1] if (l.startswith('[') and not l.startswith('[20')) or ':err:' in l or 'not available' in l]
     if notes: print('--- engine notes (last 40) ---'); print('\n'.join(n[:300] for n in notes[-40:]))
-    if j and (j['status'] != 'exit' or j.get('exitCode')) and j.get('out'): print('--- program output (end) ---'); print(j['out'][-1500:])
+    if not j or j['status'] != 'exit' or j.get('exitCode'): print('--- log (end) ---'); print('\n'.join(l[:300] for l in text[-41:-1])); print((j or {}).get('out', '')[-1500:])
     # where the time went (node --cpu-prof): functions by own time, wasm ones by name
     pd = os.path.join(out, name + '-prof')
     for pf in (os.listdir(pd) if os.path.isdir(pd) else []):

@@ -283,6 +283,8 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
         }
         "NtQueryObject" => query_object(e),
         "NtQuerySecurityObject" => query_security(e),
+        // objects keep no security of their own here (like Wine's for most objects): accepted
+        "NtSetSecurityObject" => OK,
         "NtDisplayString" => OK,
         // CreateProcess from Wine's kernelbase (a 32-bit program's, through WoW64)
         "NtCreateUserProcess" => create_user_process(e),
