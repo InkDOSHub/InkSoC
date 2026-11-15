@@ -10,7 +10,7 @@ This document records verified differences between InkSoC's startup path and the
 
 InkSoC deliberately suppresses the `DllMain` initialization queue for the three core Wine modules because they share state with the engine. It then supplies selected state itself: TEB/PEB fields, process parameters, shared user data, NLS tables, and native NT/Win32 call implementations.
 
-That strategy is viable only if every skipped initialization responsibility has an explicit engine equivalent. The current code demonstrates equivalents for some responsibilities, but not all.
+That strategy is viable only if every skipped initialization responsibility has an explicit engine equivalent. The current code demonstrates equivalents for some responsibilities, but not all. The differences below are audit targets; they are not all confirmed runtime defects.
 
 ## Verified differences
 
@@ -32,15 +32,18 @@ Wine 9.0's `dlls/kernelbase/main.c` calls these functions during process attach:
 
 InkSoC has a manual locale-table path in `wine_nls()` and `wine_kernelbase_nls()`, and creates `RTL_USER_PROCESS_PARAMETERS` in `process_parameters()`. However, the audited boot path does not visibly execute the KernelBase startup functions as a group.
 
-A concrete parity risk is command-line state. In Wine 9.0, `init_startup_info()` sets the private `command_lineA` and `command_lineW` pointers used by KernelBase's `GetCommandLineA/W`. InkSoC's `process_parameters()` populates the PEB's process-parameters structure and stores its own command-line pointers, but no corresponding initialization of KernelBase's private static pointers is visible. Direct calls through the Wine KernelBase implementation therefore need a focused test.
+Two private-state parity risks deserve focused tests:
 
-Another responsibility is `init_global_data()`, which allocates KernelBase's global-memory handle table. The native engine has its own `GlobalAlloc/GlobalFree` handling, but that does not by itself prove parity for calls that execute the Wine KernelBase implementation.
+- In Wine 9.0, `init_startup_info()` sets the private `command_lineA` and `command_lineW` pointers used by the Wine KernelBase implementation of `GetCommandLineA/W`. InkSoC's `process_parameters()` populates the PEB's process-parameters structure and stores its own command-line pointers, but does not visibly initialize those private Wine globals. This does **not** mean ordinary imports are necessarily broken: InkSoC's native `kernel32::call` already handles `GetCommandLineA/W`. The risk is code that reaches the Wine KernelBase fallback implementation or relies on its private startup state.
+- `init_global_data()` allocates KernelBase's global-memory handle table. InkSoC has native `GlobalAlloc/GlobalFree` handling, but fallback code inside Wine KernelBase may still rely on its own global table.
+
+These are unverified parity gaps, not confirmed causes of a compatibility failure. Tests must distinguish calls handled by InkSoC's native exports from calls that actually execute Wine's fallback code.
 
 ### 3. Kernel32 process attach is also skipped
 
 Wine 9.0's `dlls/kernel32/kernel_main.c` calls `process_attach()` from `DllMain`. That routine installs an unhandled-exception filter, queries system information, obtains KernelBase global data, and copies startup information.
 
-InkSoC has native equivalents for some related APIs and its own exception and process structures. The exact coverage of the skipped Kernel32 initialization still needs to be mapped function-by-function; it should not be assumed to be covered merely because individual APIs exist.
+InkSoC has native equivalents for some related APIs and its own exception and process structures. For example, its native `GetStartupInfoA/W` currently returns a zeroed structure with only `cb` populated, which is a minimal stub rather than the complete startup information Wine copies from the PEB. The exact coverage of the skipped Kernel32 initialization still needs to be mapped function-by-function; it should not be assumed to be covered merely because individual APIs exist.
 
 ### 4. NT security calls cannot simply fall back to the Wine PE stub
 
