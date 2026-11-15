@@ -9,12 +9,20 @@ here = os.path.dirname(os.path.abspath(__file__))
 inksoc = os.path.dirname(os.path.dirname(here))
 out = os.path.join(here, 'out'); os.makedirs(out, exist_ok=True)
 jobs = []
+
+def failure_result(name, status, error):
+    message = str(error).replace(chr(10), ' | ')[:400]
+    print('RESULT', name, status, message)
+    json.dump({'name': name, 'status': status, 'error': message},
+              open(os.path.join(out, name + '-result.json'), 'w'))
+
 def drive_job(r, d, f):
     root = os.path.join(d, 'c'); os.makedirs(root, exist_ok=True)
     subprocess.run(['7z', 'x', '-y', '-o' + root, f], stdout=subprocess.DEVNULL, check=True)
     exes = [os.path.relpath(os.path.join(a, x), root) for a, _, xs in os.walk(root) for x in xs if x.lower().endswith('.exe')]
     print('EXES', r['name'], exes[:20])
-    if not os.path.exists(os.path.join(root, r['exe'].replace('\\', '/'))): print('MISSING', r['exe']); return
+    if not os.path.exists(os.path.join(root, r['exe'].replace('\\', '/'))): failure_result(r['name'], 'missing_executable', r['exe'])
+        return
     fs = []
     fs += [os.path.join(inksoc, 'bin/wine', x) for x in json.load(open(os.path.join(inksoc, 'bin/wine/list.json')))]
     fs += [os.path.join(inksoc, 'bin/wine32', x) for x in sorted(os.listdir(os.path.join(inksoc, 'bin/wine32'))) if x.endswith(('.dll', '.nls', '.drv'))]
@@ -41,6 +49,12 @@ def drive_job(r, d, f):
     for x in ['logs/bootstrap_log.txt', 'logs/stderr.txt', 'logs/cef_log.txt']:
         if os.path.exists(os.path.join(root, x)): shutil.copy(os.path.join(root, x), os.path.join(out, r['name'] + '-' + os.path.basename(x)))
 
+def drive_job_safe(r, d, f):
+    try:
+        drive_job(r, d, f)
+    except Exception as ex:
+        failure_result(r['name'], 'crashed', f'{type(ex).__name__}: {ex}')
+
 drives = []
 # REQUEST=<file> runs another list (compat/apps.json); ONLY=<name> runs one entry of it
 only = os.environ.get('ONLY')
@@ -48,10 +62,17 @@ for r in json.load(open(os.environ.get('REQUEST') or os.path.join(here, 'request
     if only and r['name'] != only: continue
     d = os.path.join('/tmp/apps', r['name']); os.makedirs(d, exist_ok=True)
     f = os.path.join(d, r.get('file') or r['url'].split('/')[-1].split('?')[0])
-    if not os.path.exists(f): urllib.request.urlretrieve(r['url'], f)
+    if not os.path.exists(f):
+        try:
+            urllib.request.urlretrieve(r['url'], f)
+        except Exception as ex:
+            try: os.remove(f)  # avoid treating a partial download as complete next time
+            except OSError: pass
+            failure_result(r['name'], 'download_failed', f'{type(ex).__name__}: {ex}')
+            continue
     if r.get('drive'):
         import threading
-        t = threading.Thread(target=drive_job, args=(r, d, f)); t.start(); drives.append(t)
+        t = threading.Thread(target=drive_job_safe, args=(r, d, f)); t.start(); drives.append(t)
         continue
     exe, args = os.path.basename(f), r.get('args', '')
     if f.lower().endswith('.msi'):
