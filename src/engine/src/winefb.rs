@@ -485,7 +485,7 @@ impl Engine {
         }
         self.w64(p + 0x80, eb);
         self.w64(p + 0x3F0, 2 * env.len() as u64);
-        us(self, p + 0xB0, "WinSta0\\Default"); // DesktopInfo
+        us(self, p + 0xC0, "WinSta0\\Default"); // Desktop
         self.w64(crate::PEB + 0x20, p);
         self.s.env_block = eb;
     }
