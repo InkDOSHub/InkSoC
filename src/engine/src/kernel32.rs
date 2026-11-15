@@ -188,8 +188,34 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             }
         }
         "GetStartupInfoA" | "GetStartupInfoW" => {
+            // STARTUPINFO is 104 bytes on the x86-64 ABI. Read the values from
+            // the process parameters built during boot, as Wine's KernelBase does.
             e.zero(a0, 104);
             e.w32(a0, 104);
+            let p = e.r64(PEB + 0x20);
+            if p != 0 {
+                let wide = name.ends_with('W');
+                let title = e.r64(p + 0xB8);   // WindowTitle.Buffer
+                let desktop = e.r64(p + 0xC8); // Desktop.Buffer
+                e.w64(a0 + 16, if wide { desktop } else { e.s.startup_desktop_a });
+                e.w64(a0 + 24, if wide { title } else { e.s.startup_title_a });
+                for (dst, src) in [
+                    (32, 0x88), // dwX
+                    (36, 0x8C), // dwY
+                    (40, 0x90), // dwXSize
+                    (44, 0x94), // dwYSize
+                    (48, 0x98), // dwXCountChars
+                    (52, 0x9C), // dwYCountChars
+                    (56, 0xA0), // dwFillAttribute
+                    (60, 0xA4), // dwFlags
+                ] {
+                    e.w32(a0 + dst, e.r32(p + src));
+                }
+                e.w16(a0 + 64, e.r16(p + 0xA8)); // wShowWindow
+                e.w64(a0 + 80, e.r64(p + 0x20)); // hStdInput
+                e.w64(a0 + 88, e.r64(p + 0x28)); // hStdOutput
+                e.w64(a0 + 96, e.r64(p + 0x30)); // hStdError
+            }
             0
         }
         "IsDebuggerPresent" => 0,
