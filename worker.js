@@ -358,7 +358,11 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
     }
   };
   while (!tooMuch && !stopAsked && !swapCut) {
-    st = x.run(2000000);
+    try { st = x.run(2000000); } catch (e) {
+      // "unreachable" without an [engine] line = the engine could not get more memory: show how much it had
+      const cap = mt ? poolMb + 256 : shared ? poolMb + 192 : 4096;
+      throw new Error(`${e.message} [wasm memory ${mem.buffer.byteLength >> 20} of ${cap} MB]`);
+    }
     frame();
     pumpNet();
     swapBrake();
