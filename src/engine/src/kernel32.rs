@@ -188,42 +188,51 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             }
         }
         "GetStartupInfoA" | "GetStartupInfoW" => {
-            // STARTUPINFO is 104 bytes on the x86-64 ABI. Read the values from
-            // the process parameters built during boot, as Wine's KernelBase does.
-            e.zero(a0, 104);
-            e.w32(a0, 104);
-            let p = e.r64(PEB + 0x20);
-            if p != 0 {
+            // STARTUPINFO is 104 bytes on x64. A bad pointer is checked before
+            // anything is stored; the structure is then written in one piece.
+            if !writable_range(e, a0, 104) {
+                e.fault(a0);
+                0
+            } else {
                 let wide = name.ends_with('W');
-                let title = e.r64(p + 0xB8);   // WindowTitle.Buffer
-                let desktop = e.r64(p + 0xC8); // Desktop.Buffer
-                let lp_desktop = if wide { desktop } else { e.s.startup_desktop_a };
-                let lp_title = if wide { title } else { e.s.startup_title_a };
-                e.w64(a0 + 16, lp_desktop);
-                e.w64(a0 + 24, lp_title);
-                for (dst, src) in [
-                    (32, 0x88), // dwX
-                    (36, 0x8C), // dwY
-                    (40, 0x90), // dwXSize
-                    (44, 0x94), // dwYSize
-                    (48, 0x98), // dwXCountChars
-                    (52, 0x9C), // dwYCountChars
-                    (56, 0xA0), // dwFillAttribute
-                    (60, 0xA4), // dwFlags
-                ] {
-                    let value = e.r32(p + src);
-                    e.w32(a0 + dst, value);
+                let mut s = [0u8; 104];
+                s[0..4].copy_from_slice(&104u32.to_le_bytes()); // cb
+                let p = e.r64(PEB + 0x20);
+                if p != 0 {
+                    let title = e.r64(p + 0xB8);   // WindowTitle.Buffer (UTF-16)
+                    let desktop = e.r64(p + 0xC8); // Desktop.Buffer (UTF-16)
+                    let (lp_desktop, lp_title) = if wide {
+                        (desktop, title)
+                    } else {
+                        (startup_ansi(e, desktop), startup_ansi(e, title))
+                    };
+                    s[16..24].copy_from_slice(&lp_desktop.to_le_bytes());
+                    s[24..32].copy_from_slice(&lp_title.to_le_bytes());
+                    for (dst, src) in [
+                        (32, 0x88), // dwX
+                        (36, 0x8C), // dwY
+                        (40, 0x90), // dwXSize
+                        (44, 0x94), // dwYSize
+                        (48, 0x98), // dwXCountChars
+                        (52, 0x9C), // dwYCountChars
+                        (56, 0xA0), // dwFillAttribute
+                        (60, 0xA4), // dwFlags
+                    ] {
+                        let value = e.r32(p + src);
+                        s[dst..dst + 4].copy_from_slice(&value.to_le_bytes());
+                    }
+                    let show_window = e.r16(p + 0xA8);
+                    s[64..66].copy_from_slice(&show_window.to_le_bytes()); // wShowWindow
+                    let stdin = e.r64(p + 0x20);
+                    let stdout = e.r64(p + 0x28);
+                    let stderr = e.r64(p + 0x30);
+                    s[80..88].copy_from_slice(&stdin.to_le_bytes());  // hStdInput
+                    s[88..96].copy_from_slice(&stdout.to_le_bytes()); // hStdOutput
+                    s[96..104].copy_from_slice(&stderr.to_le_bytes()); // hStdError
                 }
-                let show_window = e.r16(p + 0xA8);
-                e.w16(a0 + 64, show_window); // wShowWindow
-                let stdin = e.r64(p + 0x20);
-                let stdout = e.r64(p + 0x28);
-                let stderr = e.r64(p + 0x30);
-                e.w64(a0 + 80, stdin); // hStdInput
-                e.w64(a0 + 88, stdout); // hStdOutput
-                e.w64(a0 + 96, stderr); // hStdError
+                let _ = e.mmu.write_bytes(a0, &s);
+                0
             }
-            0
         }
         "IsDebuggerPresent" => 0,
         "SetDllDirectoryW" | "SetDllDirectoryA" => {
@@ -670,4 +679,32 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
     };
     let _ = PEB;
     Some(r)
+}
+
+/// True when the first and last byte of `a..a+n` can be written. A range of up
+/// to two pages is covered by its two ends, so nothing is written unless all of it is.
+fn writable_range(e: &mut Engine, a: u64, n: u64) -> bool {
+    if a == 0 || n == 0 {
+        return false;
+    }
+    [a, a + n - 1].into_iter().all(|x| {
+        let mut b = [0u8; 1];
+        e.mmu.read_bytes(x, &mut b).is_ok() && e.mmu.write_bytes(x, &b).is_ok()
+    })
+}
+
+/// ANSI copy of a UTF-16 string held by the process parameters. The copy is made
+/// once per buffer and kept for the life of the engine, so the pointer stays valid.
+/// The engine's ANSI code page is UTF-8, so the copy is UTF-8.
+fn startup_ansi(e: &mut Engine, wide: u64) -> u64 {
+    if wide == 0 {
+        return 0;
+    }
+    if let Some(&a) = e.s.startup_ansi.get(&wide) {
+        return a;
+    }
+    let text = e.read_wstr(wide, 4096);
+    let a = e.put_str(&text, false);
+    e.s.startup_ansi.insert(wide, a);
+    a
 }

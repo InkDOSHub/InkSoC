@@ -8,26 +8,69 @@ typedef VOID (WINAPI *GETSTARTUPINFOW_FN)(LPSTARTUPINFOW);
 typedef LPSTR (WINAPI *GETCOMMANDLINEA_FN)(VOID);
 typedef LPWSTR (WINAPI *GETCOMMANDLINEW_FN)(VOID);
 
-static int startup_fields_are_zero_a(const STARTUPINFOA *s)
+/*
+ * Values the engine places in the process parameters (winefb.rs,
+ * process_parameters). They are distinct and non-zero so that a field read
+ * from the wrong offset, or a copy into the wrong member, is detected.
+ */
+#define SENTINEL_X              101
+#define SENTINEL_Y              102
+#define SENTINEL_XSIZE          103
+#define SENTINEL_YSIZE          104
+#define SENTINEL_XCOUNTCHARS    105
+#define SENTINEL_YCOUNTCHARS    106
+#define SENTINEL_FILLATTRIBUTE  107
+#define SENTINEL_FLAGS          0x40000000UL
+#define SENTINEL_SHOWWINDOW     7
+#define EXE_NAME_W              L"startup-info.exe"
+#define EXE_NAME_A              "startup-info.exe"
+
+static int check_numeric_w(const STARTUPINFOW *s)
 {
-    return s->lpTitle == NULL &&
-           s->dwX == 0 && s->dwY == 0 &&
-           s->dwXSize == 0 && s->dwYSize == 0 &&
-           s->dwXCountChars == 0 && s->dwYCountChars == 0 &&
-           s->dwFillAttribute == 0 && s->dwFlags == 0 &&
-           s->wShowWindow == 0 && s->cbReserved2 == 0 &&
-           s->lpReserved2 == NULL;
+    return s->cb == sizeof(*s) &&
+           s->dwX == SENTINEL_X && s->dwY == SENTINEL_Y &&
+           s->dwXSize == SENTINEL_XSIZE && s->dwYSize == SENTINEL_YSIZE &&
+           s->dwXCountChars == SENTINEL_XCOUNTCHARS &&
+           s->dwYCountChars == SENTINEL_YCOUNTCHARS &&
+           s->dwFillAttribute == SENTINEL_FILLATTRIBUTE &&
+           s->dwFlags == SENTINEL_FLAGS &&
+           s->wShowWindow == SENTINEL_SHOWWINDOW &&
+           s->cbReserved2 == 0 && s->lpReserved2 == NULL &&
+           s->lpReserved == NULL;
 }
 
-static int startup_fields_are_zero_w(const STARTUPINFOW *s)
+static int check_numeric_a(const STARTUPINFOA *s)
 {
-    return s->lpTitle == NULL &&
-           s->dwX == 0 && s->dwY == 0 &&
-           s->dwXSize == 0 && s->dwYSize == 0 &&
-           s->dwXCountChars == 0 && s->dwYCountChars == 0 &&
-           s->dwFillAttribute == 0 && s->dwFlags == 0 &&
-           s->wShowWindow == 0 && s->cbReserved2 == 0 &&
-           s->lpReserved2 == NULL;
+    return s->cb == sizeof(*s) &&
+           s->dwX == SENTINEL_X && s->dwY == SENTINEL_Y &&
+           s->dwXSize == SENTINEL_XSIZE && s->dwYSize == SENTINEL_YSIZE &&
+           s->dwXCountChars == SENTINEL_XCOUNTCHARS &&
+           s->dwYCountChars == SENTINEL_YCOUNTCHARS &&
+           s->dwFillAttribute == SENTINEL_FILLATTRIBUTE &&
+           s->dwFlags == SENTINEL_FLAGS &&
+           s->wShowWindow == SENTINEL_SHOWWINDOW &&
+           s->cbReserved2 == 0 && s->lpReserved2 == NULL &&
+           s->lpReserved == NULL;
+}
+
+/* Desktop and title must be valid, stable strings with the expected text. */
+static int check_strings_w(const STARTUPINFOW *s)
+{
+    return s->lpDesktop && wcscmp(s->lpDesktop, L"WinSta0\\Default") == 0 &&
+           s->lpTitle && wcscmp(s->lpTitle, EXE_NAME_W) == 0;
+}
+
+static int check_strings_a(const STARTUPINFOA *s)
+{
+    return s->lpDesktop && strcmp(s->lpDesktop, "WinSta0\\Default") == 0 &&
+           s->lpTitle && strcmp(s->lpTitle, EXE_NAME_A) == 0;
+}
+
+static int check_handles(const STARTUPINFOW *w)
+{
+    return w->hStdInput == GetStdHandle(STD_INPUT_HANDLE) &&
+           w->hStdOutput == GetStdHandle(STD_OUTPUT_HANDLE) &&
+           w->hStdError == GetStdHandle(STD_ERROR_HANDLE);
 }
 
 int main(void)
@@ -35,33 +78,37 @@ int main(void)
     STARTUPINFOW wide;
     STARTUPINFOA ansi;
 
+    /* Kernel32 import path, wide */
     ZeroMemory(&wide, sizeof(wide));
     GetStartupInfoW(&wide);
-    if (wide.cb != sizeof(wide)) return 1;
-    if (!wide.lpDesktop || wcscmp(wide.lpDesktop, L"WinSta0\\Default")) return 2;
-    if (wide.hStdInput != GetStdHandle(STD_INPUT_HANDLE)) return 3;
-    if (wide.hStdOutput != GetStdHandle(STD_OUTPUT_HANDLE)) return 4;
-    if (wide.hStdError != GetStdHandle(STD_ERROR_HANDLE)) return 5;
-    if (!startup_fields_are_zero_w(&wide)) return 6;
+    if (!check_numeric_w(&wide)) return 1;
+    if (!check_strings_w(&wide)) return 2;
+    if (!check_handles(&wide)) return 3;
 
+    /* Kernel32 import path, ANSI: same values, text converted */
     ZeroMemory(&ansi, sizeof(ansi));
     GetStartupInfoA(&ansi);
-    if (ansi.cb != sizeof(ansi)) return 7;
-    if (!ansi.lpDesktop || strcmp(ansi.lpDesktop, "WinSta0\\Default")) return 8;
-    if (ansi.hStdInput != GetStdHandle(STD_INPUT_HANDLE)) return 9;
-    if (ansi.hStdOutput != GetStdHandle(STD_OUTPUT_HANDLE)) return 10;
-    if (ansi.hStdError != GetStdHandle(STD_ERROR_HANDLE)) return 11;
-    if (!startup_fields_are_zero_a(&ansi)) return 12;
+    if (!check_numeric_a(&ansi)) return 4;
+    if (!check_strings_a(&ansi)) return 5;
+    if (ansi.hStdInput != GetStdHandle(STD_INPUT_HANDLE) ||
+        ansi.hStdOutput != GetStdHandle(STD_OUTPUT_HANDLE) ||
+        ansi.hStdError != GetStdHandle(STD_ERROR_HANDLE)) return 6;
 
-    if (!GetCommandLineA() || !GetCommandLineA()[0]) return 13;
-    if (!GetCommandLineW() || !GetCommandLineW()[0]) return 14;
+    /* The ANSI copy is the same string on every call (stable lifetime) */
+    STARTUPINFOA again;
+    ZeroMemory(&again, sizeof(again));
+    GetStartupInfoA(&again);
+    if (again.lpDesktop != ansi.lpDesktop || again.lpTitle != ansi.lpTitle) return 7;
+
+    if (!GetCommandLineA() || !GetCommandLineA()[0]) return 8;
+    if (!GetCommandLineW() || !GetCommandLineW()[0]) return 9;
 
     /*
      * Resolve the same APIs explicitly from KernelBase. This exercises the
      * module/export lookup path, not merely the Kernel32 import thunks.
      */
     HMODULE kernelbase = LoadLibraryA("kernelbase.dll");
-    if (!kernelbase) return 15;
+    if (!kernelbase) return 10;
 
     GETSTARTUPINFOA_FN kb_startup_a =
         (GETSTARTUPINFOA_FN)GetProcAddress(kernelbase, "GetStartupInfoA");
@@ -71,30 +118,25 @@ int main(void)
         (GETCOMMANDLINEA_FN)GetProcAddress(kernelbase, "GetCommandLineA");
     GETCOMMANDLINEW_FN kb_command_w =
         (GETCOMMANDLINEW_FN)GetProcAddress(kernelbase, "GetCommandLineW");
-    if (!kb_startup_a || !kb_startup_w || !kb_command_a || !kb_command_w) return 16;
+    if (!kb_startup_a || !kb_startup_w || !kb_command_a || !kb_command_w) return 11;
 
+    /* KernelBase path, wide */
     ZeroMemory(&wide, sizeof(wide));
     kb_startup_w(&wide);
-    if (wide.cb != sizeof(wide) ||
-        !wide.lpDesktop || wcscmp(wide.lpDesktop, L"WinSta0\\Default") ||
-        wide.hStdInput != GetStdHandle(STD_INPUT_HANDLE) ||
-        wide.hStdOutput != GetStdHandle(STD_OUTPUT_HANDLE) ||
-        wide.hStdError != GetStdHandle(STD_ERROR_HANDLE) ||
-        !startup_fields_are_zero_w(&wide)) return 17;
+    if (!check_numeric_w(&wide)) return 12;
+    if (!check_strings_w(&wide)) return 13;
+    if (!check_handles(&wide)) return 14;
 
+    /* KernelBase path, ANSI */
     ZeroMemory(&ansi, sizeof(ansi));
     kb_startup_a(&ansi);
-    if (ansi.cb != sizeof(ansi) ||
-        !ansi.lpDesktop || strcmp(ansi.lpDesktop, "WinSta0\\Default") ||
-        ansi.hStdInput != GetStdHandle(STD_INPUT_HANDLE) ||
-        ansi.hStdOutput != GetStdHandle(STD_OUTPUT_HANDLE) ||
-        ansi.hStdError != GetStdHandle(STD_ERROR_HANDLE) ||
-        !startup_fields_are_zero_a(&ansi)) return 18;
+    if (!check_numeric_a(&ansi)) return 15;
+    if (!check_strings_a(&ansi)) return 16;
 
     if (!kb_command_a() || !kb_command_a()[0] ||
-        strcmp(kb_command_a(), GetCommandLineA())) return 19;
+        strcmp(kb_command_a(), GetCommandLineA())) return 17;
     if (!kb_command_w() || !kb_command_w()[0] ||
-        wcscmp(kb_command_w(), GetCommandLineW())) return 20;
+        wcscmp(kb_command_w(), GetCommandLineW())) return 18;
 
     puts("INKSOC_STARTUP_INFO_OK");
     return 0;
