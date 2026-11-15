@@ -4,7 +4,7 @@
   { "name": "obs", "group": "media", "url": "https://github.com/obsproject/obs-studio/releases/download/31.0.0/OBS-Studio-31.0.0-Windows-Installer.exe", "args": "/S", "limit": 1200 },
   { "name": "vlc", "group": "media", "url": "https://download.videolan.org/pub/videolan/vlc/3.0.21/win64/vlc-3.0.21-win64.exe", "args": "/S", "limit": 900 },
   { "name": "audacity", "group": "media", "url": "https://github.com/audacity/audacity/releases/download/Audacity-3.7.0/audacity-win-3.7.0-64bit.exe", "args": "/VERYSILENT /NORESTART", "limit": 900 },
-  { "name": "libreoffice", "group": "office", "url": "https://download.documentfoundation.org/libreoffice/stable/26.8.3/win/x86_64/LibreOffice_26.8.3_Win_x86-64.msi", "args": "/qn", "limit": 3000 },
+  { "name": "libreoffice", "group": "office", "url": "https://download.documentfoundation.org/libreoffice/stable/26.8.3/win/x86_64/LibreOffice_26.8.3_Win_x86-64.msi", "args": "/qn", "limit": 1500 },
   { "name": "adobe-reader", "group": "office", "url": "https://ardownload2.adobe.com/pub/adobe/acrobat/win/AcrobatDC/2400520320/AcroRdrDCx642400520320_en_US.exe", "args": "/sAll /rs /msi EULA_ACCEPT=YES", "limit": 2400 },
   { "name": "7zip", "group": "tools", "url": "https://www.7-zip.org/a/7z2409-x64.exe", "args": "/S", "limit": 300 },
   { "name": "notepadpp", "group": "tools", "url": "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.7.1/npp.8.7.1.Installer.x64.exe", "args": "/S", "limit": 600 },

@@ -298,28 +298,34 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
     })
 }
 
-/// NtQuerySecurityObject(handle, info, descriptor, length, &needed): like Wine for objects
-/// without their own security, a self-relative descriptor owned by Administrators with no
-/// DACL (everyone allowed); only the parts asked for (1 owner, 2 group, 4 DACL)
+/// NtQuerySecurityObject(handle, info, descriptor, length, &needed): like Wine's default for
+/// objects without their own security, a self-relative descriptor owned by Administrators
+/// whose DACL lets Everyone in; only the parts asked for (1 owner, 2 group, 4 DACL).
+/// (A NULL DACL is legal, but installers read the ACL itself: OBS's crashed at 0x2.)
 fn query_security(e: &mut Engine) -> u64 {
     let (info, buf, len, ret) = (e.arg(1) as u32, e.arg(2), e.arg(3) as u32, e.arg(4));
-    // S-1-5-32-544 (BUILTIN\Administrators)
-    let sid: [u8; 16] = [1, 2, 0, 0, 0, 0, 0, 5, 32, 0, 0, 0, 0x20, 2, 0, 0];
-    let (owner, group) = (info & 1 != 0, info & 2 != 0);
-    let need = 20 + if owner { 16 } else { 0 } + if group { 16 } else { 0 };
+    // S-1-5-32-544 (BUILTIN\Administrators), S-1-1-0 (Everyone)
+    let admins: [u8; 16] = [1, 2, 0, 0, 0, 0, 0, 5, 32, 0, 0, 0, 0x20, 2, 0, 0];
+    let everyone: [u8; 12] = [1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0];
+    // ACL (revision 2, size 28, one ACE) + ACCESS_ALLOWED_ACE (size 20, all access) + SID
+    let mut acl = vec![2u8, 0, 28, 0, 1, 0, 0, 0, 0, 0, 20, 0, 0xFF, 0x01, 0x1F, 0x00];
+    acl.extend_from_slice(&everyone);
+    let mut parts: Vec<(u64, &[u8])> = Vec::new();
+    if info & 1 != 0 { parts.push((4, &admins)); }
+    if info & 2 != 0 { parts.push((8, &admins)); }
+    if info & 4 != 0 { parts.push((16, &acl)); }
+    let need = 20 + parts.iter().map(|p| p.1.len() as u32).sum::<u32>();
     e.w32(ret, need);
     if len < need { return crate::status::BUFFER_TOO_SMALL; }
     e.zero_n(buf, need as u64);
     e.w8(buf, 1);
-    // SE_SELF_RELATIVE, and SE_DACL_PRESENT with a NULL DACL when the DACL is asked for
+    // SE_SELF_RELATIVE, and SE_DACL_PRESENT when the DACL is there
     e.w16(buf + 2, 0x8000 | if info & 4 != 0 { 4 } else { 0 });
     let mut at = 20u32;
-    for (want, field) in [(owner, 4u64), (group, 8u64)] {
-        if want {
-            e.w32(buf + field, at);
-            for (i, b) in sid.iter().enumerate() { e.w8(buf + at as u64 + i as u64, *b); }
-            at += 16;
-        }
+    for (field, bytes) in parts {
+        e.w32(buf + field, at);
+        let _ = e.mmu.write_bytes(buf + at as u64, bytes);
+        at += bytes.len() as u32;
     }
     OK
 }

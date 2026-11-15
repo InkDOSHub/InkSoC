@@ -246,6 +246,9 @@ impl Engine {
             self.patch_wine_ntdll(i);
             self.wine_nls(i);
         }
+        if file == "wine-kernelbase.dll" {
+            self.wine_kernelbase_nls(i);
+        }
         Some(i)
     }
 
@@ -284,7 +287,15 @@ impl Engine {
         let Some(upper) = find(self, "RtlUpcaseUnicodeChar", &[0x48, 0x8B, 0x0D]) else { return };
         let acp = find(self, "RtlResetRtlTranslations", &[0x89, 0x05]);
         let _ = base;
-        let nls = upper - 0x80;
+        self.fill_nls_info(upper - 0x80);
+        if let Some(a) = acp {
+            self.w16(a, 65001);
+        } // NlsAnsiCodePage
+    }
+
+    /// An NLSTABLEINFO (OEM and ANSI code page headers, then the upper/lower case tables)
+    /// as Wine's locale startup leaves it: UTF-8 for both code pages, cases from l_intl.nls.
+    fn fill_nls_info(&mut self, nls: u64) {
         for t in [nls, nls + 0x40] {
             let _ = self.mmu.write_bytes(t, &[0xE9, 0xFD, 4, 0, 0x3F, 0, 0xFD, 0xFF, 0x3F, 0, 0x3F, 0]);
         }
@@ -295,9 +306,17 @@ impl Engine {
             self.w64(nls + 0x80, a + 4);
             self.w64(nls + 0x88, a + 4 + 2 * n);
         }
-        if let Some(a) = acp {
-            self.w16(a, 65001);
-        } // NlsAnsiCodePage
+    }
+
+    /// kernelbase keeps its own copy of the tables (its DllMain's init_locale, skipped here);
+    /// without it its internal text conversions (PathCombineA, lstrcmpA, ...) read a NULL
+    /// code page table. Its place: GetOEMCP is `movzx eax, word [rip+d]` on nls_info.
+    fn wine_kernelbase_nls(&mut self, i: usize) {
+        let Some(&a) = self.s.modules[i].exports.get("GetOEMCP") else { return };
+        let mut b = [0u8; 8];
+        if self.mmu.read_bytes(a, &mut b).is_err() || b[..3] != [0x0F, 0xB7, 0x05] { return; }
+        let d = i32::from_le_bytes(b[3..7].try_into().unwrap()) as i64;
+        self.fill_nls_info((a as i64 + 7 + d) as u64);
     }
 
     /// Per-thread blocks Wine's ntdll expects in the TEB (activation context stack).

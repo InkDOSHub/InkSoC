@@ -80,6 +80,10 @@ for name, t0, p, log in jobs:
     json.dump(summary, open(os.path.join(out, name + '-result.json'), 'w'))
     for l in text:
         if l.startswith(('OPHIST', 'OPRIP')): print(l)
+    # what the engine and Wine said (readable in the job log without the artifact)
+    notes = [l for l in text[:-1] if (l.startswith('[') and not l.startswith('[20')) or ':err:' in l or 'not available' in l]
+    if notes: print('--- engine notes (last 40) ---'); print('\n'.join(n[:300] for n in notes[-40:]))
+    if j and (j['status'] != 'exit' or j.get('exitCode')) and j.get('out'): print('--- program output (end) ---'); print(j['out'][-1500:])
     # where the time went (node --cpu-prof): functions by own time, wasm ones by name
     pd = os.path.join(out, name + '-prof')
     for pf in (os.listdir(pd) if os.path.isdir(pd) else []):
