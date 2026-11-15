@@ -19,9 +19,9 @@ def verdict(r):
     if r is None:
         return "not run", ""
     s, err = r["status"], (r.get("error") or "").split("\n")[0]
-    if s == "ok" and not r.get("exit"):
-        return "finished", ""
-    if s == "ok":
+    if s in ("ok", "exit") and not r.get("exit"):
+        return ("finished, %s files written" % r["files"]) if r.get("files") else "finished", ""
+    if s in ("ok", "exit"):
         return "exit code %s" % r.get("exit"), err
     if s == "timeout":
         return ("running, %s window(s)" % r.get("wins")) if r.get("wins") else "running, no window", ""
