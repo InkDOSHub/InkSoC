@@ -2,6 +2,7 @@
 // implemented natively (wasm) against the engine. Single thread for now.
 
 use crate::{console, pe, Engine, PEB};
+use std::collections::HashMap;
 
 /// Returned by functions that already set rip themselves (no `ret`).
 pub const NO_RETURN: u64 = u64::MAX - 0x5A5A;
@@ -521,14 +522,18 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         // ---- virtual memory ----
         "VirtualAlloc" => {
             let size = e.arg(1);
-            let kind = e.arg(2);
+            let commit = e.arg(2) & 0x1000 != 0;
             if a0 == 0 {
-                if kind & 0x1000 == 0 {
-                    e.reserve(size).unwrap_or(0)
-                } else {
+                if commit {
                     e.alloc(size).unwrap_or(0)
+                } else {
+                    e.reserve(size).unwrap_or(0)
                 }
             } else if e.mmu.region_of(a0).is_some() {
+                // a range inside an existing reservation: MEM_COMMIT commits it
+                if commit {
+                    e.mmu.commit_range(a0, size);
+                }
                 a0 & !0xFFF
             } else {
                 let start = a0 & !0xFFFF;
@@ -537,7 +542,11 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
                     e.set_last_error(487);
                     0
                 } else {
-                    e.mmu.add_region(start, end - start);
+                    if commit {
+                        e.mmu.add_region(start, end - start);
+                    } else {
+                        e.mmu.add_reserved(start, end - start);
+                    }
                     a0
                 }
             }
@@ -547,6 +556,7 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             if kind & 0x8000 != 0 {
                 e.mmu.release_region(a0) as u64
             } else {
+                e.mmu.decommit_range(a0, size);
                 e.mmu.drop_pages(a0 & !0xFFF, a0 + size);
                 1
             }
@@ -683,17 +693,42 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
 }
 
 /// ANSI copy of a UTF-16 string held by the process parameters. The copy is made
-/// once per buffer and kept for the life of the engine, so the pointer stays valid.
-/// The engine's ANSI code page is UTF-8, so the copy is UTF-8.
+/// once per (process, buffer) and kept for the life of the engine, so the pointer
+/// stays valid. The engine's ANSI code page is UTF-8, so the copy is UTF-8.
 fn startup_ansi(e: &mut Engine, wide: u64) -> u64 {
     if wide == 0 {
         return 0;
     }
-    if let Some(&a) = e.s.startup_ansi.get(&wide) {
+    let pid = e.s.wpid;
+    let text = e.read_wstr(wide, 4096);
+    let mut cache = std::mem::take(&mut e.s.startup_ansi);
+    let a = cached_copy(&mut cache, pid, wide, || e.put_str(&text, false));
+    e.s.startup_ansi = cache;
+    a
+}
+
+/// Returns the copy kept for (pid, wide), making it with `make` on the first call.
+fn cached_copy(cache: &mut HashMap<(u32, u64), u64>, pid: u32, wide: u64, make: impl FnOnce() -> u64) -> u64 {
+    if let Some(&a) = cache.get(&(pid, wide)) {
         return a;
     }
-    let text = e.read_wstr(wide, 4096);
-    let a = e.put_str(&text, false);
-    e.s.startup_ansi.insert(wide, a);
+    let a = make();
+    cache.insert((pid, wide), a);
     a
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::{cached_copy, HashMap};
+
+    #[test]
+    fn ansi_copies_are_per_process() {
+        let mut cache = HashMap::new();
+        let mut made = 0;
+        let a = cached_copy(&mut cache, 1, 0x1000, || { made += 1; 0xA000 });
+        let b = cached_copy(&mut cache, 2, 0x1000, || { made += 1; 0xB000 });
+        assert_ne!(a, b, "two processes with the same buffer address share a copy");
+        assert_eq!(cached_copy(&mut cache, 1, 0x1000, || { made += 1; 0xC000 }), 0xA000);
+        assert_eq!(made, 2);
+    }
 }

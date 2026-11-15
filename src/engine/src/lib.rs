@@ -147,8 +147,8 @@ pub struct Shared {
     pub exe_entry: u64,
     pub exe_base: u64,
     pub cmdline: (u64, u64),
-    /// ANSI copies of startup strings, keyed by the address of their UTF-16 buffer
-    pub startup_ansi: HashMap<u64, u64>,
+    /// ANSI copies of startup strings, keyed by (process, address of the UTF-16 buffer)
+    pub startup_ansi: HashMap<(u32, u64), u64>,
     pub unknown_calls: u64,
     pub crt: msvcrt::Crt,
     pub fs: files::Files,

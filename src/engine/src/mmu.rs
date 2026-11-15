@@ -90,7 +90,7 @@ pub struct MmuShared {
 
 /// A saved address space (a Linux process that is not running).
 #[derive(Default)]
-pub struct Space { table: HashMap<u64, Pte>, regions: Vec<(u64, u64)>, committed: u64 }
+pub struct Space { table: HashMap<u64, Pte>, regions: Vec<(u64, u64)>, committed: u64, commits: Vec<(u64, u64)> }
 
 /// One core's view: its own TLB over the shared page table.
 pub struct Mmu {
@@ -265,13 +265,34 @@ impl Mmu {
         for f in freed { self.sh.limbo.push((ep, f)); }
     }
 
-    /// Releases a whole region (VirtualFree MEM_RELEASE).
-    pub fn release_region(&mut self, start: u64) -> bool {
-        if let Some(i) = self.sh.commits.iter().position(|&(s, _)| s == start) {
-            self.sh.commits.swap_remove(i);
+    /// Records committed memory (VirtualAlloc MEM_COMMIT), including over a range
+    /// that was only reserved. Page-rounded. The `committed` counter is unchanged.
+    pub fn commit_range(&mut self, start: u64, size: u64) {
+        if size == 0 { return; }
+        let (s, e) = (start & !(PAGE - 1), (start + size + PAGE - 1) & !(PAGE - 1));
+        self.sh.commits.push((s, e));
+    }
+
+    /// Removes committed memory (VirtualFree MEM_DECOMMIT), splitting ranges that
+    /// are only partly covered. Page-rounded. The `committed` counter is unchanged.
+    pub fn decommit_range(&mut self, start: u64, size: u64) {
+        if size == 0 { return; }
+        let (s, e) = (start & !(PAGE - 1), (start + size + PAGE - 1) & !(PAGE - 1));
+        let mut kept = Vec::with_capacity(self.sh.commits.len() + 1);
+        for &(cs, ce) in &self.sh.commits {
+            if ce <= s || cs >= e { kept.push((cs, ce)); continue; }
+            if cs < s { kept.push((cs, s)); }
+            if ce > e { kept.push((e, ce)); }
         }
+        self.sh.commits = kept;
+    }
+
+    /// Releases a whole region (VirtualFree MEM_RELEASE): its pages and every
+    /// committed range inside it.
+    pub fn release_region(&mut self, start: u64) -> bool {
         if let Some(i) = self.sh.regions.iter().position(|&(s, _)| s == start) {
             let (s, e) = self.sh.regions.swap_remove(i);
+            self.sh.commits.retain(|&(cs, ce)| ce <= s || cs >= e);
             self.drop_pages(s, e);
             self.sh.committed = self.sh.committed.saturating_sub(e - s);
             true
@@ -285,11 +306,11 @@ impl Mmu {
     /// Moves the current address space out (another process is going to run).
     pub fn take_space(&mut self) -> Space {
         self.flush_tlb();
-        Space { table: std::mem::take(&mut self.sh.table), regions: std::mem::take(&mut self.sh.regions), committed: std::mem::replace(&mut self.sh.committed, 0) }
+        Space { table: std::mem::take(&mut self.sh.table), regions: std::mem::take(&mut self.sh.regions), committed: std::mem::replace(&mut self.sh.committed, 0), commits: std::mem::take(&mut self.sh.commits) }
     }
     pub fn put_space(&mut self, sp: Space) {
         self.flush_tlb();
-        self.sh.table = sp.table; self.sh.regions = sp.regions; self.sh.committed = sp.committed;
+        self.sh.table = sp.table; self.sh.regions = sp.regions; self.sh.committed = sp.committed; self.sh.commits = sp.commits;
     }
     /// A full copy of the current address space (fork); None = out of real RAM.
     pub fn clone_space(&mut self) -> Option<Space> {
@@ -306,7 +327,7 @@ impl Mmu {
             self.sh.frames[f as usize] = Frame { vpn, used: true, referenced: false, dirty: true, asid: self.sh.asid };
             table.insert(vpn, Pte { frame: f, slot: NONE });
         }
-        Some(Space { table, regions: self.sh.regions.clone(), committed: self.sh.committed })
+        Some(Space { table, regions: self.sh.regions.clone(), committed: self.sh.committed, commits: self.sh.commits.clone() })
     }
     /// Frees every page of the current address space (exec, exit).
     pub fn free_space(&mut self) {
@@ -315,6 +336,7 @@ impl Mmu {
             if p.frame != NONE { self.sh.frames[p.frame as usize].used = false; self.sh.free.push(p.frame); }
         }
         self.sh.regions.clear();
+        self.sh.commits.clear();
         self.sh.committed = 0;
     }
     /// Frees a saved address space (a process that ended while not running).
@@ -626,5 +648,63 @@ mod range_tests {
         assert_eq!(m.sh.faults, faults, "reserved check counted a fault");
         assert_eq!(m.sh.frames.iter().filter(|f| f.used).count(), frames, "reserved check took a frame");
         assert_eq!(m.sh.committed, committed, "reservation changed the commit count");
+    }
+
+    #[test]
+    fn reserve_then_commit_then_decommit() {
+        let mut m = Mmu::new(1, 1);
+        m.add_reserved(0x5C00_0000, 0x1_0000);
+        assert!(!m.can_write_range(0x5C00_0000, 104)); // reserved only
+        m.commit_range(0x5C00_0000, 0x1_0000);
+        assert!(m.can_write_range(0x5C00_0000, 104)); // committed after reserve
+        // partial decommit of the middle: the ends stay committed
+        m.decommit_range(0x5C00_4000, 0x4000);
+        assert!(m.can_write_range(0x5C00_0000, 0x4000));
+        assert!(!m.can_write_range(0x5C00_4000, 104));
+        assert!(m.can_write_range(0x5C00_8000, 104));
+        // total decommit
+        m.decommit_range(0x5C00_0000, 0x1_0000);
+        assert!(!m.can_write_range(0x5C00_0000, 104));
+        assert!(!m.can_write_range(0x5C00_8000, 104));
+        // release clears the committed ranges of the released region
+        m.commit_range(0x5C00_0000, 0x1_0000);
+        assert!(m.release_region(0x5C00_0000));
+        assert!(!m.can_write_range(0x5C00_0000, 104));
+        assert!(m.sh.commits.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod space_tests {
+    use super::*;
+
+    #[test]
+    fn committed_ranges_follow_their_address_space() {
+        let mut m = Mmu::new(1, 1);
+        m.add_region(0x5A00_0000, 0x1_0000); // process A
+        let a = m.take_space(); // A goes out
+        assert!(!m.can_write_range(0x5A00_0000, 104)); // B does not see A's commit
+        m.add_region(0x5B00_0000, 0x1_0000); // process B
+        assert!(m.can_write_range(0x5B00_0000, 104));
+        let b = m.take_space();
+        m.put_space(a); // back to A
+        assert!(m.can_write_range(0x5A00_0000, 104));
+        assert!(!m.can_write_range(0x5B00_0000, 104));
+        m.put_space(b);
+        assert!(!m.can_write_range(0x5A00_0000, 104));
+        assert!(m.can_write_range(0x5B00_0000, 104));
+    }
+
+    #[test]
+    fn clone_and_free_carry_their_commits() {
+        let mut m = Mmu::new(1, 1);
+        m.add_region(0x5A00_0000, 0x1_0000);
+        let copy = m.clone_space().expect("clone");
+        m.free_space();
+        assert!(!m.can_write_range(0x5A00_0000, 104)); // freed space has no commits
+        m.put_space(copy);
+        assert!(m.can_write_range(0x5A00_0000, 104)); // the clone kept its commits
+        m.free_space();
+        assert!(!m.can_write_range(0x5A00_0000, 104));
     }
 }

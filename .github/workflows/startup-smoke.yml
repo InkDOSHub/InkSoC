@@ -29,10 +29,10 @@ jobs:
           cd src/engine
           cargo build --release --target wasm32-unknown-unknown
           cp target/wasm32-unknown-unknown/release/inksoc.wasm ../../inksoc.wasm
-      - name: Host unit tests (MMU range check)
+      - name: Host unit tests (MMU, address spaces, startup strings)
         run: |
           cd src/engine
-          cargo test --release --lib range_tests
+          cargo test --release --lib _tests
       - name: Compile startup probes
         run: |
           x86_64-w64-mingw32-gcc -O2 -Wall -o tests/startup/startup-info.exe tests/startup/startup-info.c
