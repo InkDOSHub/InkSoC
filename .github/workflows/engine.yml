@@ -1,0 +1,46 @@
+# Builds the engine (inksoc.wasm and the multi-core inksoc-mt.wasm) after every change
+# to its code, raises their ?v= in worker.js so browsers fetch the new ones, and commits
+# them to main (GitHub Pages then publishes).
+name: engine
+on:
+  push:
+    branches: [main]
+    paths: [src/engine/**]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: engine
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchains
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup toolchain install nightly --profile minimal -c rust-src -t wasm32-unknown-unknown
+          clang --version | head -1
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            src/engine/target
+            src/engine/target-mt
+          key: engine-${{ hashFiles('src/engine/Cargo.lock') }}
+      - name: Build
+        run: |
+          cd src/engine
+          cargo build --release --target wasm32-unknown-unknown
+          cp target/wasm32-unknown-unknown/release/inksoc.wasm ../../
+          sh build-mt.sh
+      - name: Commit
+        run: |
+          git diff --quiet -- inksoc.wasm inksoc-mt.wasm && exit 0
+          python3 tools/bump-versions.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add inksoc.wasm inksoc-mt.wasm worker.js desktop.js tools.js index.html
+          git commit -m "Build engine for ${GITHUB_SHA::7}"
+          for i in 1 2 3; do git pull --rebase -q && git push -q && break; sleep 5; done
