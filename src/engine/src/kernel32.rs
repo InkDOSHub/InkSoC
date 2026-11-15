@@ -595,22 +595,12 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "VirtualQuery" => {
             let mbi = e.arg(1);
             e.zero(mbi, 48);
-            let page = a0 & !0xFFF;
-            e.w64(mbi, page);
-            match e.mmu.region_of(a0) {
-                Some((s, end)) => {
-                    e.w64(mbi + 8, s);
-                    e.w32(mbi + 16, 4);
-                    e.w64(mbi + 24, end - page);
-                    e.w32(mbi + 32, 0x1000);
-                    e.w32(mbi + 36, 4);
-                    e.w32(mbi + 40, 0x20000);
-                }
-                None => {
-                    e.w64(mbi + 24, 0x1000);
-                    e.w32(mbi + 32, 0x10000);
-                    e.w32(mbi + 36, 1);
-                }
+            if !write_region_info(e, mbi, a0) {
+                // no region holds the address: free
+                e.w64(mbi, a0 & !0xFFF);
+                e.w64(mbi + 24, 0x1000);
+                e.w32(mbi + 32, 0x10000);
+                e.w32(mbi + 36, 1);
             }
             48
         }
@@ -724,16 +714,29 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
 /// changed. Returns the base actually reserved. With MEM_COMMIT the requested pages are
 /// committed, and a failed commit leaves no reservation behind. Err: the Windows error code.
 fn reserve_at(e: &mut Engine, a0: u64, size: u64, commit: bool) -> Result<u64, u32> {
-    let (start, end) = crate::mmu::fixed_span(a0, size).ok_or(487u32)?;
-    if e.mmu.overlaps(start, end) { return Err(487); }
-    e.mmu.add_reserved(start, end - start).ok_or(487u32)?;
-    if commit {
-        if let Err(code) = e.mmu.commit_in_region(a0, size) {
-            e.mmu.release_region(start);
-            return Err(code);
-        }
+    e.mmu.reserve_fixed(a0, size, commit)
+}
+
+/// Writes the MEMORY_BASIC_INFORMATION (48 bytes, zeroed by the caller) of the page holding
+/// `addr`, when a region holds it. The state comes from the commit list: MEM_COMMIT for a
+/// committed page, MEM_RESERVE for a reserved-only one. RegionSize is the run of pages with
+/// that state, not the whole region. Returns false and writes nothing when no region holds `addr`.
+pub(crate) fn write_region_info(e: &mut Engine, buf: u64, addr: u64) -> bool {
+    let Some(run) = e.mmu.page_run(addr) else { return false };
+    let page = addr & !0xFFF;
+    e.w64(buf, page);
+    e.w64(buf + 8, run.region);
+    e.w32(buf + 16, 4);
+    e.w64(buf + 24, run.end - page);
+    if run.committed {
+        e.w32(buf + 32, 0x1000); // MEM_COMMIT
+        e.w32(buf + 36, 4); // PAGE_READWRITE, the protection the engine gives committed pages
+    } else {
+        e.w32(buf + 32, 0x2000); // MEM_RESERVE
+        e.w32(buf + 36, 0); // a reserved page has no protection
     }
-    Ok(start)
+    e.w32(buf + 40, 0x20000); // MEM_PRIVATE
+    true
 }
 
 /// ANSI copy of a UTF-16 string held by the process parameters. The copy is made

@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <stdio.h>
+#include <string.h>
 
 /*
  * VirtualAlloc and VirtualFree through the API.
@@ -11,6 +12,10 @@
  * committed pages; fixed reservations that are aligned and misaligned; overflowing
  * addresses and sizes. Each refused call is followed by a check that committed pages
  * kept their contents, since that is the side effect the probe can observe.
+ * VirtualQuery: MEM_FREE outside any reservation, MEM_RESERVE for reserved-only pages,
+ * MEM_COMMIT for committed pages, a partly committed reservation split into runs, and
+ * BaseAddress, AllocationBase, RegionSize, Protect and Type for each. AllocationProtect
+ * is not checked (the engine keeps no protection per reservation).
  *
  * Prints VIRTUALALLOC_API_OK when every expectation holds. Otherwise it prints the
  * failed check and returns 1, which the workflow treats as a failure.
@@ -49,6 +54,48 @@ static int expect_byte(unsigned char *p, unsigned char value, const char *what)
 {
     if (*p != value) {
         printf("VIRTUALALLOC_FAIL %s: contents changed\n", what);
+        return 1;
+    }
+    return 0;
+}
+
+#define MEM_FREE_    0x10000
+#define MEM_RESERVE_ 0x2000
+#define MEM_COMMIT_  0x1000
+#define MEM_PRIVATE_ 0x20000
+
+/* VirtualQuery at a free address: only the State is defined by the API for a free page. */
+static int expect_free(const unsigned char *addr, const char *what)
+{
+    MEMORY_BASIC_INFORMATION mbi;
+    memset(&mbi, 0, sizeof(mbi));
+    if (VirtualQuery(addr, &mbi, sizeof(mbi)) != sizeof(mbi)) {
+        printf("VIRTUALALLOC_FAIL VirtualQuery failed (%s), last error %lu\n", what, (unsigned long)GetLastError());
+        return 1;
+    }
+    if (mbi.State != MEM_FREE_) {
+        printf("VIRTUALALLOC_FAIL %s: State 0x%lx, expected MEM_FREE\n", what, (unsigned long)mbi.State);
+        return 1;
+    }
+    return 0;
+}
+
+/* VirtualQuery at a reserved or committed page: every field the probe checks. */
+static int expect_page(const unsigned char *addr, DWORD state, const unsigned char *base,
+                       const unsigned char *alloc_base, SIZE_T region_size, DWORD protect, const char *what)
+{
+    MEMORY_BASIC_INFORMATION mbi;
+    memset(&mbi, 0, sizeof(mbi));
+    if (VirtualQuery(addr, &mbi, sizeof(mbi)) != sizeof(mbi)) {
+        printf("VIRTUALALLOC_FAIL VirtualQuery failed (%s), last error %lu\n", what, (unsigned long)GetLastError());
+        return 1;
+    }
+    if (mbi.State != state || (const unsigned char *)mbi.BaseAddress != base ||
+        (const unsigned char *)mbi.AllocationBase != alloc_base || mbi.RegionSize != region_size ||
+        mbi.Protect != protect || mbi.Type != MEM_PRIVATE_) {
+        printf("VIRTUALALLOC_FAIL %s: State 0x%lx Base %p Alloc %p Size 0x%lx Protect 0x%lx Type 0x%lx\n",
+               what, (unsigned long)mbi.State, mbi.BaseAddress, mbi.AllocationBase,
+               (unsigned long)mbi.RegionSize, (unsigned long)mbi.Protect, (unsigned long)mbi.Type);
         return 1;
     }
     return 0;
@@ -160,7 +207,8 @@ int main(void)
     if (!VirtualFree(r4, 0, MEM_RELEASE)) return bad("release of a reservation with no committed pages");
 
     /* release of a reservation that is partly committed */
-    unsigned char *r5 = VirtualAlloc((LPVOID)0x5B400000, 0x10000, MEM_RESERVE, PAGE_NOACCESS);
+    /* 0x5B500000: clear of `top`, which runs to 0x5B401000 */
+    unsigned char *r5 = VirtualAlloc((LPVOID)0x5B500000, 0x10000, MEM_RESERVE, PAGE_NOACCESS);
     if (!r5 || !VirtualAlloc(r5 + 0x1000, 0x1000, MEM_COMMIT, PAGE_READWRITE)) return bad("partly committed reservation");
     if (!VirtualFree(r5, 0, MEM_RELEASE)) return bad("release of a partly committed reservation");
 
@@ -203,6 +251,21 @@ int main(void)
     if (expect_byte(&p2[0x1000], 0x62, "second page after refused commit")) return 1;
     if (!VirtualFree(p1, 0, MEM_RELEASE)) return bad("release a one-byte reservation");
     if (!VirtualFree(p2, 0, MEM_RELEASE)) return bad("release a page-plus-one reservation");
+
+    /* VirtualQuery states of one reservation: free, reserved only, partly committed, released */
+    unsigned char *q = VirtualAlloc((LPVOID)0x5D000000, 0x4000, MEM_RESERVE, PAGE_NOACCESS);
+    if (!q) return bad("reserve for the VirtualQuery checks");
+    if (expect_free(q + 0x8000, "free address past the reservation")) return 1;
+    if (expect_page(q, MEM_RESERVE_, q, q, 0x4000, 0, "reserved-only run covers the reservation")) return 1;
+    if (expect_page(q + 0x1234, MEM_RESERVE_, q + 0x1000, q, 0x3000, 0, "reserved page, base at its page, run to the end")) return 1;
+    if (!VirtualAlloc(q + 0x1000, 0x1000, MEM_COMMIT, PAGE_READWRITE)) return bad("commit the second page for VirtualQuery");
+    if (expect_page(q, MEM_RESERVE_, q, q, 0x1000, 0, "reserved run stops at the committed page")) return 1;
+    if (expect_page(q + 0x1234, MEM_COMMIT_, q + 0x1000, q, 0x1000, PAGE_READWRITE, "committed page in a partly committed reservation")) return 1;
+    if (expect_page(q + 0x2000, MEM_RESERVE_, q + 0x2000, q, 0x2000, 0, "reserved run runs to the end of the reservation")) return 1;
+    if (!VirtualFree(q + 0x1000, 0x1000, MEM_DECOMMIT)) return bad("decommit the committed page for VirtualQuery");
+    if (expect_page(q + 0x1000, MEM_RESERVE_, q + 0x1000, q, 0x3000, 0, "decommitted page is reserved again, run to the end")) return 1;
+    if (!VirtualFree(q, 0, MEM_RELEASE)) return bad("release the VirtualQuery reservation");
+    if (expect_free(q, "address after the release")) return 1;
 
     /* release the rest */
     if (!VirtualFree(r2, 0, MEM_RELEASE)) return bad("release first adjacent reservation");

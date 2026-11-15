@@ -1,6 +1,62 @@
 // Virtual memory.
 
 use super::*;
+use crate::mmu::Mmu;
+
+const MEM_COMMIT: u32 = 0x1000;
+const MEM_RESERVE: u32 = 0x2000;
+
+/// What NtAllocateVirtualMemory does for a base address and allocation flags. Pure: it
+/// touches no address space, so the host tests can check every combination.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub(super) enum Plan {
+    /// Refused, nothing changes. Covers flags with neither bit, and MEM_COMMIT alone with
+    /// no reservation under it (a NULL base or an address outside any reservation).
+    Refuse,
+    /// NULL base, MEM_RESERVE only: a new reservation, nothing committed.
+    Reserve,
+    /// NULL base, MEM_RESERVE and MEM_COMMIT: a new reservation, committed.
+    Alloc,
+    /// Base inside a reservation, MEM_RESERVE only: nothing changes.
+    InRegionKeep,
+    /// Base inside a reservation, MEM_COMMIT: the pages asked for are committed, all or nothing.
+    InRegionCommit,
+    /// Fixed base outside any reservation, MEM_RESERVE with or without MEM_COMMIT.
+    Fixed { commit: bool },
+}
+
+pub(super) fn nt_plan(base: u64, in_region: bool, kind: u32) -> Plan {
+    let commit = kind & MEM_COMMIT != 0;
+    let reserve = kind & MEM_RESERVE != 0;
+    if !commit && !reserve {
+        return Plan::Refuse;
+    }
+    if base == 0 {
+        return match (reserve, commit) {
+            (false, _) => Plan::Refuse,
+            (true, false) => Plan::Reserve,
+            (true, true) => Plan::Alloc,
+        };
+    }
+    if in_region {
+        return if commit { Plan::InRegionCommit } else { Plan::InRegionKeep };
+    }
+    if !reserve {
+        return Plan::Refuse;
+    }
+    Plan::Fixed { commit }
+}
+
+/// Applies a fixed-base plan to the address space. Returns the base, or None with nothing
+/// changed. The NULL-base plans need the engine's allocator, so they are not handled here.
+pub(super) fn apply_fixed(mmu: &mut Mmu, plan: Plan, base: u64, size: u64) -> Option<u64> {
+    match plan {
+        Plan::InRegionKeep => Some(base & !0xFFF),
+        Plan::InRegionCommit => mmu.commit_in_region(base, size).ok().map(|_| base & !0xFFF),
+        Plan::Fixed { commit } => mmu.reserve_fixed(base, size, commit).ok(),
+        Plan::Refuse | Plan::Reserve | Plan::Alloc => None,
+    }
+}
 
 pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
     Some(match name {
@@ -9,31 +65,21 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             let (bp, sp) = (e.arg(1), if name == "NtAllocateVirtualMemory" { e.arg(3) } else { e.arg(2) });
             let (want, size) = (e.r64(bp), e.r64(sp));
             let kind = e.arg(if name == "NtAllocateVirtualMemory" { 4 } else { 3 }) as u32;
-            let a = if want == 0 {
-                if kind & 0x1000 == 0 {
-                    e.reserve(size)
-                } else {
-                    e.alloc(size)
-                }
-            } else if e.mmu.region_of(want).is_some() {
-                Some(want & !0xFFF)
-            } else {
-                let s = want & !0xFFFF;
-                let end = (want + size + 0xFFFF) & !0xFFFF;
-                if e.mmu.overlaps(s, end) {
-                    None
-                } else {
-                    e.mmu.add_region(s, end - s);
-                    Some(s)
-                }
+            let in_region = want != 0 && e.mmu.region_of(want).is_some();
+            let a = match nt_plan(want, in_region, kind) {
+                Plan::Reserve => e.reserve(size),
+                Plan::Alloc => e.alloc(size),
+                other => apply_fixed(&mut e.mmu, other, want, size),
             };
-            match a {
-                Some(a) => {
+            // the size written back is rounded up to a page; checked, so a huge size fails
+            let out = a.and_then(|a| size.checked_add(0xFFF).map(|r| (a, r & !0xFFF)));
+            match out {
+                Some((a, r)) => {
                     e.w64(bp, a);
-                    e.w64(sp, (size + 0xFFF) & !0xFFF);
+                    e.w64(sp, r);
                     OK
                 }
-                None => NO_MEMORY, // NO_MEMORY
+                None => NO_MEMORY,
             }
         }
         "NtFreeVirtualMemory" => {
@@ -86,16 +132,8 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             e.zero_n(buf, 48);
             let page = addr & !0xFFF;
             e.w64(buf, page);
-            match e.mmu.region_of(addr) {
-                Some((s, end)) => {
-                    e.w64(buf + 8, s);
-                    e.w32(buf + 16, 4);
-                    e.w64(buf + 24, end - page);
-                    e.w32(buf + 32, 0x1000);
-                    e.w32(buf + 36, 4);
-                    e.w32(buf + 40, 0x20000);
-                }
-                None => {
+            if !crate::kernel32::write_region_info(e, buf, addr) {
+                {
                     // inside a loaded image?
                     match e.s.modules.iter().find(|m| !m.native && addr >= m.base && addr < m.base + m.size).map(|m| (m.base, m.size)) {
                         Some((b, sz)) => {
@@ -143,4 +181,102 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
         }
         _ => return e.not_mine(),
     })
+}
+
+#[cfg(test)]
+mod nt_tests {
+    //! NtAllocateVirtualMemory's decision and the fixed-base application, on the MMU alone.
+    use super::*;
+
+    const A: u64 = 0x5D00_0000;
+    const COMMIT: u32 = MEM_COMMIT;
+    const RESERVE: u32 = MEM_RESERVE;
+
+    #[test]
+    fn every_flag_combination_has_one_plan() {
+        // NULL base
+        assert_eq!(nt_plan(0, false, 0), Plan::Refuse, "no flags");
+        assert_eq!(nt_plan(0, false, COMMIT), Plan::Refuse, "MEM_COMMIT alone at a NULL base");
+        assert_eq!(nt_plan(0, false, RESERVE), Plan::Reserve);
+        assert_eq!(nt_plan(0, false, COMMIT | RESERVE), Plan::Alloc);
+        // inside a reservation
+        assert_eq!(nt_plan(A, true, RESERVE), Plan::InRegionKeep, "MEM_RESERVE does not commit");
+        assert_eq!(nt_plan(A, true, COMMIT), Plan::InRegionCommit);
+        assert_eq!(nt_plan(A, true, COMMIT | RESERVE), Plan::InRegionCommit);
+        assert_eq!(nt_plan(A, true, 0), Plan::Refuse);
+        // outside any reservation
+        assert_eq!(nt_plan(A, false, COMMIT), Plan::Refuse, "MEM_COMMIT alone creates no region");
+        assert_eq!(nt_plan(A, false, RESERVE), Plan::Fixed { commit: false });
+        assert_eq!(nt_plan(A, false, COMMIT | RESERVE), Plan::Fixed { commit: true });
+        assert_eq!(nt_plan(A, false, 0), Plan::Refuse);
+    }
+
+    #[test]
+    fn commit_alone_outside_a_reservation_creates_no_region() {
+        let mut m = Mmu::new(1, 8);
+        let plan = nt_plan(A, false, COMMIT);
+        assert_eq!(apply_fixed(&mut m, plan, A, 0x1000), None);
+        assert!(m.region_of(A).is_none(), "the refused commit created a region");
+        assert_eq!(m.committed_bytes(), 0);
+        assert!(m.read8(A).is_err());
+    }
+
+    #[test]
+    fn reserve_alone_commits_no_page() {
+        let mut m = Mmu::new(1, 8);
+        assert_eq!(apply_fixed(&mut m, nt_plan(A, false, RESERVE), A, 0x3000), Some(A));
+        assert!(m.region_of(A).is_some());
+        assert_eq!(m.committed_bytes(), 0, "MEM_RESERVE committed pages");
+        assert!(m.read8(A).is_err());
+        // then MEM_COMMIT inside it: the reserved range is committed, not the rest of the region
+        assert_eq!(apply_fixed(&mut m, nt_plan(A, true, COMMIT), A + 0x1000, 0x1000), Some(A + 0x1000));
+        assert_eq!(m.committed_bytes(), 0x1000);
+        assert_eq!(m.read8(A + 0x1000), Ok(0));
+        assert!(m.read8(A).is_err());
+    }
+
+    #[test]
+    fn reserve_and_commit_outside_commits_the_pages() {
+        let mut m = Mmu::new(1, 8);
+        assert_eq!(apply_fixed(&mut m, nt_plan(A, false, COMMIT | RESERVE), A + 0x800, 0x1000), Some(A));
+        assert_eq!(m.committed_bytes(), 0x2000, "the pages of the unaligned range were not all committed");
+        assert_eq!(m.read8(A + 0x1000), Ok(0));
+        assert!(m.read8(A + 0x2000).is_err());
+    }
+
+    #[test]
+    fn commit_past_the_reservation_changes_nothing() {
+        let mut m = Mmu::new(1, 8);
+        apply_fixed(&mut m, nt_plan(A, false, RESERVE), A, 0x1000).unwrap(); // [A, A+0x1000)
+        let before = m.committed_bytes();
+        assert_eq!(apply_fixed(&mut m, nt_plan(A, true, COMMIT), A, 0x2000), None);
+        assert_eq!(m.committed_bytes(), before);
+        assert!(m.read8(A).is_err());
+    }
+
+    #[test]
+    fn repeated_commit_keeps_the_contents() {
+        let mut m = Mmu::new(1, 8);
+        apply_fixed(&mut m, nt_plan(A, false, COMMIT | RESERVE), A, 0x1000).unwrap();
+        m.write8(A, 0x5A).unwrap();
+        assert_eq!(apply_fixed(&mut m, nt_plan(A, true, COMMIT), A, 0x1000), Some(A));
+        assert_eq!(m.read8(A), Ok(0x5A));
+        assert_eq!(m.committed_bytes(), 0x1000);
+    }
+
+    #[test]
+    fn memory_limit_refuses_without_partial_state() {
+        let mut m = Mmu::new(1, 1); // 1 MB target
+        assert_eq!(apply_fixed(&mut m, nt_plan(A, false, COMMIT | RESERVE), A, 0x20_0000), None);
+        assert!(m.region_of(A).is_none());
+        assert_eq!(m.committed_bytes(), 0);
+    }
+
+    #[test]
+    fn range_past_u64_is_refused() {
+        let mut m = Mmu::new(1, 8);
+        let base = u64::MAX - 0x10;
+        assert_eq!(apply_fixed(&mut m, nt_plan(base, false, COMMIT | RESERVE), base, 0x100), None);
+        assert_eq!(m.committed_bytes(), 0);
+    }
 }

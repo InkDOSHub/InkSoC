@@ -42,6 +42,8 @@ jobs:
           x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_W -DCASE_WINDOW_END -o tests/startup/startup-info-badptr-w-window-end.exe tests/startup/startup-info-badptr.c
           x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_W -DCASE_OUTSIDE -o tests/startup/startup-info-badptr-w-outside.exe tests/startup/startup-info-badptr.c
           x86_64-w64-mingw32-gcc -O2 -Wall -o tests/startup/virtualalloc-api.exe tests/startup/virtualalloc-api.c
+          x86_64-w64-mingw32-gcc -O2 -Wall -o tests/startup/gdi-api.exe tests/startup/gdi-api.c -lgdi32
+          x86_64-w64-mingw32-gcc -O2 -Wall -o tests/startup/ntalloc-api.exe tests/startup/ntalloc-api.c
       - name: Run startup probes in InkSoC
         env:
           LIMIT: "90"
@@ -111,4 +113,20 @@ jobs:
           if "VIRTUALALLOC_API_OK" not in report.get("out", ""):
               raise SystemExit(f"VirtualAlloc probe marker missing: {report}")
           print("VirtualAlloc API probe: OK")
+
+          # 5. GDI handle table, attribute blocks and a child process (the child is this program)
+          report = run(os.path.abspath("tests/startup/gdi-api.exe"), "gdi-api.exe")
+          if report.get("status") != "exit" or report.get("exitCode") != 0:
+              raise SystemExit(f"GDI probe failed: {report}")
+          if "GDI_API_OK" not in report.get("out", ""):
+              raise SystemExit(f"GDI probe marker missing: {report}")
+          print("GDI API probe: OK")
+
+          # 6. NtAllocateVirtualMemory / NtFreeVirtualMemory through ntdll
+          report = run(os.path.abspath("tests/startup/ntalloc-api.exe"), "ntalloc-api.exe")
+          if report.get("status") != "exit" or report.get("exitCode") != 0:
+              raise SystemExit(f"NT allocation probe failed: {report}")
+          if "NTALLOC_API_OK" not in report.get("out", ""):
+              raise SystemExit(f"NT allocation probe marker missing: {report}")
+          print("NT allocation probe: OK")
           PY

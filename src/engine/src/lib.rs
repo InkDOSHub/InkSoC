@@ -723,6 +723,17 @@ impl Engine {
         Some(f.a)
     }
 
+    /// Gives back a range that `reserve` just took and that cannot be used (its commit failed).
+    /// The region is released, with its pages. When it was the last range taken from the bump
+    /// pointer, the pointer goes back, so failed attempts do not use up address space. Nothing
+    /// refers to the range yet, so it can be taken again.
+    pub(crate) fn unreserve(&mut self, start: u64, size: u64) {
+        self.mmu.release_region(start);
+        if start.checked_add(size).and_then(|end| end.checked_add(0x10000)) == Some(self.s.next_alloc) {
+            self.s.next_alloc = start;
+        }
+    }
+
     /// Where the next `size` bytes go, found without changing anything. The bump pointer
     /// steps over anything already there (an image at its preferred base, a fixed
     /// allocation), with a 64 KB gap after it. A 32-bit program's memory stays below 4 GB.
