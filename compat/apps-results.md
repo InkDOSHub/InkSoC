@@ -1,42 +1,31 @@
 # Common programs on InkSoC
 
-Engine bac13a9. Each program is downloaded from its official site and its installer (or the program itself) runs on the engine in Node on GitHub Actions (.github/workflows/compat-apps.yml). "running" = still going at the time limit.
+Engine 0aaa698. Each program is downloaded from its official site and its installer (or the program itself) runs on the engine in Node on GitHub Actions (.github/workflows/compat-apps.yml). "running" = still going at the time limit.
 
 | Program | Group | Result | Where it stopped |
 |---|---|---|---|
 | chrome | browser | stopped | all threads are waiting for each other (deadlock) |
 | firefox | browser | running, 1 window(s) |  |
-| obs | media | stopped | not implemented yet: ntdll.dll!NtQuerySecurityObject |
-| vlc | media | exit |  |
+| obs | media | stopped | access violation at 0x2 (rip 0x1001b26f) [wine32-advapi32.dll+0x1b26f] |
+| vlc | media | finished, 592 files written |  |
 | audacity | media | running, 1 window(s) |  |
-| libreoffice | office | exit |  |
+| libreoffice | office | not run |  |
 | adobe-reader | office | stopped | image cannot be moved (no relocations) |
-| 7zip | tools | exit |  |
-| notepadpp | tools | exit |  |
-| winrar | tools | exit |  |
-| python | tools | exit |  |
+| 7zip | tools | finished, 107 files written |  |
+| notepadpp | tools | finished, 239 files written |  |
+| winrar | tools | finished, 28 files written |  |
+| python | tools | exit code 2147746291 |  |
 | rufus | tools | running, 1 window(s) |  |
-| gimp | graphics | exit |  |
-| krita | graphics | exit |  |
+| gimp | graphics | exit code 3221225781 |  |
+| krita | graphics | finished, 3459 files written |  |
 | blender | graphics | not run |  |
-| steam | games | exit |  |
-| supertuxkart | games | exit |  |
-| luanti | games | stopped | not implemented yet: libc++.dll!__cxa_guard_acquire |
+| steam | games | finished, 36 files written |  |
+| supertuxkart | games | finished, 5554 files written |  |
+| luanti | games | stopped | access violation at 0x86 (rip 0x7ff00143b66c) [in wine-kernelbase.dll+0x3b66c] |
 
 ## Most common stops
 
 - 1× all threads are waiting for each other (deadlock)
-- 1× not implemented yet: ntdll.dll!NtQuerySecurityObject
+- 1× access violation at 0x2
 - 1× image cannot be moved (no relocations)
-- 1× not implemented yet: libc++.dll!__cxa_guard_acquire
-- 1× missing: libintl-8.dll
-- 1× missing: zlib1.dll
-- 1× missing: libzstd.dll
-- 1× missing: openal32.dll
-- 1× missing: libvorbisfile.dll
-- 1× missing: libsqlite3-0.dll
-- 1× missing: libfreetype.dll
-- 1× missing: libcurl.dll
-- 1× missing: libleveldb.dll
-- 1× missing: libc++.dll
-- 1× missing: libunwind.dll
+- 1× access violation at 0x86
