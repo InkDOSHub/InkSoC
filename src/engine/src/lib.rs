@@ -403,6 +403,11 @@ pub extern "C" fn start() -> i32 {
     if !e.s.files.contains_key(&name) {
         if let Some(k) = files::key_of(&raw).filter(|k| e.s.files.contains_key(k)) { if !e.s.files.alias(name.clone(), &k) { if let Some(b) = e.s.files.get(&k).cloned() { e.s.files.insert(name.clone(), b); } } }
     }
+    // the program's own folder is searched for its DLLs, as on Windows (programs that ship
+    // their DLLs next to the .exe in a subfolder, like Luanti's bin\)
+    if let Some(k) = files::key_of(&raw) {
+        if let Some(i) = k.rfind('\\') { let d = k[..i].to_string(); if !e.s.dll_dirs.contains(&d) { e.s.dll_dirs.push(d); } }
+    }
     if let Some(d) = e.s.files.get("roots.der").cloned() {
         e.s.fs.reg.seed_roots(&d);
     }
