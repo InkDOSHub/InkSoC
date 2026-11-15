@@ -197,8 +197,10 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 let wide = name.ends_with('W');
                 let title = e.r64(p + 0xB8);   // WindowTitle.Buffer
                 let desktop = e.r64(p + 0xC8); // Desktop.Buffer
-                e.w64(a0 + 16, if wide { desktop } else { e.s.startup_desktop_a });
-                e.w64(a0 + 24, if wide { title } else { e.s.startup_title_a });
+                let lp_desktop = if wide { desktop } else { e.s.startup_desktop_a };
+                let lp_title = if wide { title } else { e.s.startup_title_a };
+                e.w64(a0 + 16, lp_desktop);
+                e.w64(a0 + 24, lp_title);
                 for (dst, src) in [
                     (32, 0x88), // dwX
                     (36, 0x8C), // dwY
