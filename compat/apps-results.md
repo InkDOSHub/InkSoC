@@ -1,11 +1,11 @@
 # Common programs on InkSoC
 
-Engine c017c5c. Each program is downloaded from its official site and its installer (or the program itself) runs on the engine in Node on GitHub Actions (.github/workflows/compat-apps.yml). "running" = still going at the time limit.
+Engine e64660c. Each program is downloaded from its official site and its installer (or the program itself) runs on the engine in Node on GitHub Actions (.github/workflows/compat-apps.yml). "running" = still going at the time limit.
 
 | Program | Group | Result | Where it stopped |
 |---|---|---|---|
 | chrome | browser | stopped | all threads are waiting for each other (deadlock) |
-| firefox | browser | not run |  |
+| firefox | browser | running, 1 window(s) |  |
 | obs | media | finished, 2079 files written |  |
 | vlc | media | finished, 592 files written |  |
 | audacity | media | running, 1 window(s) |  |
