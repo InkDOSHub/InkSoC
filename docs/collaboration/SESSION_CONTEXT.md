@@ -71,10 +71,10 @@ Não existe Claude Code GitHub Action instalada; comentário `@claude` não inic
 ### PR #8 — este documento de contexto
 
 - PR: https://github.com/InkDOSHub/InkSoC/pull/8
-- Branch: `docs/session-context`; head antes desta atualização: `0d62d7e6b311f3be7c0245486d4fea5569880712`.
-- Aberto, draft, não mergeado; um arquivo (`docs/collaboration/SESSION_CONTEXT.md`); `mergeable: true`.
-- Esta atualização registra o resultado final da run #43737980582 e sincroniza os snapshots dos PRs abertos.
-- Após este commit, o head do PR #8 mudará; revisar o novo diff e atualizar a auditoria do próprio PR.
+- Branch: `docs/session-context`.
+- Aberto, draft, não mergeado; um arquivo (`docs/collaboration/SESSION_CONTEXT.md`).
+- Esta atualização registra o resultado final da run #43737980582 e sincroniza os snapshots dos PRs #6, #9 e #10.
+- O head atual e a mergeabilidade devem ser consultados diretamente no GitHub antes de novas ações; esta atualização não altera `main`.
 
 ### PR #9 — correção do PROJECT_LOG
 
