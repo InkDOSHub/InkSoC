@@ -48,6 +48,11 @@ pub fn round_up_64k(x: u64) -> Option<u64> {
     Some(x.checked_add(0xFFFF)? & !0xFFFF)
 }
 
+/// `x` rounded up to a page boundary; None when that does not fit in a u64.
+pub fn round_up_page(x: u64) -> Option<u64> {
+    Some(x.checked_add(PAGE - 1)? & !(PAGE - 1))
+}
+
 /// Bytes of `list` (disjoint ranges) that lie inside [s, e).
 fn covered(list: &[(u64, u64)], s: u64, e: u64) -> u64 {
     list.iter().map(|&(cs, ce)| ce.min(e).saturating_sub(cs.max(s))).sum()
@@ -860,6 +865,21 @@ mod accounting_tests {
         m.add_reserved(BASE + 0x10_0000, 0x1_0000);
         assert_eq!(m.commit_in_region(BASE + 0x10_0000, 0x2000), Ok(0x2000));
         assert_eq!(m.sh.committed, 0x1_0000 + 0x2000);
+        check(&m);
+    }
+
+    #[test]
+    fn page_sized_regions_count_whole_pages() {
+        // a 1-byte size takes one page; a page plus one byte takes two
+        assert_eq!(round_up_page(1), Some(0x1000));
+        assert_eq!(round_up_page(0x1000), Some(0x1000));
+        assert_eq!(round_up_page(0x1001), Some(0x2000));
+        assert_eq!(round_up_page(u64::MAX), None);
+        let mut m = Mmu::new(1, 1);
+        m.add_region(BASE, 0x1000).unwrap();
+        assert_eq!(m.sh.committed, 0x1000);
+        m.add_region(BASE + 0x1_0000, 0x2000).unwrap();
+        assert_eq!(m.sh.committed, 0x3000);
         check(&m);
     }
 

@@ -526,7 +526,8 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             let reserve = kind & 0x2000 != 0;
             let commit = kind & 0x1000 != 0;
             if a0 == 0 {
-                let made = if commit { e.alloc(size) } else { e.reserve(size) };
+                // a NULL base: the size goes up to whole pages, the base on the 64 KB granularity
+                let made = if commit { e.alloc_pages(size) } else { e.reserve_pages(size) };
                 match made {
                     Some(a) => a,
                     None => {

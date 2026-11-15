@@ -183,6 +183,27 @@ int main(void)
     if (expect_byte(&r6[0x2000], 0x00, "second page after decommit and commit again")) return 1;
     if (!VirtualFree(r6, 0, MEM_RELEASE)) return bad("release after zero-size decommit");
 
+    /* NULL base: the size goes up to whole pages, the base is on a 64 KB unit. A one-byte
+       reservation is one page long, so the page after it is outside it; a page plus one byte
+       commits two pages, so the second page of it is in and the page after that is out. */
+    unsigned char *p1 = VirtualAlloc(NULL, 1, MEM_RESERVE, PAGE_NOACCESS);
+    unsigned char *p2 = VirtualAlloc(NULL, 0x1001, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    if (!p1 || !p2) return bad("NULL-base reserve and commit");
+    if (((UINT_PTR)p1 & 0xFFFF) || ((UINT_PTR)p2 & 0xFFFF)) return bad("NULL-base reservations are not on a 64 KB unit");
+    if (!((UINT_PTR)p2 >= (UINT_PTR)p1 + 0x1000 || (UINT_PTR)p1 >= (UINT_PTR)p2 + 0x2000))
+        return bad("NULL-base reservations overlap");
+    if (!VirtualAlloc(p1, 0x1000, MEM_COMMIT, PAGE_READWRITE)) return bad("commit the one page of a one-byte reservation");
+    p1[0] = 0x61;
+    p2[0x1000] = 0x62;
+    if (expect_error(VirtualAlloc(p1 + 0x1000, 0x1000, MEM_COMMIT, PAGE_READWRITE) != NULL,
+                     ERR_INVALID_ADDRESS, "commit the page after a one-byte reservation")) return 1;
+    if (expect_error(VirtualAlloc(p2 + 0x2000, 0x1000, MEM_COMMIT, PAGE_READWRITE) != NULL,
+                     ERR_INVALID_ADDRESS, "commit the page after a page-plus-one reservation")) return 1;
+    if (expect_byte(p1, 0x61, "one-byte reservation after refused commit")) return 1;
+    if (expect_byte(&p2[0x1000], 0x62, "second page after refused commit")) return 1;
+    if (!VirtualFree(p1, 0, MEM_RELEASE)) return bad("release a one-byte reservation");
+    if (!VirtualFree(p2, 0, MEM_RELEASE)) return bad("release a page-plus-one reservation");
+
     /* release the rest */
     if (!VirtualFree(r2, 0, MEM_RELEASE)) return bad("release first adjacent reservation");
     if (!VirtualFree(r3, 0, MEM_RELEASE)) return bad("release second adjacent reservation");

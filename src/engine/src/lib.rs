@@ -688,21 +688,37 @@ impl Engine {
     }
 
     /// Reserves address space only (pages are backed when first touched).
-    /// Address space for `size` bytes (rounded up to 64 KB), reserved only.
+    /// Address space for `size` bytes (rounded up to 64 KB), reserved only. Internal use;
+    /// the VirtualAlloc API uses `reserve_pages`.
     pub fn reserve(&mut self, size: u64) -> Option<u64> {
-        let size = crate::mmu::round_up_64k(size.max(1))?;
-        let f = self.find_free(size)?;
-        self.mmu.add_reserved(f.a, size)?;
-        self.take_free(f);
-        Some(f.a)
+        self.map_range(size, crate::mmu::round_up_64k, false)
     }
 
-    /// VirtualAlloc-style reservation: 64 KB aligned, committed. Nothing changes when it fails.
+    /// Committed memory for `size` bytes (rounded up to 64 KB). Internal use; the VirtualAlloc
+    /// API uses `alloc_pages`. Nothing changes when it fails.
     pub fn alloc(&mut self, size: u64) -> Option<u64> {
-        let size = crate::mmu::round_up_64k(size.max(1))?;
-        if self.mmu.sh.committed.checked_add(size)? > self.mmu.sh.target_bytes { return None; }
+        self.map_range(size, crate::mmu::round_up_64k, true)
+    }
+
+    /// VirtualAlloc with a NULL base, reserve only: `size` rounded up to whole pages, the base
+    /// on the 64 KB allocation granularity.
+    pub fn reserve_pages(&mut self, size: u64) -> Option<u64> {
+        self.map_range(size, crate::mmu::round_up_page, false)
+    }
+
+    /// VirtualAlloc with a NULL base, committed: `size` rounded up to whole pages, the base on
+    /// the 64 KB allocation granularity. Nothing changes when it fails.
+    pub fn alloc_pages(&mut self, size: u64) -> Option<u64> {
+        self.map_range(size, crate::mmu::round_up_page, true)
+    }
+
+    /// Finds a free range for `size` (at least one byte, rounded by `round`) and maps it:
+    /// reserved only, or committed within the memory target. Nothing changes when it fails.
+    fn map_range(&mut self, size: u64, round: fn(u64) -> Option<u64>, commit: bool) -> Option<u64> {
+        let size = round(size.max(1))?;
+        if commit && self.mmu.sh.committed.checked_add(size)? > self.mmu.sh.target_bytes { return None; }
         let f = self.find_free(size)?;
-        self.mmu.add_region(f.a, size)?;
+        if commit { self.mmu.add_region(f.a, size)?; } else { self.mmu.add_reserved(f.a, size)?; }
         self.take_free(f);
         Some(f.a)
     }
@@ -713,11 +729,13 @@ impl Engine {
     /// When the top is used up, the search goes back for a gap below the bump pointer.
     fn find_free(&self, size: u64) -> Option<Found> {
         let limit = if self.s.next_alloc < 0x1_0000_0000 { 0xFFFF_0000 } else { 0x7F00_0000_0000 };
-        let mut a = self.s.next_alloc;
+        // every base is on the 64 KB granularity, whatever the size (a page-sized one included)
+        let mut a = crate::mmu::round_up_64k(self.s.next_alloc)?;
         while let Some(end) = self.mmu.overlap_end(a, a.checked_add(size)?) {
             a = crate::mmu::round_up_64k(end)?;
         }
         let (end, next) = crate::mmu::span_after(a, size, 0x10000)?;
+        let next = crate::mmu::round_up_64k(next)?;
         if end > limit {
             // the address space is used up to the top: go back for room that was freed
             // (a 32-bit program that allocates and frees big buffers gets there quickly)
