@@ -463,6 +463,11 @@ impl Engine {
         if !k.starts_with('|') {
             self.s.fs.written.insert(k.clone());
         }
+        // a big file is written where it lives on disk, not grown in memory
+        if self.s.files.write_at(&k, pos as u64, v) {
+            self.set_pos(h, (pos + v.len()) as u64);
+            return true;
+        }
         let d = self.s.files.entry_or_default(k);
         let end = pos + v.len();
         if d.len() < end {
