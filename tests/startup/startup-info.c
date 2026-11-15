@@ -9,32 +9,49 @@ typedef LPSTR (WINAPI *GETCOMMANDLINEA_FN)(VOID);
 typedef LPWSTR (WINAPI *GETCOMMANDLINEW_FN)(VOID);
 
 /*
- * Values the engine places in the process parameters (winefb.rs,
- * process_parameters). They are distinct and non-zero so that a field read
- * from the wrong offset, or a copy into the wrong member, is detected.
+ * Two builds of this file (see the workflow):
+ *  - startup-info.exe: an ordinary program. Numeric fields are zero and the
+ *    title is the ASCII file name.
+ *  - startup-info-fixtúre.exe (-DSTARTUP_FIXTURE): the engine gives this file
+ *    distinct non-zero STARTUPINFO values (winefb.rs, STARTUP_FIXTURE_EXE), and
+ *    its file name is not ASCII, so the title checks the UTF-16 to UTF-8 path.
  */
-#define SENTINEL_X              101
-#define SENTINEL_Y              102
-#define SENTINEL_XSIZE          103
-#define SENTINEL_YSIZE          104
-#define SENTINEL_XCOUNTCHARS    105
-#define SENTINEL_YCOUNTCHARS    106
-#define SENTINEL_FILLATTRIBUTE  107
-#define SENTINEL_FLAGS          0x40000000UL
-#define SENTINEL_SHOWWINDOW     7
-#define EXE_NAME_W              L"startup-info.exe"
-#define EXE_NAME_A              "startup-info.exe"
+#ifdef STARTUP_FIXTURE
+#define EXPECT_X              101
+#define EXPECT_Y              102
+#define EXPECT_XSIZE          103
+#define EXPECT_YSIZE          104
+#define EXPECT_XCOUNTCHARS    105
+#define EXPECT_YCOUNTCHARS    106
+#define EXPECT_FILLATTRIBUTE  107
+#define EXPECT_FLAGS          0x40000000UL
+#define EXPECT_SHOWWINDOW     7
+#define EXPECT_TITLE_W        L"startup-info-fixtúre.exe"
+#define EXPECT_TITLE_A        "startup-info-fixt\xc3\xba" "re.exe"
+#else
+#define EXPECT_X              0
+#define EXPECT_Y              0
+#define EXPECT_XSIZE          0
+#define EXPECT_YSIZE          0
+#define EXPECT_XCOUNTCHARS    0
+#define EXPECT_YCOUNTCHARS    0
+#define EXPECT_FILLATTRIBUTE  0
+#define EXPECT_FLAGS          0
+#define EXPECT_SHOWWINDOW     0
+#define EXPECT_TITLE_W        L"startup-info.exe"
+#define EXPECT_TITLE_A        "startup-info.exe"
+#endif
 
 static int check_numeric_w(const STARTUPINFOW *s)
 {
     return s->cb == sizeof(*s) &&
-           s->dwX == SENTINEL_X && s->dwY == SENTINEL_Y &&
-           s->dwXSize == SENTINEL_XSIZE && s->dwYSize == SENTINEL_YSIZE &&
-           s->dwXCountChars == SENTINEL_XCOUNTCHARS &&
-           s->dwYCountChars == SENTINEL_YCOUNTCHARS &&
-           s->dwFillAttribute == SENTINEL_FILLATTRIBUTE &&
-           s->dwFlags == SENTINEL_FLAGS &&
-           s->wShowWindow == SENTINEL_SHOWWINDOW &&
+           s->dwX == EXPECT_X && s->dwY == EXPECT_Y &&
+           s->dwXSize == EXPECT_XSIZE && s->dwYSize == EXPECT_YSIZE &&
+           s->dwXCountChars == EXPECT_XCOUNTCHARS &&
+           s->dwYCountChars == EXPECT_YCOUNTCHARS &&
+           s->dwFillAttribute == EXPECT_FILLATTRIBUTE &&
+           s->dwFlags == EXPECT_FLAGS &&
+           s->wShowWindow == EXPECT_SHOWWINDOW &&
            s->cbReserved2 == 0 && s->lpReserved2 == NULL &&
            s->lpReserved == NULL;
 }
@@ -42,28 +59,28 @@ static int check_numeric_w(const STARTUPINFOW *s)
 static int check_numeric_a(const STARTUPINFOA *s)
 {
     return s->cb == sizeof(*s) &&
-           s->dwX == SENTINEL_X && s->dwY == SENTINEL_Y &&
-           s->dwXSize == SENTINEL_XSIZE && s->dwYSize == SENTINEL_YSIZE &&
-           s->dwXCountChars == SENTINEL_XCOUNTCHARS &&
-           s->dwYCountChars == SENTINEL_YCOUNTCHARS &&
-           s->dwFillAttribute == SENTINEL_FILLATTRIBUTE &&
-           s->dwFlags == SENTINEL_FLAGS &&
-           s->wShowWindow == SENTINEL_SHOWWINDOW &&
+           s->dwX == EXPECT_X && s->dwY == EXPECT_Y &&
+           s->dwXSize == EXPECT_XSIZE && s->dwYSize == EXPECT_YSIZE &&
+           s->dwXCountChars == EXPECT_XCOUNTCHARS &&
+           s->dwYCountChars == EXPECT_YCOUNTCHARS &&
+           s->dwFillAttribute == EXPECT_FILLATTRIBUTE &&
+           s->dwFlags == EXPECT_FLAGS &&
+           s->wShowWindow == EXPECT_SHOWWINDOW &&
            s->cbReserved2 == 0 && s->lpReserved2 == NULL &&
            s->lpReserved == NULL;
 }
 
-/* Desktop and title must be valid, stable strings with the expected text. */
+/* Desktop and title must be valid strings with the expected text. */
 static int check_strings_w(const STARTUPINFOW *s)
 {
     return s->lpDesktop && wcscmp(s->lpDesktop, L"WinSta0\\Default") == 0 &&
-           s->lpTitle && wcscmp(s->lpTitle, EXE_NAME_W) == 0;
+           s->lpTitle && wcscmp(s->lpTitle, EXPECT_TITLE_W) == 0;
 }
 
 static int check_strings_a(const STARTUPINFOA *s)
 {
     return s->lpDesktop && strcmp(s->lpDesktop, "WinSta0\\Default") == 0 &&
-           s->lpTitle && strcmp(s->lpTitle, EXE_NAME_A) == 0;
+           s->lpTitle && strcmp(s->lpTitle, EXPECT_TITLE_A) == 0;
 }
 
 static int check_handles(const STARTUPINFOW *w)
@@ -85,7 +102,7 @@ int main(void)
     if (!check_strings_w(&wide)) return 2;
     if (!check_handles(&wide)) return 3;
 
-    /* Kernel32 import path, ANSI: same values, text converted */
+    /* Kernel32 import path, ANSI: same values, text converted to UTF-8 */
     ZeroMemory(&ansi, sizeof(ansi));
     GetStartupInfoA(&ansi);
     if (!check_numeric_a(&ansi)) return 4;
@@ -94,7 +111,7 @@ int main(void)
         ansi.hStdOutput != GetStdHandle(STD_OUTPUT_HANDLE) ||
         ansi.hStdError != GetStdHandle(STD_ERROR_HANDLE)) return 6;
 
-    /* The ANSI copy is the same string on every call (stable lifetime) */
+    /* The ANSI copy is the same buffer on every call (stable lifetime) */
     STARTUPINFOA again;
     ZeroMemory(&again, sizeof(again));
     GetStartupInfoA(&again);

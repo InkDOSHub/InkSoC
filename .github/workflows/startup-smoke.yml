@@ -29,31 +29,54 @@ jobs:
           cd src/engine
           cargo build --release --target wasm32-unknown-unknown
           cp target/wasm32-unknown-unknown/release/inksoc.wasm ../../inksoc.wasm
-      - name: Compile startup probe
-        run: x86_64-w64-mingw32-gcc -O2 -Wall -o tests/startup/startup-info.exe tests/startup/startup-info.c
-      - name: Run startup probe in InkSoC
+      - name: Compile startup probes
+        run: |
+          x86_64-w64-mingw32-gcc -O2 -Wall -o tests/startup/startup-info.exe tests/startup/startup-info.c
+          x86_64-w64-mingw32-gcc -O2 -Wall -DSTARTUP_FIXTURE -o tests/startup/fixture-build.exe tests/startup/startup-info.c
+          x86_64-w64-mingw32-gcc -O2 -Wall -o tests/startup/startup-info-badptr.exe tests/startup/startup-info-badptr.c
+      - name: Run startup probes in InkSoC
         env:
           LIMIT: "90"
         run: |
           python3 - <<'PY'
-          import json, os, subprocess, sys
-          files = [os.path.abspath("tests/startup/startup-info.exe")]
+          import json, os, shutil, subprocess, sys
+          # The fixture needs its non-ASCII file name, which the engine gives it (winefb.rs).
+          fixture = os.path.abspath("tests/startup/startup-info-fixtúre.exe")
+          shutil.copy("tests/startup/fixture-build.exe", fixture)
           with open("bin/wine/list.json", encoding="utf-8") as f:
-              files += [os.path.abspath(os.path.join("bin/wine", name)) for name in json.load(f)]
-          payload = json.dumps({"files": files, "exe": "startup-info.exe", "args": ""})
-          result = subprocess.run(
-              ["node", "compat/run.mjs", "--one", payload],
-              text=True, capture_output=True, timeout=120,
-          )
-          print(result.stdout)
-          if result.stderr:
-              print(result.stderr, file=sys.stderr)
-          try:
-              report = json.loads(result.stdout.strip().splitlines()[-1])
-          except Exception as exc:
-              raise SystemExit(f"Could not parse InkSoC result: {exc}")
+              support = [os.path.abspath(os.path.join("bin/wine", name)) for name in json.load(f)]
+
+          def run(exe_path, exe_name):
+              payload = json.dumps({"files": [exe_path] + support, "exe": exe_name, "args": ""})
+              result = subprocess.run(["node", "compat/run.mjs", "--one", payload],
+                                      text=True, capture_output=True, timeout=120)
+              print(result.stdout)
+              if result.stderr:
+                  print(result.stderr, file=sys.stderr)
+              try:
+                  return json.loads(result.stdout.strip().splitlines()[-1])
+              except Exception as exc:
+                  raise SystemExit(f"Could not parse InkSoC result for {exe_name}: {exc}")
+
+          # 1. ordinary program: zeros, ASCII title
+          report = run(os.path.abspath("tests/startup/startup-info.exe"), "startup-info.exe")
           if report.get("status") != "exit" or report.get("exitCode") != 0:
               raise SystemExit(f"Startup probe failed: {report}")
           if "INKSOC_STARTUP_INFO_OK" not in report.get("out", ""):
               raise SystemExit(f"Startup probe marker missing: {report}")
+
+          # 2. fixture: distinct STARTUPINFO values, non-ASCII title
+          report = run(fixture, "startup-info-fixtúre.exe")
+          if report.get("status") != "exit" or report.get("exitCode") != 0:
+              raise SystemExit(f"Fixture probe failed: {report}")
+          if "INKSOC_STARTUP_INFO_OK" not in report.get("out", ""):
+              raise SystemExit(f"Fixture probe marker missing: {report}")
+
+          # 3. invalid destination: the call must fault, not return
+          report = run(os.path.abspath("tests/startup/startup-info-badptr.exe"), "startup-info-badptr.exe")
+          if "BADPTR_RETURNED" in report.get("out", ""):
+              raise SystemExit(f"Bad pointer accepted (call returned): {report}")
+          if report.get("status") == "exit":
+              raise SystemExit(f"Bad pointer probe inconclusive (exited normally): {report}")
+          print("bad pointer: call faulted as expected")
           PY
