@@ -1,8 +1,20 @@
 # Desenho de integração — eventos, Claude e notificações
 
-**Status:** desenho técnico; não implementa despacho nem envio de e-mail.
+**Status:** desenho técnico de uma possível automação **futura**; não implementa despacho nem envio de e-mail.
 
-## 1. Eventos pretendidos
+## 0. Estado atual (o que existe hoje)
+
+O fluxo vigente é humano-assistido e está descrito em `PROTOCOL.md`: GPT-6 planeja e abre uma thread, o mantenedor transfere a tarefa para Claude Code (sessão na nuvem com o repositório clonado, acesso por Git e pelo GitHub Connector), GitHub Actions executa os workflows existentes, e o mantenedor leva os resultados de volta a GPT-6 para auditoria independente.
+
+Hoje **não** existe:
+- Claude Code GitHub Action instalada no InkSoC;
+- workflow que acione Claude ou GPT-6;
+- efeito de comentários `@claude` em PRs ou Issues;
+- despacho por evento, idempotência de despacho ou notificação por e-mail dedicada.
+
+Tudo o que segue descreve requisitos para uma eventual automação e não deve ser lido como funcionalidade implementada.
+
+## 1. Eventos pretendidos (futuro)
 
 | Evento | Resultado esperado | Consumidor |
 |---|---|---|
@@ -41,16 +53,23 @@ A escolha do provedor e a configuração de Secrets são pré-requisitos para im
 
 ## 5. Acionamento de Claude
 
-A integração Claude deve ser descoberta antes de escrever o workflow de dispatch. É necessário confirmar se ela observa Issues, labels, comentários, workflow_dispatch, webhook externo ou outro evento. Não presumir que um evento GitHub genérico inicia uma sessão Claude.
+**Hoje:** manual. O mantenedor transfere a tarefa para uma sessão do Claude Code na nuvem; nenhum evento do GitHub inicia Claude.
+
+**Possibilidade futura:** Claude Code GitHub Action (acionada por menção em PR/Issue ou por workflow). Pré-requisitos antes de adotar:
+- chave de API da Anthropic armazenada como Secret do repositório, configurada pelo mantenedor;
+- custos próprios, separados da assinatura usada nas sessões atuais;
+- revisão das permissões do workflow (mínimas, sem push em `main`);
+- proteção contra loops (comentários de bot não acionam execução) e idempotência (seção 2);
+- PR separado, com autorização explícita do mantenedor.
 
 ## 6. Acionamento GPT-6
 
-O fluxo inicial é human-in-the-loop: o e-mail contém o link do PR/Actions; o mantenedor abre o link e envia uma mensagem a GPT-6. Isso inicia a análise nesta conversa. Um agente GPT via API seria uma integração separada, com credenciais, custos, limites e política próprios.
+**Hoje:** human-in-the-loop. O mantenedor volta à conversa com GPT-6 levando os resultados e links (PR, commits, Actions); GPT-6 relê o estado do GitHub e audita. Um agente GPT via API seria uma integração separada, com credenciais, custos, limites e política próprios.
 
-## 7. Sequência segura de implantação
+## 7. Sequência segura de implantação (se a automação for aprovada no futuro)
 
 1. Aprovar o protocolo e os templates.
-2. Confirmar qual integração dispara Claude e executar um teste manual.
+2. Decidir se a Claude Code GitHub Action será adotada (Secret, custo, permissões) e testá-la manualmente em PR separado.
 3. Configurar/validar notificações GitHub nativas.
 4. Se necessário, escolher provedor de e-mail e cadastrar Secrets.
 5. Implementar workflows pequenos, com permissões mínimas, em PR separado.
