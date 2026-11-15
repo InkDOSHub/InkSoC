@@ -683,41 +683,54 @@ impl Engine {
     }
 
     /// Reserves address space only (pages are backed when first touched).
+    /// Address space for `size` bytes (rounded up to 64 KB), reserved only.
     pub fn reserve(&mut self, size: u64) -> Option<u64> {
-        let size = (size.max(1) + 0xFFFF) & !0xFFFF;
-        let a = self.next_free(size)?;
-        self.mmu.add_reserved(a, size);
+        let size = crate::mmu::round_up_64k(size.max(1))?;
+        let (a, gap, next) = self.find_free(size)?;
+        self.mmu.add_reserved(a, size)?;
+        self.take_free(a, size, gap, next);
         Some(a)
     }
 
-    /// VirtualAlloc-style reservation: 64 KB aligned, committed lazily.
+    /// VirtualAlloc-style reservation: 64 KB aligned, committed. Nothing changes when it fails.
     pub fn alloc(&mut self, size: u64) -> Option<u64> {
-        let size = (size.max(1) + 0xFFFF) & !0xFFFF;
-        if self.mmu.sh.committed + size > self.mmu.sh.target_bytes { return None; }
-        let a = self.next_free(size)?;
-        self.mmu.add_region(a, size);
+        let size = crate::mmu::round_up_64k(size.max(1))?;
+        if self.mmu.sh.committed.checked_add(size)? > self.mmu.sh.target_bytes { return None; }
+        let (a, gap, next) = self.find_free(size)?;
+        self.mmu.add_region(a, size)?;
+        self.take_free(a, size, gap, next);
         Some(a)
     }
 
-    /// The next free stretch of `size` bytes from the allocation pointer, stepping over
-    /// anything already there (an image at its preferred base, a fixed allocation), with a
-    /// 64 KB gap after it. A 32-bit program's memory stays below 4 GB.
-    fn next_free(&mut self, size: u64) -> Option<u64> {
+    /// Where the next `size` bytes go, found without changing anything: the address, whether
+    /// it came from a gap below the bump pointer, and the bump pointer after it. The bump
+    /// pointer steps over anything already there (an image at its preferred base, a fixed
+    /// allocation), with a 64 KB gap after it. A 32-bit program's memory stays below 4 GB.
+    fn find_free(&self, size: u64) -> Option<(u64, bool, u64)> {
         let limit = if self.s.next_alloc < 0x1_0000_0000 { 0xFFFF_0000 } else { 0x7F00_0000_0000 };
         let mut a = self.s.next_alloc;
-        while let Some(end) = self.mmu.overlap_end(a, a + size) {
-            a = (end + 0xFFFF) & !0xFFFF;
+        while let Some(end) = self.mmu.overlap_end(a, a.checked_add(size)?) {
+            a = crate::mmu::round_up_64k(end)?;
         }
-        if a + size > limit {
+        if a.checked_add(size)? > limit {
             // the address space is used up to the top: go back for room that was freed
             // (a 32-bit program that allocates and frees big buffers gets there quickly)
             let from = if limit < 0x1_0000_0000 { crate::wow64::LOW_ALLOC } else { 0x0000_0200_0000_0000 };
             let a = self.mmu.first_gap(from, limit, size, 0x10000)?;
-            self.jit.forget(a, a + size);
-            return Some(a);
+            return Some((a, true, self.s.next_alloc));
         }
-        self.s.next_alloc = a + size + 0x10000;
-        Some(a)
+        let next = a.checked_add(size)?.checked_add(0x10000)?;
+        Some((a, false, next))
+    }
+
+    /// Takes a range found by find_free, after the mapping succeeded. A gap leaves the bump
+    /// pointer alone; the JIT forgets any code it had compiled for that address.
+    fn take_free(&mut self, a: u64, size: u64, gap: bool, next: u64) {
+        if gap {
+            self.jit.forget(a, a + size);
+        } else {
+            self.s.next_alloc = next;
+        }
     }
 
     /// Static TLS blocks of every image for the thread whose TEB is `teb`.

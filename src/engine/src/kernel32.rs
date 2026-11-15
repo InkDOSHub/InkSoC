@@ -526,10 +526,14 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             let reserve = kind & 0x2000 != 0;
             let commit = kind & 0x1000 != 0;
             if a0 == 0 {
-                if commit {
-                    e.alloc(size).unwrap_or(0)
-                } else {
-                    e.reserve(size).unwrap_or(0)
+                let made = if commit { e.alloc(size) } else { e.reserve(size) };
+                match made {
+                    Some(a) => a,
+                    None => {
+                        // out of address space or over the memory target
+                        e.set_last_error(8);
+                        0
+                    }
                 }
             } else if e.mmu.region_of(a0).is_some() {
                 // inside an existing reservation: only MEM_COMMIT, only within that region
@@ -562,12 +566,24 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "VirtualFree" => {
             let (size, kind) = (e.arg(1), e.arg(2));
             if kind & 0x8000 != 0 {
-                e.mmu.release_region(a0) as u64
-            } else if e.mmu.decommit_range(a0, size).is_some() {
-                1
+                // MEM_RELEASE: the size must be 0, and the address the base of a reservation
+                if size != 0 {
+                    e.set_last_error(87);
+                    0
+                } else if e.mmu.release_region(a0) {
+                    1
+                } else {
+                    e.set_last_error(487);
+                    0
+                }
             } else {
-                e.set_last_error(87);
-                0
+                match e.mmu.decommit_range(a0, size) {
+                    Ok(_) => 1,
+                    Err(code) => {
+                        e.set_last_error(code);
+                        0
+                    }
+                }
             }
         }
         "VirtualProtect" => {
@@ -701,19 +717,21 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
     Some(r)
 }
 
-/// VirtualAlloc at a fixed address that is not reserved yet: reserves the 64 KB aligned
-/// range and, with MEM_COMMIT, commits the requested pages. A failed commit leaves no
-/// reservation behind. Err: the Windows error code.
+/// VirtualAlloc at a fixed address that is not reserved yet. Compatibility decision: a
+/// fixed reservation must start on a 64 KB boundary, as Windows requires. A misaligned
+/// address is refused (487) rather than rounded, so the address returned is always the
+/// address of the region that was created. The reservation covers whole 64 KB units from
+/// that address; with MEM_COMMIT the requested pages are committed. A failed commit
+/// leaves no reservation behind. Err: the Windows error code.
 fn reserve_at(e: &mut Engine, a0: u64, size: u64, commit: bool) -> Result<(), u32> {
-    let start = a0 & !0xFFFF;
-    let end = a0.checked_add(size).and_then(|x| x.checked_add(0xFFFF)).ok_or(487u32)? & !0xFFFF;
-    if e.mmu.overlaps(start, end) {
-        return Err(487);
-    }
-    e.mmu.add_reserved(start, end - start);
+    if a0 & 0xFFFF != 0 { return Err(487); }
+    let size = size.max(1);
+    let end = crate::mmu::round_up_64k(a0.checked_add(size).ok_or(487u32)?).ok_or(487u32)?;
+    if e.mmu.overlaps(a0, end) { return Err(487); }
+    e.mmu.add_reserved(a0, end - a0).ok_or(487u32)?;
     if commit {
         if let Err(code) = e.mmu.commit_in_region(a0, size) {
-            e.mmu.release_region(start);
+            e.mmu.release_region(a0);
             return Err(code);
         }
     }

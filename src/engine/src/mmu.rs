@@ -24,6 +24,11 @@ pub fn page_span(start: u64, size: u64) -> Option<(u64, u64)> {
     Some((s, end))
 }
 
+/// `x` rounded up to a 64 KB boundary; None when that does not fit in a u64.
+pub fn round_up_64k(x: u64) -> Option<u64> {
+    Some(x.checked_add(0xFFFF)? & !0xFFFF)
+}
+
 /// Bytes of `list` (disjoint ranges) that lie inside [s, e).
 fn covered(list: &[(u64, u64)], s: u64, e: u64) -> u64 {
     list.iter().map(|&(cs, ce)| ce.min(e).saturating_sub(cs.max(s))).sum()
@@ -204,15 +209,32 @@ impl Mmu {
     pub fn frames_total(&self) -> usize { self.sh.frames.len() }
     pub fn resident(&self) -> usize { self.sh.frames.len() - self.sh.free.len() }
 
-    /// A new committed region (VirtualAlloc MEM_RESERVE|MEM_COMMIT, alloc).
-    pub fn add_region(&mut self, start: u64, size: u64) {
-        self.sh.regions.push((start, start + size));
-        if let Some((s, e)) = page_span(start, size) { self.commit_span(s, e); }
+    /// A new committed region (image, stack, alloc). Fails with nothing changed when the
+    /// range does not fit in a u64. The memory target is not checked here: callers that
+    /// allocate on demand (alloc, VirtualAlloc) check it before they call this.
+    pub fn add_region(&mut self, start: u64, size: u64) -> Option<()> {
+        let end = start.checked_add(size)?;
+        let (s, e) = page_span(start, size)?;
+        let added = (e - s) - covered(&self.sh.commits, s, e);
+        let total = self.sh.committed.checked_add(added)?;
+        self.sh.regions.push((start, end));
+        self.sh.commits.push((s, e));
+        normalize(&mut self.sh.commits);
+        self.sh.committed = total;
+        Some(())
     }
     /// Address space only (MEM_RESERVE): not committed, not counted against the memory
-    /// target. Not in `commits`, so the range check refuses it.
-    pub fn add_reserved(&mut self, start: u64, size: u64) {
-        self.sh.regions.push((start, start + size));
+    /// target. Not in `commits`, so the range check refuses it. Fails with nothing changed
+    /// when the range does not fit in a u64.
+    pub fn add_reserved(&mut self, start: u64, size: u64) -> Option<()> {
+        let end = start.checked_add(size)?;
+        self.sh.regions.push((start, end));
+        Some(())
+    }
+
+    /// True when [s, e) lies wholly inside one region (reserved or committed).
+    fn inside_region(&self, s: u64, e: u64) -> bool {
+        self.sh.regions.iter().any(|&(rs, re)| rs <= s && e <= re)
     }
 
     fn in_region(&self, addr: u64) -> bool {
@@ -255,10 +277,10 @@ impl Mmu {
         r.sort_unstable();
         let mut a = from;
         for (s, e) in r {
-            if a + size + gap <= s { break; }
-            a = a.max((e + gap + 0xFFFF) & !0xFFFF);
+            if a.checked_add(size)?.checked_add(gap)? <= s { break; }
+            a = a.max(round_up_64k(e.checked_add(gap)?)?);
         }
-        (a + size <= limit).then_some(a)
+        (a.checked_add(size)? <= limit).then_some(a)
     }
     /// The end of the furthest region that [start, end) runs into, if any.
     pub fn overlap_end(&self, start: u64, end: u64) -> Option<u64> {
@@ -294,15 +316,25 @@ impl Mmu {
         for f in freed { self.sh.limbo.push((ep, f)); }
     }
 
+    /// The bytes that committing [s, e) adds, and the counter after it. Fails when the
+    /// counter would pass the memory target (8) or overflow (8); nothing is changed.
+    fn commit_cost(&self, s: u64, e: u64) -> Result<(u64, u64), u32> {
+        // covered() counts only bytes inside [s, e), so the subtraction cannot underflow
+        let added = (e - s) - covered(&self.sh.commits, s, e);
+        let total = self.sh.committed.checked_add(added).ok_or(8u32)?;
+        if total > self.sh.target_bytes { return Err(8); }
+        Ok((added, total))
+    }
+
     /// Marks [s, e) committed. Returns the bytes that were not committed before, so an
     /// overlapping or repeated commit is not counted twice.
-    fn commit_span(&mut self, s: u64, e: u64) -> u64 {
-        if s >= e { return 0; }
-        let added = (e - s) - covered(&self.sh.commits, s, e);
+    fn commit_span(&mut self, s: u64, e: u64) -> Result<u64, u32> {
+        if s >= e { return Ok(0); }
+        let (added, total) = self.commit_cost(s, e)?;
         self.sh.commits.push((s, e));
         normalize(&mut self.sh.commits);
-        self.sh.committed += added;
-        added
+        self.sh.committed = total;
+        Ok(added)
     }
 
     /// Marks [s, e) not committed, splitting ranges that are only partly covered.
@@ -318,7 +350,8 @@ impl Mmu {
             if ce > e { kept.push((e, ce)); }
         }
         self.sh.commits = kept;
-        self.sh.committed = self.sh.committed.saturating_sub(removed);
+        // the committed bytes are inside the counter by construction; a shortfall is a bug
+        self.sh.committed = self.sh.committed.checked_sub(removed).expect("commit counter below its ranges");
         removed
     }
 
@@ -327,34 +360,34 @@ impl Mmu {
     /// target. When either check fails nothing changes. Ok: bytes newly committed;
     /// Err: the Windows error code (487 invalid address, 8 not enough memory).
     pub fn commit_in_region(&mut self, start: u64, size: u64) -> Result<u64, u32> {
-        let Some((s, e)) = page_span(start, size) else { return Err(487) };
-        if !self.sh.regions.iter().any(|&(rs, re)| rs <= s && e <= re) {
-            return Err(487);
-        }
-        let added = (e - s) - covered(&self.sh.commits, s, e);
-        if self.sh.committed + added > self.sh.target_bytes { return Err(8); }
-        Ok(self.commit_span(s, e))
+        let (s, e) = page_span(start, size).ok_or(487u32)?;
+        if !self.inside_region(s, e) { return Err(487); }
+        self.commit_span(s, e)
     }
 
-    /// VirtualFree MEM_DECOMMIT: removes the committed part of the range and drops its
-    /// page contents. Ok: bytes that were committed and are now decommitted. None when
-    /// the range does not fit in an address (nothing changes).
-    pub fn decommit_range(&mut self, start: u64, size: u64) -> Option<u64> {
-        let (s, e) = page_span(start, size)?;
+    /// VirtualFree MEM_DECOMMIT: removes the committed part of [start, start+size) and
+    /// drops its page contents. The whole range must lie inside one region, and size
+    /// must be non-zero; otherwise nothing changes (487 invalid address, 87 invalid
+    /// parameter). Ok: bytes that were committed and are now decommitted.
+    pub fn decommit_range(&mut self, start: u64, size: u64) -> Result<u64, u32> {
+        if size == 0 { return Err(87); }
+        let (s, e) = page_span(start, size).ok_or(487u32)?;
+        if !self.inside_region(s, e) { return Err(487); }
         let removed = self.uncommit_span(s, e);
         self.drop_pages(s, e);
-        Some(removed)
+        Ok(removed)
     }
 
     /// Releases a whole region (VirtualFree MEM_RELEASE): its pages and its committed
-    /// ranges. Only the committed bytes leave the counter, never the reserved size.
+    /// ranges. `start` must be the region's base address. Only the committed bytes leave
+    /// the counter, never the reserved size.
     pub fn release_region(&mut self, start: u64) -> bool {
         let Some(i) = self.sh.regions.iter().position(|&(s, _)| s == start) else { return false };
         let (s, e) = self.sh.regions.swap_remove(i);
         let removed = covered(&self.sh.commits, s, e);
         self.sh.commits.retain(|&(cs, ce)| ce <= s || cs >= e);
         self.drop_pages(s, e);
-        self.sh.committed = self.sh.committed.saturating_sub(removed);
+        self.sh.committed = self.sh.committed.checked_sub(removed).expect("commit counter below its ranges");
         true
     }
 
@@ -717,12 +750,12 @@ mod range_tests {
         m.commit_in_region(0x5C00_0000, 0x1_0000).unwrap();
         assert!(m.can_write_range(0x5C00_0000, 104)); // committed after reserve
         // partial decommit of the middle: the ends stay committed
-        m.decommit_range(0x5C00_4000, 0x4000);
+        m.decommit_range(0x5C00_4000, 0x4000).unwrap();
         assert!(m.can_write_range(0x5C00_0000, 0x4000));
         assert!(!m.can_write_range(0x5C00_4000, 104));
         assert!(m.can_write_range(0x5C00_8000, 104));
         // total decommit
-        m.decommit_range(0x5C00_0000, 0x1_0000);
+        m.decommit_range(0x5C00_0000, 0x1_0000).unwrap();
         assert!(!m.can_write_range(0x5C00_0000, 104));
         assert!(!m.can_write_range(0x5C00_8000, 104));
         // release clears the committed ranges of the released region
@@ -822,14 +855,14 @@ mod accounting_tests {
         let mut m = Mmu::new(1, 1);
         m.add_reserved(BASE, 0x1_0000);
         m.commit_in_region(BASE, 0x1_0000).unwrap();
-        assert_eq!(m.decommit_range(BASE + 0x4000, 0x4000), Some(0x4000));
+        assert_eq!(m.decommit_range(BASE + 0x4000, 0x4000), Ok(0x4000));
         assert_eq!(m.sh.committed, 0xC000);
         check(&m);
         // spans a hole and a committed part: only the 0x2000 committed bytes leave
-        assert_eq!(m.decommit_range(BASE + 0x3000, 0x6000), Some(0x2000));
+        assert_eq!(m.decommit_range(BASE + 0x3000, 0x6000), Ok(0x2000));
         assert_eq!(m.sh.committed, 0xA000);
         check(&m);
-        assert_eq!(m.decommit_range(BASE, 0x1_0000), Some(0xA000));
+        assert_eq!(m.decommit_range(BASE, 0x1_0000), Ok(0xA000));
         assert_eq!(m.sh.committed, 0);
         assert!(m.sh.commits.is_empty());
         check(&m);
@@ -840,8 +873,8 @@ mod accounting_tests {
         let mut m = Mmu::new(1, 1);
         m.add_reserved(BASE, 0x1_0000);
         m.commit_in_region(BASE, 0x2000).unwrap();
-        assert_eq!(m.decommit_range(BASE, 0x2000), Some(0x2000));
-        assert_eq!(m.decommit_range(BASE, 0x2000), Some(0));
+        assert_eq!(m.decommit_range(BASE, 0x2000), Ok(0x2000));
+        assert_eq!(m.decommit_range(BASE, 0x2000), Ok(0));
         assert_eq!(m.sh.committed, 0);
         check(&m);
     }
@@ -903,10 +936,60 @@ mod accounting_tests {
         assert_eq!(page_span(u64::MAX - 0xFFF, 0x1000), None);
         assert_eq!(m.commit_in_region(u64::MAX - 0x10, 0x100), Err(487));
         assert_eq!(m.commit_in_region(u64::MAX, 1), Err(487));
-        assert_eq!(m.decommit_range(u64::MAX - 0x10, 0x100), None);
-        assert_eq!(m.decommit_range(u64::MAX, u64::MAX), None);
+        assert_eq!(m.decommit_range(u64::MAX - 0x10, 0x100), Err(487));
+        assert_eq!(m.decommit_range(u64::MAX, u64::MAX), Err(487));
         assert!(!m.release_region(u64::MAX));
         assert_eq!(snapshot(&m), before);
         check(&m);
+    }
+
+    #[test]
+    fn decommit_must_lie_inside_one_reservation() {
+        let mut m = Mmu::new(1, 1);
+        m.add_reserved(BASE, 0x1_0000);
+        m.add_reserved(BASE + 0x1_0000, 0x1_0000); // adjacent reservation
+        m.commit_in_region(BASE, 0x1_0000).unwrap();
+        m.commit_in_region(BASE + 0x1_0000, 0x1_0000).unwrap();
+        let before = snapshot(&m);
+        assert_eq!(m.decommit_range(BASE + 0x9_0000, 0x1000), Err(487), "never reserved");
+        assert_eq!(m.decommit_range(BASE - 0x800, 0x1000), Err(487), "starts before the reservation");
+        assert_eq!(m.decommit_range(BASE + 0xF000, 0x2000), Err(487), "crosses two reservations");
+        assert_eq!(snapshot(&m), before, "a refused decommit changed the state");
+        // the pages on both sides are still committed
+        assert_eq!(m.commit_in_region(BASE + 0xF000, 0x1000), Ok(0));
+        assert_eq!(m.commit_in_region(BASE + 0x1_0000, 0x1000), Ok(0));
+        check(&m);
+    }
+
+    #[test]
+    fn decommit_of_zero_size_is_refused() {
+        let mut m = Mmu::new(1, 1);
+        m.add_reserved(BASE, 0x1_0000);
+        m.commit_in_region(BASE, 0x1000).unwrap();
+        let before = snapshot(&m);
+        assert_eq!(m.decommit_range(BASE, 0), Err(87));
+        assert_eq!(snapshot(&m), before);
+    }
+
+    #[test]
+    fn overflowing_requests_change_nothing() {
+        let mut m = Mmu::new(1, 1);
+        m.add_reserved(BASE, 0x1_0000);
+        let before = snapshot(&m);
+        assert_eq!(m.add_reserved(u64::MAX - 0x10, 0x100), None);
+        assert_eq!(m.add_region(u64::MAX - 0x10, 0x100), None);
+        assert_eq!(m.first_gap(u64::MAX - 0x100, u64::MAX, 0x1000, 0x10000), None);
+        // no room below the limit: refused, not wrapped
+        assert_eq!(m.first_gap(BASE, BASE + 0x1000, 0x2000, 0x10000), None);
+        assert_eq!(snapshot(&m), before);
+    }
+
+    #[test]
+    fn rounding_to_64k_is_checked() {
+        assert_eq!(round_up_64k(1), Some(0x1_0000));
+        assert_eq!(round_up_64k(0x1_0000), Some(0x1_0000));
+        assert_eq!(round_up_64k(u64::MAX - 0xFFFF), Some(0xFFFF_FFFF_FFFF_0000));
+        assert_eq!(round_up_64k(u64::MAX - 0xF000), None);
+        assert_eq!(round_up_64k(u64::MAX), None);
     }
 }
