@@ -91,6 +91,15 @@ async function saveDrive(changes, reg, spill) {
   await w.write(reg); await w.close();
 }
 
+// What the page knows when the engine has no room for a file. Two different numbers, both in
+// MB (2^20 bytes): the wasm memory's size (what the browser granted) and the engine's live Rust
+// allocations (heap_used, bytes the engine holds). They are not the same thing.
+function addFailure(name, bytes, mem, x, capMb) {
+  const mb = (n) => (n / 1048576).toFixed(1);
+  const heap = x.heap_used ? mb(x.heap_used()) : '?';
+  return new Error(`the engine's heap has no room for ${name} (file ${mb(bytes)} MB; wasm memory ${mb(mem.buffer.byteLength)} MB; configured cap of this build ${capMb} MB, a setting of the build and not a limit the browser guarantees; engine heap in use, Rust live allocations ${heap} MB)`);
+}
+
 /* Runs a program on the engine. files: [{ name, data }], exe: file name to start. */
 async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared, cores, strong, opt, drive, home, reg, typing }) {
   // several cores need a shared memory, which needs an isolated page (hub.inkdos.workers.dev)
@@ -268,18 +277,57 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
     x.win_stdin(0);
     typeIn = (t) => { const b = enc(t); put(b); x.win_stdin(b.length); };
   }
+  // what this run holds until the program starts: released once, on any exit before the run
+  const coreWorkers = [];
+  let released = false;
+  const release = async () => {
+    if (released) return;
+    released = true;
+    // only the single-core run holds handles here; in multi-core, open holds booleans and swapio's handles go with swapW.terminate()
+    if (!mt) for (const h of open) { try { if (h) h.close(); } catch (e) { /* already closed */ } }
+    try { if (swap) swap.close(); } catch (e) { /* already closed */ }
+    try { if (spill) { spill.close(); spill = null; } } catch (e) { /* already closed */ }
+    for (const w of coreWorkers) w.terminate();
+    if (swapW) swapW.terminate();
+    // a spill entry that was never made is not a failure; any other failure is logged and the
+    // next run's start-up sweep removes it. The error that ended the run is not replaced by this.
+    if (opfsRoot) await opfsRoot.removeEntry(spillName).catch((e) => {
+      if (e && e.name === 'NotFoundError') return;
+      post('log', { text: `[engine] spill file ${spillName} not removed (${(e && e.message) || e}); the next run's start-up sweep removes it\n` });
+    });
+  };
+  const capMb = mt ? poolMb + 256 : shared ? poolMb + 192 : 4096;
+  try {
   for (const f of files) {
     const name = enc(f.name), data = new Uint8Array(f.data), b = new Uint8Array(name.length + 1 + data.length);
     b.set(name); b.set(data, name.length + 1);
-    put(b); x.add_file();
+    put(b); if (x.add_file() < 0) throw addFailure(f.name, data.length, mem, x, capMb);
   }
   if (reg && x.reg_load) { put(new Uint8Array(reg)); x.reg_load(); }
   // extra cores: each gets a stack and TLS block here, and is ready before the program starts
-  const coreWorkers = [];
   if (mt) {
     const sab = new SharedArrayBuffer(32);
     swapW = new Worker('swapio.js?v=5');
-    await new Promise((res) => { swapW.onmessage = (ev) => { swapOpfs = ev.data.opfs; spillOk = !!ev.data.spill; (ev.data.drive || []).forEach((ok, i) => { open[i] = ok; }); res(); }; swapW.postMessage({ memory: mem, ctl: sab, name: 'inksoc-swap.bin', drive: lazy.map((f) => f.at), spill: spillName }); });
+    // the start-up of swapio: ready, or a failure. A script that does not load fires onerror, a
+    // message that cannot be read fires onmessageerror, and a failure inside it sends {failed}.
+    // The promise settles once; after it, the handlers are cleared so nothing later reaches them.
+    await new Promise((res, rej) => {
+      let settled = false;
+      const settle = (fn, v) => {
+        if (settled) return;
+        settled = true;
+        swapW.onerror = null; swapW.onmessageerror = null; swapW.onmessage = null;
+        fn(v);
+      };
+      swapW.onerror = (e) => settle(rej, new Error('swap worker did not start: ' + ((e && e.message) || 'the script failed to load')));
+      swapW.onmessageerror = () => settle(rej, new Error('swap worker sent a message the page could not read'));
+      swapW.onmessage = (ev) => {
+        if (ev.data.failed) return settle(rej, new Error('swap worker: ' + ev.data.failed));
+        swapOpfs = ev.data.opfs; spillOk = !!ev.data.spill; (ev.data.drive || []).forEach((ok, i) => { open[i] = ok; });
+        settle(res);
+      };
+      swapW.postMessage({ memory: mem, ctl: sab, name: 'inksoc-swap.bin', drive: lazy.map((f) => f.at), spill: spillName });
+    });
     swapCtl = new Int32Array(sab);
     if (!swapOpfs) post('log', { text: '[swap] OPFS sync access unavailable, using RAM instead\n' });
     const ready = [];
@@ -311,12 +359,18 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
       if (f.size > (32 << 20)) { post('log', { text: `[engine] ${f.name} is in use elsewhere (another window holds it); this program will not see it\n` }); continue; }
       const name = enc(f.name), data = new Uint8Array(await (await f.handle.getFile()).arrayBuffer()), b = new Uint8Array(name.length + 1 + data.length);
       b.set(name); b.set(data, name.length + 1);
-      put(b); x.add_file();
+      put(b); if (x.add_file() < 0) throw addFailure(f.name, data.length, mem, x, capMb);
     }
   }
   put(enc(exe + '\0' + (cmd || exe)));
   post('log', { text: `[engine] real RAM ${poolMb} MB (fixed), memory target ${targetMb} MB, wasm memory ${(mem.buffer.byteLength >> 20)} MB${mt ? `, ${cores} cores` : ''}\n` });
-  if (x.start() !== 0) { coreWorkers.forEach((w) => w.terminate()); post('done', { ok: false, error: msg() }); return; }
+  if (x.start() !== 0) { await release(); post('done', { ok: false, error: msg() }); return; }
+  } catch (e) {
+    // a failure before the program starts: what the run holds is released, and the page gets one 'done'
+    await release();
+    post('done', { ok: false, error: (e && e.message) || String(e) });
+    return;
+  }
   for (const w of coreWorkers) w.postMessage('go');
   if (poke) x.poke32(poke[0], poke[1]);
   const t0 = performance.now();
@@ -465,11 +519,12 @@ async function runLinux({ files, cmd, poolMb, jit, rows, cols }) {
   const putFile = (name, data, boot) => {
     const nm = enc.encode(name), d = new Uint8Array(data), b = new Uint8Array(nm.length + 1 + d.length);
     b.set(nm); b.set(d, nm.length + 1); put(b);
-    if (boot) x.add_file(); else x.linux_put_file();
+    if (boot) { if (x.add_file() < 0) throw addFailure(name, d.length, mem, x, 4096); } else x.linux_put_file();
   };
   x.init(poolMb, 4096);
   if (jit === false) x.set_jit(0);
-  for (const f of files) putFile(f.name, f.data, true);
+  // nothing is held yet: a file that does not fit ends the run with one 'done' and the reason
+  try { for (const f of files) putFile(f.name, f.data, true); } catch (e) { post('done', { ok: false, error: (e && e.message) || String(e) }); return; }
   put(enc.encode(files[0].name + '\0' + cmd));
   if (x.start() !== 0) { post('done', { ok: false, error: new TextDecoder().decode(new Uint8Array(mem.buffer, (x.msg_ptr() >>> 0), x.msg_len()).slice()) }); return; }
   x.linux_winsize(rows || 30, cols || 100);

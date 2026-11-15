@@ -18,13 +18,35 @@ onmessage = async (ev) => {
     swap = await fh.createSyncAccessHandle();
     swap.truncate(0);
   } catch (e) { swap = null; }
-  let spill = null;
-  if (spillName) try { spill = await (await (await navigator.storage.getDirectory()).getFileHandle(spillName, { create: true })).createSyncAccessHandle(); spill.truncate(0); } catch (e) { spill = null; }
-  // drive files come as OPFS paths (Safari cannot send file handles between workers)
-  const root = await navigator.storage.getDirectory();
-  const handleAt = async (at) => { let d = root; for (const n of at.slice(0, -1)) d = await d.getDirectoryHandle(n); return d.getFileHandle(at[at.length - 1]); };
-  const files = await Promise.all(drive.map(async (at) => { let h; try { h = await handleAt(at); } catch (e) { return null; } try { return await h.createSyncAccessHandle({ mode: 'read-only' }); } catch (e) { try { return await h.createSyncAccessHandle(); } catch (e2) { return null; } } }));
-  postMessage({ ready: true, spill: !!spill, opfs: !!swap, drive: files.map((f) => !!f) });
+  let spill = null, files = [];
+  const opened = []; // every drive handle opened so far, so a failure can close them all
+  // from here on, a failure is reported as {failed} and ready is never sent
+  try {
+    if (spillName) {
+      // a spill handle that opened but could not be prepared is closed, and the run goes on without spill
+      let h = null;
+      try { h = await (await (await navigator.storage.getDirectory()).getFileHandle(spillName, { create: true })).createSyncAccessHandle(); h.truncate(0); spill = h; }
+      catch (e) { spill = null; if (h) { try { h.close(); } catch (_) { /* already closed */ } } }
+    }
+    // drive files come as OPFS paths (Safari cannot send file handles between workers)
+    const dirRoot = await navigator.storage.getDirectory();
+    const handleAt = async (at) => { let d = dirRoot; for (const n of at.slice(0, -1)) d = await d.getDirectoryHandle(n); return d.getFileHandle(at[at.length - 1]); };
+    const track = (x) => { opened.push(x); return x; };
+    // all files open in parallel; the results keep the order of drive, with null for a file that will not open
+    files = await Promise.all(drive.map(async (at) => {
+      let h;
+      try { h = await handleAt(at); } catch (e) { return null; }
+      try { return track(await h.createSyncAccessHandle({ mode: 'read-only' })); }
+      catch (e) { try { return track(await h.createSyncAccessHandle()); } catch (e2) { return null; } }
+    }));
+    postMessage({ ready: true, spill: !!spill, opfs: !!swap, drive: files.map((f) => !!f) });
+  } catch (e) {
+    const why = (e && e.message) || String(e);
+    // close what this worker opened; a failure while closing must not replace the cause
+    for (const h of new Set([swap, spill, ...opened])) { if (!h) continue; try { h.close(); } catch (_) { /* already closed */ } }
+    postMessage({ failed: why });
+    return;
+  }
   const buf = new Uint8Array(PAGE);
   for (;;) {
     const s = Atomics.load(ctl, 0);

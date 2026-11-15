@@ -350,10 +350,20 @@ pub extern "C" fn core_init(id: u32) {
     }
 }
 
+/// The bytes after a file's name (and the NUL that ends it), moved to the front of `b`.
+/// Nothing is allocated: the file is not copied a second time while it is added.
+fn body_after_name(mut b: Vec<u8>, nl: usize) -> Vec<u8> {
+    let cut = (nl + 1).min(b.len());
+    b.drain(..cut);
+    b
+}
+
 /// Adds a file (from BUF) that the program can load, e.g. a DLL.
+/// Returns 0 when it is added, -1 when the engine's heap has no room for it: the page stops
+/// the run with that error; the engine does not trap.
 #[no_mangle]
 #[allow(static_mut_refs)]
-pub extern "C" fn add_file() {
+pub extern "C" fn add_file() -> i32 {
     unsafe {
         let b = std::mem::take(&mut BUF);
         let nl = b.iter().position(|&c| c == 0).unwrap_or(0);
@@ -361,14 +371,99 @@ pub extern "C" fn add_file() {
         // a file of the saved drive C: comes with its Windows path; the others are plain names
         if raw.contains('\\') || raw.contains(':') {
             let e = eng();
-            let Some(k) = files::key_of(&raw) else { return };
-            if raw.ends_with('\\') { e.s.fs.dirs.insert(k.clone()); } else { e.s.files.insert(k.clone(), b[nl + 1..].to_vec()); e.s.fs.drive.insert(k.clone()); }
+            let Some(k) = files::key_of(&raw) else { return 0 };
+            if raw.ends_with('\\') {
+                e.s.fs.dirs.insert(k.clone());
+            } else {
+                if store_file_with(&mut e.s.files, k.clone(), body_after_name(b, nl), 1) < 0 { return -1; }
+                e.s.fs.drive.insert(k.clone());
+            }
             e.note_case(&k, &raw);
-            return;
+            return 0;
         }
         let name = pe::norm(&raw);
+        if eng().s.names.try_reserve(1).is_err() { return -1; }
+        if store_file_with(&mut eng().s.files, name.clone(), body_after_name(b, nl), 1) < 0 { return -1; }
         eng().s.names.insert(name.clone(), raw.rsplit(['\\', '/']).next().unwrap_or(&raw).to_string());
-        eng().s.files.insert(name, b[nl + 1..].to_vec());
+        0
+    }
+}
+
+/// Stores a file's bytes under `k` if the map can take one more entry: 0, or -1 with the map
+/// unchanged. `need` is the room asked for (1 in the engine); a test asks for more than the
+/// heap can give, to see the refusal without running out of memory.
+fn store_file_with(s: &mut store::Store, k: String, body: Vec<u8>, need: usize) -> i32 {
+    if !s.reserve_count(need) { return -1; }
+    s.insert(k, body);
+    0
+}
+
+#[cfg(test)]
+mod add_file_tests {
+    use super::body_after_name;
+
+    #[test]
+    fn body_is_moved_not_copied() {
+        let b = b"name.dll\0BODY".to_vec();
+        let p = b.as_ptr();
+        let out = body_after_name(b, 8);
+        assert_eq!(out, b"BODY");
+        assert_eq!(out.as_ptr(), p, "the body must stay in the buffer it arrived in");
+    }
+
+    #[test]
+    fn name_without_bytes_gives_an_empty_body() {
+        assert!(body_after_name(b"name\0".to_vec(), 4).is_empty());
+        assert!(body_after_name(b"name".to_vec(), 4).is_empty());
+    }
+
+    #[test]
+    fn no_nul_uses_position_zero_as_before() {
+        // add_file takes a missing NUL as position 0 (unwrap_or(0)). The old code cut b[nl + 1..],
+        // so the first byte goes and the rest stays; the move must keep exactly that.
+        assert_eq!(body_after_name(b"xyz".to_vec(), 0), b"yz");
+        assert_eq!(body_after_name(b"x".to_vec(), 0), b"");
+    }
+
+    fn keys_of(s: &crate::store::Store) -> Vec<String> {
+        let mut k: Vec<String> = s.keys().cloned().collect();
+        k.sort();
+        k
+    }
+
+    #[test]
+    fn a_file_is_stored_when_the_map_has_room() {
+        let mut s = crate::store::Store::default();
+        assert_eq!(super::store_file_with(&mut s, "a.dll".into(), b"AAAA".to_vec(), 1), 0);
+        assert_eq!(s.get("a.dll").map(|v| v.as_slice()), Some(&b"AAAA"[..]));
+    }
+
+    #[test]
+    fn a_refused_reserve_gives_minus_one_and_stores_nothing() {
+        let mut s = crate::store::Store::default();
+        assert_eq!(super::store_file_with(&mut s, "a.dll".into(), b"AAAA".to_vec(), 1), 0);
+        let before = keys_of(&s);
+        // usize::MAX entries cannot be reserved: the map refuses without allocating
+        assert_eq!(super::store_file_with(&mut s, "b.dll".into(), b"BBBB".to_vec(), usize::MAX), -1);
+        assert_eq!(keys_of(&s), before, "a refused file must leave the map as it was");
+        assert!(!s.contains_key("b.dll"));
+    }
+
+    #[test]
+    fn files_stored_before_a_refusal_keep_their_bytes() {
+        let mut s = crate::store::Store::default();
+        assert_eq!(super::store_file_with(&mut s, "a.dll".into(), b"AAAA".to_vec(), 1), 0);
+        assert_eq!(super::store_file_with(&mut s, "c.dll".into(), b"CCCCCC".to_vec(), 1), 0);
+        assert_eq!(super::store_file_with(&mut s, "b.dll".into(), b"BBBB".to_vec(), usize::MAX), -1);
+        assert_eq!(s.get("a.dll").map(|v| v.as_slice()), Some(&b"AAAA"[..]));
+        assert_eq!(s.get("c.dll").map(|v| v.as_slice()), Some(&b"CCCCCC"[..]));
+    }
+
+    #[test]
+    fn reserve_count_refuses_an_impossible_count() {
+        let mut s = crate::store::Store::default();
+        assert!(s.reserve_count(1));
+        assert!(!s.reserve_count(usize::MAX));
     }
 }
 
