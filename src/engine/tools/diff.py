@@ -158,7 +158,12 @@ def put(b):
     p = X['buffer'](store, len(b)); mem.write(store, b, p)
 for f in files:
     nm = os.path.basename(f).encode(); d = open(f, 'rb').read()
-    put(nm + b'\0' + d); X['add_file'](store)
+    put(nm + b'\0' + d)
+    rc = X['add_file'](store)
+    if rc < 0:
+        # the engine's heap refused the file: stop here, a run without it would look valid
+        sys.exit(f"add_file: the engine's heap has no room for {os.path.basename(f)} "
+                 f"(file {len(d) / 2**20:.1f} MB; engine heap in use {X['heap_used'](store) / 2**20:.1f} MB, Rust live allocations)")
 put((exe + '\0' + exe + (' ' + args if args else '')).encode())
 st = 2 if X['start'](store) != 0 else 0
 while st in (0, 3) and time.time() - t0 < LIMIT:

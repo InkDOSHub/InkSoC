@@ -6,12 +6,24 @@
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 
+#[cfg(not(test))]
 #[link(wasm_import_module = "env")]
 extern "C" {
     /// Reads len bytes at off of drive file id into ptr; returns the bytes read.
     fn host_drive_read(id: u32, off: f64, ptr: *mut u8, len: u32) -> u32;
     /// Writes len bytes from ptr at off of file id (only the spill file); returns the bytes written.
     fn host_drive_write(id: u32, off: f64, ptr: *const u8, len: u32) -> u32;
+}
+
+// Host tests have no drive or spill files. A host test that reads one is a bug in the test,
+// so the stubs stop the test with a message rather than returning made-up bytes.
+#[cfg(test)]
+unsafe fn host_drive_read(_id: u32, _off: f64, _ptr: *mut u8, _len: u32) -> u32 {
+    panic!("host test: a drive or spill file was read, but host tests have none")
+}
+#[cfg(test)]
+unsafe fn host_drive_write(_id: u32, _off: f64, _ptr: *const u8, _len: u32) -> u32 {
+    panic!("host test: a drive or spill file was written, but host tests have none")
 }
 
 /// The host's spill file: closed program files too big to keep in memory.
@@ -291,6 +303,15 @@ impl Store {
     }
     pub fn contains_key(&self, k: &str) -> bool {
         self.data().contains_key(k) || self.lazy().contains_key(k)
+    }
+    /// Room for `n` more entries in the map, or false when the heap cannot give it. The map
+    /// is not changed when it says no.
+    pub fn reserve_count(&mut self, n: usize) -> bool {
+        self.data().try_reserve(n).is_ok()
+    }
+    /// Room for one more entry in the map, or false when the heap cannot give it.
+    pub fn reserve_one(&mut self) -> bool {
+        self.reserve_count(1)
     }
     pub fn insert(&mut self, k: String, v: impl Into<Entry>) {
         self.room().remove(&k);

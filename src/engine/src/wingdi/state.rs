@@ -14,74 +14,163 @@ impl Engine {
         v
     }
 
+    /// Commits the pages that `a..a+len` touches, before the engine writes there. Only those
+    /// pages are committed, never the whole region. False when they cannot be committed.
+    /// On failure the commit list, the counter and the pages this call committed for the first
+    /// time are restored; residence of pages committed before the call, and frames taken from
+    /// other pages, may have changed (see `Mmu::commit_for_write`).
+    pub(crate) fn prepare_write(&mut self, a: u64, len: u64) -> bool {
+        self.mmu.commit_for_write(a, len).is_ok()
+    }
+
     /// The GDI handle table (at PEB+0xF8) with the stock objects in Wine's slots.
+    ///
+    /// Guarantee: `gdi.table` and the PEB pointer are set only when every stock object was made
+    /// and every flag byte was written. A failure gives the table back and leaves no object in
+    /// `gdi`, so the next call starts again from nothing. Until then nothing outside this
+    /// function can see the table: the stock objects are added to it directly (`gdi_add`).
     pub(crate) fn gdi_init(&mut self) {
         if self.s.gdi.table != 0 {
             return;
         }
         let Some(t) = self.reserve(0x10000 * 24) else { return };
-        self.s.gdi.table = t;
-        self.w64(crate::PEB + 0xF8, t);
+        // the stock objects use the first FIRST+24 entries: commit them before any write
+        if !self.prepare_write(t, 24 * (FIRST as u64 + 24)) {
+            self.unreserve(t, 0x10000 * 24);
+            return;
+        }
         self.s.gdi.next = FIRST;
+        let done = self.build_stock(t) && self.flag_stock(t) && self.mmu.write64(crate::PEB + 0xF8, t).is_ok();
+        if !done {
+            self.gdi_discard(t);
+            return;
+        }
+        self.s.gdi.table = t;
+    }
+
+    /// Makes the stock objects, in the order Wine gives them. False at the first one that fails.
+    fn build_stock(&mut self, t: u64) -> bool {
         for c in [0xFFFFFF, 0xC0C0C0, 0x808080, 0x404040, 0] {
-            self.gdi_new(E_BRUSH, Obj::Brush(Brush::Solid(c)));
+            if self.gdi_add(t, E_BRUSH, Obj::Brush(Brush::Solid(c))) == 0 {
+                return false;
+            }
         }
-        self.gdi_new(E_BRUSH, Obj::Brush(Brush::Null));
+        if self.gdi_add(t, E_BRUSH, Obj::Brush(Brush::Null)) == 0 {
+            return false;
+        }
         for (s, c) in [(0, 0xFFFFFF), (0, 0), (5, 0)] {
-            self.gdi_new(E_PEN, Obj::Pen(Pen { style: s, width: 0, color: c, dc: false, ext: false }));
+            let pen = Pen { style: s, width: 0, color: c, dc: false, ext: false };
+            if self.gdi_add(t, E_PEN, Obj::Pen(pen)) == 0 {
+                return false;
+            }
         }
-        let font = |e: &mut Engine, h: i32, wt: i32, face: &str| {
-            let lf = mk_lf(h, wt, face);
-            let fi = pick_font(h, wt);
-            e.gdi_new(E_FONT, Obj::Font(Font { lf, fi }));
-        };
-        font(self, 12, 400, "Terminal"); // 9: scaled OEM
-        font(self, 12, 400, "Terminal");
-        font(self, 12, 400, "Courier");
-        font(self, 12, 400, "MS Sans Serif");
-        font(self, 16, 700, "System");
-        font(self, 16, 700, "System");
-        self.gdi_new(E_PAL, Obj::Pal(default_pal().to_vec()));
-        font(self, 16, 400, "Fixedsys");
-        font(self, -11, 400, "MS Shell Dlg");
-        self.gdi_new(E_BRUSH, Obj::Brush(Brush::Dc));
-        self.gdi_new(E_PEN, Obj::Pen(Pen { style: 0, width: 0, color: 0, dc: true, ext: false }));
-        self.gdi_new(E_BMP, Obj::Bmp(Bmp { w: 1, h: 1, bpp: 1, px: vec![0], dib: 0, stride: 2, pal: vec![], topdown: true, masks: [0; 3], comp: 0 }));
-        font(self, 16, 700, "System");
-        font(self, 16, 400, "Fixedsys");
-        font(self, -11, 400, "MS Shell Dlg");
+        let fonts = [
+            (12, 400, "Terminal"), // 9: scaled OEM
+            (12, 400, "Terminal"),
+            (12, 400, "Courier"),
+            (12, 400, "MS Sans Serif"),
+            (16, 700, "System"),
+            (16, 700, "System"),
+        ];
+        for (h, wt, face) in fonts {
+            if !self.stock_font(t, h, wt, face) {
+                return false;
+            }
+        }
+        if self.gdi_add(t, E_PAL, Obj::Pal(default_pal().to_vec())) == 0 {
+            return false;
+        }
+        for (h, wt, face) in [(16, 400, "Fixedsys"), (-11, 400, "MS Shell Dlg")] {
+            if !self.stock_font(t, h, wt, face) {
+                return false;
+            }
+        }
+        if self.gdi_add(t, E_BRUSH, Obj::Brush(Brush::Dc)) == 0 {
+            return false;
+        }
+        let dc_pen = Pen { style: 0, width: 0, color: 0, dc: true, ext: false };
+        if self.gdi_add(t, E_PEN, Obj::Pen(dc_pen)) == 0 {
+            return false;
+        }
+        let bmp = Bmp { w: 1, h: 1, bpp: 1, px: vec![0], dib: 0, stride: 2, pal: vec![], topdown: true, masks: [0; 3], comp: 0 };
+        if self.gdi_add(t, E_BMP, Obj::Bmp(bmp)) == 0 {
+            return false;
+        }
+        for (h, wt, face) in [(16, 700, "System"), (16, 400, "Fixedsys"), (-11, 400, "MS Shell Dlg")] {
+            if !self.stock_font(t, h, wt, face) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// One stock font in the table at `t`. False when it could not be made.
+    fn stock_font(&mut self, t: u64, h: i32, wt: i32, face: &str) -> bool {
+        let lf = mk_lf(h, wt, face);
+        let fi = pick_font(h, wt);
+        self.gdi_add(t, E_FONT, Obj::Font(Font { lf, fi })) != 0
+    }
+
+    /// Sets the 0x80 flag on the stock entries. False when a byte cannot be read or written.
+    fn flag_stock(&mut self, t: u64) -> bool {
         for i in FIRST..FIRST + 24 {
             let a = t + 24 * i as u64 + 12;
-            let v = self.r8(a);
-            self.w8(a, v | 0x80);
+            let Ok(v) = self.mmu.read8(a) else { return false };
+            if self.mmu.write8(a, v | 0x80).is_err() {
+                return false;
+            }
         }
+        true
+    }
+
+    /// Gives back a table whose setup failed: its entries are forgotten, its pages are
+    /// released, and the address range can be used again.
+    fn gdi_discard(&mut self, t: u64) {
+        let g = &mut self.s.gdi;
+        g.objs.clear();
+        g.free.clear();
+        g.next = 0;
+        g.table = 0;
+        self.unreserve(t, 0x10000 * 24);
     }
 
     pub(super) fn gdi_new(&mut self, ext: u32, obj: Obj) -> u64 {
         self.gdi_init();
-        let g = &mut self.s.gdi;
-        let i = match g.free.pop() {
-            Some(i) => i,
-            None => {
-                g.next += 1;
-                g.next - 1
-            }
+        let t = self.s.gdi.table;
+        if t == 0 {
+            // the table could not be made: there is no handle to give
+            return 0;
+        }
+        self.gdi_add(t, ext, obj)
+    }
+
+    /// Puts `obj` in the first free slot of the table at `t`. Returns its handle, or 0 with
+    /// nothing changed: no index taken, no object registered, no entry half-written.
+    fn gdi_add(&mut self, t: u64, ext: u32, obj: Obj) -> u64 {
+        // the slot is chosen first; nothing is taken until its entry is written
+        let (i, from_free) = match self.s.gdi.free.last() {
+            Some(&i) => (i, true),
+            None => (self.s.gdi.next, false),
         };
         if i >= 0x10000 {
             return 0;
         }
+        let e = t + 24 * i as u64;
+        // the entry is committed and resident before it is read or written
+        if !self.prepare_write(e, 24) {
+            return 0;
+        }
+        let Ok(old_gen) = self.mmu.read8(e + 13) else { return 0 };
+        let gen = if old_gen + 1 >= 0x80 { 1 } else { old_gen + 1 };
+        // the whole entry is written in one checked write, and the handle is published only after it
+        if self.mmu.write_bytes(e, &gdi_entry(i, ext, gen)).is_err() {
+            return 0;
+        }
+        let g = &mut self.s.gdi;
+        if from_free { g.free.pop(); } else { g.next += 1; }
         g.objs.insert(i, obj);
-        let e = g.table + 24 * i as u64;
-        let gen = self.r8(e + 13);
-        let gen = if gen + 1 >= 0x80 { 1 } else { gen + 1 };
-        self.w64(e, 1 + i as u64);
-        self.w32(e + 8, 0);
-        self.w8(e + 12, ext as u8);
-        self.w8(e + 13, gen);
-        self.w8(e + 14, (ext & 0x1F) as u8);
-        self.w8(e + 15, 0);
-        self.w64(e + 16, 0);
-        i as u64 | ((self.r16(e + 12) as u32) as u64) << 16
+        let tag = (ext as u8) as u64 | (gen as u64) << 8;
+        i as u64 | tag << 16
     }
 
     /// Full handle (with the type and generation bits) of a table slot.
@@ -126,38 +215,36 @@ impl Engine {
     }
 
     pub(super) fn attr_new(&mut self, hdc: u64) -> u64 {
-        let a = match self.s.gdi.attr_free.pop() {
-            Some(a) => a,
+        // a freed block first; otherwise the next slot, or a new 64 KB block when the current
+        // one is full. The slot's pages are committed before any state changes.
+        let (a, from_free, fresh) = match self.s.gdi.attr_free.last() {
+            Some(&a) => (a, true, None),
             None => {
                 if self.s.gdi.attr_next + ATTR_SIZE > self.s.gdi.attr_end {
                     let Some(p) = self.reserve(0x10000) else { return 0 };
-                    self.s.gdi.attr_next = p;
-                    self.s.gdi.attr_end = p + 0x10000;
+                    (p, false, Some(p))
+                } else {
+                    (self.s.gdi.attr_next, false, None)
                 }
-                self.s.gdi.attr_next += ATTR_SIZE;
-                self.s.gdi.attr_next - ATTR_SIZE
             }
         };
-        let _ = self.mmu.write_bytes(a, &[0u8; ATTR_SIZE as usize]);
-        self.w32(a, hdc as u32);
-        self.w32(a + 12, 0xFFFFFF); // background
-        self.w32(a + 16, 0xFFFFFF); // DC brush
-        self.w32(a + 36, 1); // GM_COMPATIBLE
-        self.w32(a + 40, 1); // AD_COUNTERCLOCKWISE
-        self.w16(a + 50, (2) as u16); // OPAQUE
-        self.w16(a + 52, (1) as u16); // ALTERNATE
-        self.w16(a + 54, (13) as u16); // R2_COPYPEN
-        self.w16(a + 56, (1) as u16);
-        self.w16(a + 58, (1) as u16); // BLACKONWHITE
-        self.w32(a + 60, 1); // MM_TEXT
-        self.w32(a + 88, 10.0f32.to_bits());
-        for o in [108u64, 112, 124, 128] {
-            self.w32(a + o, 1);
+        // the whole block is written in one checked write; the allocator changes only after it
+        let block = attr_block(hdc);
+        if !self.prepare_write(a, ATTR_SIZE) || self.mmu.write_bytes(a, &block).is_err() {
+            if let Some(p) = fresh {
+                self.unreserve(p, 0x10000);
+            }
+            return 0;
         }
-        self.w32(a + 132, SCREEN_W as u32);
-        self.w32(a + 136, SCREEN_H as u32);
-        self.w32(a + 140, 320);
-        self.w32(a + 144, 240);
+        let g = &mut self.s.gdi;
+        if from_free {
+            g.attr_free.pop();
+        } else if let Some(p) = fresh {
+            g.attr_end = p + 0x10000;
+            g.attr_next = p + ATTR_SIZE;
+        } else {
+            g.attr_next += ATTR_SIZE;
+        }
         a
     }
 
@@ -167,7 +254,16 @@ impl Engine {
             if mem { E_MEMDC } else { E_DC },
             Obj::Dc(Dc { attr: 0, hwnd, whole, mem, bmp, brush, pen, font, pal, clip: None, vis: None, saved: vec![] }),
         );
+        // no handle (the table or the entry could not be written): no attribute block either
+        if h == 0 {
+            return 0;
+        }
         let a = self.attr_new(h);
+        if a == 0 {
+            // a device context without its attribute block is not handed out
+            self.gdi_free(idx(h));
+            return 0;
+        }
         if let Some(d) = self.dc_mut(h) {
             d.attr = a;
         }
@@ -312,5 +408,79 @@ impl Engine {
         if let Some(d) = self.s.gdi.owndc.remove(&full(h)) {
             self.dc_delete(d);
         }
+    }
+}
+
+/// The 24 bytes of a GDI table entry: the handle (index plus one), zero, the type and the
+/// generation, and the rest zero. The same bytes the entry had when it was written field by field.
+pub(super) fn gdi_entry(i: u32, ext: u32, gen: u8) -> [u8; 24] {
+    let mut b = [0u8; 24];
+    b[0..8].copy_from_slice(&(1 + i as u64).to_le_bytes());
+    b[12] = ext as u8;
+    b[13] = gen;
+    b[14] = (ext & 0x1F) as u8;
+    b
+}
+
+fn put32(b: &mut [u8], at: usize, v: u32) {
+    b[at..at + 4].copy_from_slice(&v.to_le_bytes());
+}
+
+fn put16(b: &mut [u8], at: usize, v: u16) {
+    b[at..at + 2].copy_from_slice(&v.to_le_bytes());
+}
+
+/// The bytes of a new device-context attribute block: the defaults a DC starts with, and zero
+/// everywhere else. Written in one piece, so no field is left at an old value.
+pub(super) fn attr_block(hdc: u64) -> [u8; ATTR_SIZE as usize] {
+    let mut b = [0u8; ATTR_SIZE as usize];
+    put32(&mut b, 0, hdc as u32);
+    put32(&mut b, 12, 0xFFFFFF); // background
+    put32(&mut b, 16, 0xFFFFFF); // DC brush
+    put32(&mut b, 36, 1); // GM_COMPATIBLE
+    put32(&mut b, 40, 1); // AD_COUNTERCLOCKWISE
+    put16(&mut b, 50, 2); // OPAQUE
+    put16(&mut b, 52, 1); // ALTERNATE
+    put16(&mut b, 54, 13); // R2_COPYPEN
+    put16(&mut b, 56, 1);
+    put16(&mut b, 58, 1); // BLACKONWHITE
+    put32(&mut b, 60, 1); // MM_TEXT
+    put32(&mut b, 88, 10.0f32.to_bits());
+    for o in [108usize, 112, 124, 128] {
+        put32(&mut b, o, 1);
+    }
+    put32(&mut b, 132, SCREEN_W as u32);
+    put32(&mut b, 136, SCREEN_H as u32);
+    put32(&mut b, 140, 320);
+    put32(&mut b, 144, 240);
+    b
+}
+
+#[cfg(test)]
+mod gdi_state_tests {
+    use super::*;
+
+    #[test]
+    fn gdi_entry_holds_the_whole_entry() {
+        let b = gdi_entry(40, 0x12, 3);
+        assert_eq!(u64::from_le_bytes(b[0..8].try_into().unwrap()), 41);
+        assert_eq!(&b[8..12], &[0u8; 4]);
+        assert_eq!(b[12], 0x12);
+        assert_eq!(b[13], 3);
+        assert_eq!(b[14], 0x12 & 0x1F);
+        assert_eq!(&b[15..24], &[0u8; 9]);
+    }
+
+    #[test]
+    fn attr_block_has_every_default_and_zero_elsewhere() {
+        let b = attr_block(0x1234);
+        assert_eq!(u32::from_le_bytes(b[0..4].try_into().unwrap()), 0x1234);
+        assert_eq!(u32::from_le_bytes(b[4..8].try_into().unwrap()), 0);
+        assert_eq!(u32::from_le_bytes(b[12..16].try_into().unwrap()), 0xFFFFFF);
+        assert_eq!(u16::from_le_bytes(b[54..56].try_into().unwrap()), 13);
+        assert_eq!(u32::from_le_bytes(b[144..148].try_into().unwrap()), 240);
+        // the block has the size of an attribute, and the bytes after the last default are zero
+        assert_eq!(b.len(), ATTR_SIZE as usize);
+        assert_eq!(&b[148..160], &[0u8; 12]);
     }
 }

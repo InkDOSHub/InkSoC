@@ -1,6 +1,12 @@
 // Compiles the "Wine side" C code to a wasm object and links it in.
 use std::process::Command;
 fn main() {
+    // The C object and the wasm-ld flags below are for wasm only. Host builds
+    // (cargo test on the runner) get no extra arguments.
+    println!("cargo:rerun-if-changed=wine/ntdll_proof.c");
+    if std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default() != "wasm32" {
+        return;
+    }
     let mt = std::env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default().split(',').any(|f| f == "atomics");
     let out = std::env::var("OUT_DIR").unwrap();
     let obj = format!("{}/wine.o", out);
@@ -22,5 +28,4 @@ fn main() {
             println!("cargo:rustc-link-arg={}", a);
         }
     }
-    println!("cargo:rerun-if-changed=wine/ntdll_proof.c");
 }

@@ -147,6 +147,8 @@ pub struct Shared {
     pub exe_entry: u64,
     pub exe_base: u64,
     pub cmdline: (u64, u64),
+    /// ANSI copies of startup strings, keyed by (process, address of the UTF-16 buffer)
+    pub startup_ansi: HashMap<(u32, u64), u64>,
     pub unknown_calls: u64,
     pub crt: msvcrt::Crt,
     pub fs: files::Files,
@@ -288,7 +290,7 @@ pub extern "C" fn init(pool_mb: u32, target_mb: u32) {
             thunks: Vec::new(), thunk_ids: HashMap::new(),
             heap: heap::Heap::default(), tls_used: 0, no_init: false, thunk_fb: HashMap::new(), routes: Vec::new(), wine_fb: HashMap::new(), env_block: 0, tls_tmpl: Vec::new(),
             init_queue: Vec::new(), resume: Vec::new(), user_shared: false, win: Default::default(), gdi: Default::default(), gl: Default::default(), audio: Default::default(), net: Default::default(), unix_dispatcher: 0, next_luid: 0, win_ki: 0, recent: [(0, 0); 16], recent_n: 0, wine_exports: HashMap::new(), ldr_entries: HashMap::new(), loadlib: Vec::new(),
-            stack_top: 0, exe_entry: 0, exe_base: 0, cmdline: (0, 0), unknown_calls: 0, crt: Default::default(), fs: Default::default(),
+            stack_top: 0, exe_entry: 0, exe_base: 0, cmdline: (0, 0), startup_ansi: HashMap::new(), unknown_calls: 0, crt: Default::default(), fs: Default::default(),
             sched: Default::default(), cores: 1, insns: 0, jit_on: true, lx: None, names: HashMap::new(),
             wpid: 0, procs: HashMap::new(), pinfo: HashMap::new(), std: [3, 1, 2], con_in: Vec::new(), con_live: false, pad_on: false, pad_packet: 0, pad: [0; 12], dll_dirs: Vec::new(), wow64: false, wow64_ntdll: 0, wow64_ctx: 0, images: HashMap::new(), image_files: HashMap::new(), root_off: 0, image_slots: HashMap::new(), atoms: Vec::new(),
         });
@@ -348,10 +350,20 @@ pub extern "C" fn core_init(id: u32) {
     }
 }
 
+/// The bytes after a file's name (and the NUL that ends it), moved to the front of `b`.
+/// Nothing is allocated: the file is not copied a second time while it is added.
+fn body_after_name(mut b: Vec<u8>, nl: usize) -> Vec<u8> {
+    let cut = (nl + 1).min(b.len());
+    b.drain(..cut);
+    b
+}
+
 /// Adds a file (from BUF) that the program can load, e.g. a DLL.
+/// Returns 0 when it is added, -1 when the engine's heap has no room for it: the page stops
+/// the run with that error; the engine does not trap.
 #[no_mangle]
 #[allow(static_mut_refs)]
-pub extern "C" fn add_file() {
+pub extern "C" fn add_file() -> i32 {
     unsafe {
         let b = std::mem::take(&mut BUF);
         let nl = b.iter().position(|&c| c == 0).unwrap_or(0);
@@ -359,14 +371,99 @@ pub extern "C" fn add_file() {
         // a file of the saved drive C: comes with its Windows path; the others are plain names
         if raw.contains('\\') || raw.contains(':') {
             let e = eng();
-            let Some(k) = files::key_of(&raw) else { return };
-            if raw.ends_with('\\') { e.s.fs.dirs.insert(k.clone()); } else { e.s.files.insert(k.clone(), b[nl + 1..].to_vec()); e.s.fs.drive.insert(k.clone()); }
+            let Some(k) = files::key_of(&raw) else { return 0 };
+            if raw.ends_with('\\') {
+                e.s.fs.dirs.insert(k.clone());
+            } else {
+                if store_file_with(&mut e.s.files, k.clone(), body_after_name(b, nl), 1) < 0 { return -1; }
+                e.s.fs.drive.insert(k.clone());
+            }
             e.note_case(&k, &raw);
-            return;
+            return 0;
         }
         let name = pe::norm(&raw);
+        if eng().s.names.try_reserve(1).is_err() { return -1; }
+        if store_file_with(&mut eng().s.files, name.clone(), body_after_name(b, nl), 1) < 0 { return -1; }
         eng().s.names.insert(name.clone(), raw.rsplit(['\\', '/']).next().unwrap_or(&raw).to_string());
-        eng().s.files.insert(name, b[nl + 1..].to_vec());
+        0
+    }
+}
+
+/// Stores a file's bytes under `k` if the map can take one more entry: 0, or -1 with the map
+/// unchanged. `need` is the room asked for (1 in the engine); a test asks for more than the
+/// heap can give, to see the refusal without running out of memory.
+fn store_file_with(s: &mut store::Store, k: String, body: Vec<u8>, need: usize) -> i32 {
+    if !s.reserve_count(need) { return -1; }
+    s.insert(k, body);
+    0
+}
+
+#[cfg(test)]
+mod add_file_tests {
+    use super::body_after_name;
+
+    #[test]
+    fn body_is_moved_not_copied() {
+        let b = b"name.dll\0BODY".to_vec();
+        let p = b.as_ptr();
+        let out = body_after_name(b, 8);
+        assert_eq!(out, b"BODY");
+        assert_eq!(out.as_ptr(), p, "the body must stay in the buffer it arrived in");
+    }
+
+    #[test]
+    fn name_without_bytes_gives_an_empty_body() {
+        assert!(body_after_name(b"name\0".to_vec(), 4).is_empty());
+        assert!(body_after_name(b"name".to_vec(), 4).is_empty());
+    }
+
+    #[test]
+    fn no_nul_uses_position_zero_as_before() {
+        // add_file takes a missing NUL as position 0 (unwrap_or(0)). The old code cut b[nl + 1..],
+        // so the first byte goes and the rest stays; the move must keep exactly that.
+        assert_eq!(body_after_name(b"xyz".to_vec(), 0), b"yz");
+        assert_eq!(body_after_name(b"x".to_vec(), 0), b"");
+    }
+
+    fn keys_of(s: &crate::store::Store) -> Vec<String> {
+        let mut k: Vec<String> = s.keys().cloned().collect();
+        k.sort();
+        k
+    }
+
+    #[test]
+    fn a_file_is_stored_when_the_map_has_room() {
+        let mut s = crate::store::Store::default();
+        assert_eq!(super::store_file_with(&mut s, "a.dll".into(), b"AAAA".to_vec(), 1), 0);
+        assert_eq!(s.get("a.dll").map(|v| v.as_slice()), Some(&b"AAAA"[..]));
+    }
+
+    #[test]
+    fn a_refused_reserve_gives_minus_one_and_stores_nothing() {
+        let mut s = crate::store::Store::default();
+        assert_eq!(super::store_file_with(&mut s, "a.dll".into(), b"AAAA".to_vec(), 1), 0);
+        let before = keys_of(&s);
+        // usize::MAX entries cannot be reserved: the map refuses without allocating
+        assert_eq!(super::store_file_with(&mut s, "b.dll".into(), b"BBBB".to_vec(), usize::MAX), -1);
+        assert_eq!(keys_of(&s), before, "a refused file must leave the map as it was");
+        assert!(!s.contains_key("b.dll"));
+    }
+
+    #[test]
+    fn files_stored_before_a_refusal_keep_their_bytes() {
+        let mut s = crate::store::Store::default();
+        assert_eq!(super::store_file_with(&mut s, "a.dll".into(), b"AAAA".to_vec(), 1), 0);
+        assert_eq!(super::store_file_with(&mut s, "c.dll".into(), b"CCCCCC".to_vec(), 1), 0);
+        assert_eq!(super::store_file_with(&mut s, "b.dll".into(), b"BBBB".to_vec(), usize::MAX), -1);
+        assert_eq!(s.get("a.dll").map(|v| v.as_slice()), Some(&b"AAAA"[..]));
+        assert_eq!(s.get("c.dll").map(|v| v.as_slice()), Some(&b"CCCCCC"[..]));
+    }
+
+    #[test]
+    fn reserve_count_refuses_an_impossible_count() {
+        let mut s = crate::store::Store::default();
+        assert!(s.reserve_count(1));
+        assert!(!s.reserve_count(usize::MAX));
     }
 }
 
@@ -635,6 +732,11 @@ pub extern "C" fn guest_read32(addr: u64) -> u32 {
     match e.mmu.read32(addr) { Ok(v) => v, Err(_) => { e.fault(addr); 0 } }
 }
 
+/// A free range found by find_free: its address, end, the bump pointer after it, and
+/// whether it came from a gap below the bump pointer.
+#[derive(Clone, Copy)]
+struct Found { a: u64, end: u64, next: u64, gap: bool }
+
 impl Engine {
     pub fn fault(&mut self, addr: u64) {
         let mut m = format!("access violation at 0x{:x} (rip 0x{:x})", addr, self.cpu.rip);
@@ -681,41 +783,85 @@ impl Engine {
     }
 
     /// Reserves address space only (pages are backed when first touched).
+    /// Address space for `size` bytes (rounded up to 64 KB), reserved only. Internal use;
+    /// the VirtualAlloc API uses `reserve_pages`.
     pub fn reserve(&mut self, size: u64) -> Option<u64> {
-        let size = (size.max(1) + 0xFFFF) & !0xFFFF;
-        let a = self.next_free(size)?;
-        self.mmu.add_reserved(a, size);
-        Some(a)
+        self.map_range(size, crate::mmu::round_up_64k, false)
     }
 
-    /// VirtualAlloc-style reservation: 64 KB aligned, committed lazily.
+    /// Committed memory for `size` bytes (rounded up to 64 KB). Internal use; the VirtualAlloc
+    /// API uses `alloc_pages`. Nothing changes when it fails.
     pub fn alloc(&mut self, size: u64) -> Option<u64> {
-        let size = (size.max(1) + 0xFFFF) & !0xFFFF;
-        if self.mmu.sh.committed + size > self.mmu.sh.target_bytes { return None; }
-        let a = self.next_free(size)?;
-        self.mmu.add_region(a, size);
-        Some(a)
+        self.map_range(size, crate::mmu::round_up_64k, true)
     }
 
-    /// The next free stretch of `size` bytes from the allocation pointer, stepping over
-    /// anything already there (an image at its preferred base, a fixed allocation), with a
-    /// 64 KB gap after it. A 32-bit program's memory stays below 4 GB.
-    fn next_free(&mut self, size: u64) -> Option<u64> {
-        let limit = if self.s.next_alloc < 0x1_0000_0000 { 0xFFFF_0000 } else { 0x7F00_0000_0000 };
-        let mut a = self.s.next_alloc;
-        while let Some(end) = self.mmu.overlap_end(a, a + size) {
-            a = (end + 0xFFFF) & !0xFFFF;
+    /// VirtualAlloc with a NULL base, reserve only: `size` rounded up to whole pages, the base
+    /// on the 64 KB allocation granularity.
+    pub fn reserve_pages(&mut self, size: u64) -> Option<u64> {
+        self.map_range(size, crate::mmu::round_up_page, false)
+    }
+
+    /// VirtualAlloc with a NULL base, committed: `size` rounded up to whole pages, the base on
+    /// the 64 KB allocation granularity. Nothing changes when it fails.
+    pub fn alloc_pages(&mut self, size: u64) -> Option<u64> {
+        self.map_range(size, crate::mmu::round_up_page, true)
+    }
+
+    /// Finds a free range for `size` (at least one byte, rounded by `round`) and maps it:
+    /// reserved only, or committed within the memory target. Nothing changes when it fails.
+    fn map_range(&mut self, size: u64, round: fn(u64) -> Option<u64>, commit: bool) -> Option<u64> {
+        let size = round(size.max(1))?;
+        if commit && self.mmu.sh.committed.checked_add(size)? > self.mmu.sh.target_bytes { return None; }
+        let f = self.find_free(size)?;
+        if commit { self.mmu.add_region(f.a, size)?; } else { self.mmu.add_reserved(f.a, size)?; }
+        self.take_free(f);
+        Some(f.a)
+    }
+
+    /// Gives back a range that `reserve` just took and that cannot be used (its commit failed).
+    /// The region is released, with its pages. When it was the last range taken from the bump
+    /// pointer, the pointer goes back, so failed attempts do not use up address space. Nothing
+    /// refers to the range yet, so it can be taken again.
+    pub(crate) fn unreserve(&mut self, start: u64, size: u64) {
+        self.mmu.release_region(start);
+        if start.checked_add(size).and_then(|end| end.checked_add(0x10000)) == Some(self.s.next_alloc) {
+            self.s.next_alloc = start;
         }
-        if a + size > limit {
+    }
+
+    /// Where the next `size` bytes go, found without changing anything. The bump pointer
+    /// steps over anything already there (an image at its preferred base, a fixed
+    /// allocation), with a 64 KB gap after it. A 32-bit program's memory stays below 4 GB.
+    /// When the top is used up, the search goes back for a gap below the bump pointer.
+    fn find_free(&self, size: u64) -> Option<Found> {
+        let limit = if self.s.next_alloc < 0x1_0000_0000 { 0xFFFF_0000 } else { 0x7F00_0000_0000 };
+        // every base is on the 64 KB granularity, whatever the size (a page-sized one included)
+        let mut a = crate::mmu::round_up_64k(self.s.next_alloc)?;
+        while let Some(end) = self.mmu.overlap_end(a, a.checked_add(size)?) {
+            a = crate::mmu::round_up_64k(end)?;
+        }
+        let (end, next) = crate::mmu::span_after(a, size, 0x10000)?;
+        let next = crate::mmu::round_up_64k(next)?;
+        if end > limit {
             // the address space is used up to the top: go back for room that was freed
             // (a 32-bit program that allocates and frees big buffers gets there quickly)
             let from = if limit < 0x1_0000_0000 { crate::wow64::LOW_ALLOC } else { 0x0000_0200_0000_0000 };
             let a = self.mmu.first_gap(from, limit, size, 0x10000)?;
-            self.jit.forget(a, a + size);
-            return Some(a);
+            let (end, _) = crate::mmu::span_after(a, size, 0)?;
+            return Some(Found { a, end, next: self.s.next_alloc, gap: true });
         }
-        self.s.next_alloc = a + size + 0x10000;
-        Some(a)
+        Some(Found { a, end, next, gap: false })
+    }
+
+    /// Takes a range found by find_free, after the mapping succeeded. Nothing here can fail:
+    /// the values were checked when they were found. A gap leaves the bump pointer alone;
+    /// the JIT forgets any code it had compiled for that address.
+    fn take_free(&mut self, f: Found) {
+        if f.gap {
+            self.jit.forget(f.a, f.end);
+        } else {
+            self.s.next_alloc = f.next;
+        }
     }
 
     /// Static TLS blocks of every image for the thread whose TEB is `teb`.
@@ -999,4 +1145,12 @@ impl Engine {
             }
         }
     }
+}
+
+/// Host stand-ins for the wasm imports, so `cargo test` on the host can link.
+/// The tests never reach them except through console output.
+#[cfg(test)]
+mod host_stubs {
+    #[no_mangle]
+    pub extern "C" fn host_console(_ptr: *const u8, _len: u32) {}
 }

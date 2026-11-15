@@ -156,7 +156,10 @@ impl Engine {
         // Windows); the child starts with a copy of the entries made so far
         let (gt, gn) = (self.s.gdi.table, self.s.gdi.table_used());
         let mut gdi_tab = vec![0u8; gn as usize];
-        if gt != 0 { let _ = self.mmu.read_bytes(gt, &mut gdi_tab); }
+        // read before anything changes: a table that cannot be read must not be copied as zeros
+        if gt != 0 && self.mmu.read_bytes(gt, &mut gdi_tab).is_err() {
+            return Err("not enough memory for the GDI handle table".to_string());
+        }
         let id = 4 * (self.s.pinfo.len() as u32 + 2);
         self.s.pinfo.insert(id, ProcInfo { exit: None, name: exe.to_string() });
         // a fresh state and an empty address space
@@ -168,11 +171,17 @@ impl Engine {
         self.s.wpid = id;
         self.mmu.set_asid(id);
         let saved_cpu = std::mem::replace(&mut self.cpu, crate::cpu::Cpu::new());
+        let mut gdi_ok = true;
         if gt != 0 {
             self.mmu.add_reserved(gt, 0x10000 * 24);
-            let _ = self.mmu.write_bytes(gt, &gdi_tab);
+            // only the pages of the copied entries are committed; if they cannot be, the child is not started
+            gdi_ok = self.prepare_write(gt, gdi_tab.len() as u64) && self.mmu.write_bytes(gt, &gdi_tab).is_ok();
         }
-        let r = self.boot_child(exe, cmd, &bytes, &env);
+        let r = if gdi_ok {
+            self.boot_child(exe, cmd, &bytes, &env)
+        } else {
+            Err("not enough memory for the GDI handle table".to_string())
+        };
         let cpu = std::mem::replace(&mut self.cpu, saved_cpu);
         if let Err(m) = r {
             self.s.pinfo.get_mut(&id).unwrap().exit = Some(1);

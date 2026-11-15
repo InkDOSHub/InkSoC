@@ -2,6 +2,7 @@
 // implemented natively (wasm) against the engine. Single thread for now.
 
 use crate::{console, pe, Engine, PEB};
+use std::collections::HashMap;
 
 /// Returned by functions that already set rip themselves (no `ret`).
 pub const NO_RETURN: u64 = u64::MAX - 0x5A5A;
@@ -188,9 +189,52 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             }
         }
         "GetStartupInfoA" | "GetStartupInfoW" => {
-            e.zero(a0, 104);
-            e.w32(a0, 104);
-            0
+            // STARTUPINFO is 104 bytes on x64. The destination is checked with a
+            // read-only query before anything is stored; the structure is then
+            // written in one piece.
+            if !e.mmu.can_write_range(a0, 104) {
+                e.fault(a0);
+                0
+            } else {
+                let wide = name.ends_with('W');
+                let mut s = [0u8; 104];
+                s[0..4].copy_from_slice(&104u32.to_le_bytes()); // cb
+                let p = e.r64(PEB + 0x20);
+                if p != 0 {
+                    let title = e.r64(p + 0xB8);   // WindowTitle.Buffer (UTF-16)
+                    let desktop = e.r64(p + 0xC8); // Desktop.Buffer (UTF-16)
+                    let (lp_desktop, lp_title) = if wide {
+                        (desktop, title)
+                    } else {
+                        (startup_ansi(e, desktop), startup_ansi(e, title))
+                    };
+                    s[16..24].copy_from_slice(&lp_desktop.to_le_bytes());
+                    s[24..32].copy_from_slice(&lp_title.to_le_bytes());
+                    for (dst, src) in [
+                        (32, 0x88), // dwX
+                        (36, 0x8C), // dwY
+                        (40, 0x90), // dwXSize
+                        (44, 0x94), // dwYSize
+                        (48, 0x98), // dwXCountChars
+                        (52, 0x9C), // dwYCountChars
+                        (56, 0xA0), // dwFillAttribute
+                        (60, 0xA4), // dwFlags
+                    ] {
+                        let value = e.r32(p + src);
+                        s[dst..dst + 4].copy_from_slice(&value.to_le_bytes());
+                    }
+                    let show_window = e.r16(p + 0xA8);
+                    s[64..66].copy_from_slice(&show_window.to_le_bytes()); // wShowWindow
+                    let stdin = e.r64(p + 0x20);
+                    let stdout = e.r64(p + 0x28);
+                    let stderr = e.r64(p + 0x30);
+                    s[80..88].copy_from_slice(&stdin.to_le_bytes());  // hStdInput
+                    s[88..96].copy_from_slice(&stdout.to_le_bytes()); // hStdOutput
+                    s[96..104].copy_from_slice(&stderr.to_le_bytes()); // hStdError
+                }
+                let _ = e.mmu.write_bytes(a0, &s);
+                0
+            }
         }
         "IsDebuggerPresent" => 0,
         "SetDllDirectoryW" | "SetDllDirectoryA" => {
@@ -479,33 +523,68 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "VirtualAlloc" => {
             let size = e.arg(1);
             let kind = e.arg(2);
+            let reserve = kind & 0x2000 != 0;
+            let commit = kind & 0x1000 != 0;
             if a0 == 0 {
-                if kind & 0x1000 == 0 {
-                    e.reserve(size).unwrap_or(0)
-                } else {
-                    e.alloc(size).unwrap_or(0)
+                // a NULL base: the size goes up to whole pages, the base on the 64 KB granularity
+                let made = if commit { e.alloc_pages(size) } else { e.reserve_pages(size) };
+                match made {
+                    Some(a) => a,
+                    None => {
+                        // out of address space or over the memory target
+                        e.set_last_error(8);
+                        0
+                    }
                 }
             } else if e.mmu.region_of(a0).is_some() {
-                a0 & !0xFFF
-            } else {
-                let start = a0 & !0xFFFF;
-                let end = (a0 + size + 0xFFFF) & !0xFFFF;
-                if e.mmu.overlaps(start, end) {
+                // inside an existing reservation: only MEM_COMMIT, only within that region
+                if !commit || reserve {
                     e.set_last_error(487);
                     0
                 } else {
-                    e.mmu.add_region(start, end - start);
-                    a0
+                    match e.mmu.commit_in_region(a0, size) {
+                        Ok(_) => a0 & !0xFFF,
+                        Err(code) => {
+                            e.set_last_error(code);
+                            0
+                        }
+                    }
+                }
+            } else if commit && !reserve {
+                // committing an address that was never reserved (ERROR_INVALID_ADDRESS)
+                e.set_last_error(487);
+                0
+            } else {
+                match reserve_at(e, a0, size, commit) {
+                    Ok(base) => base,
+                    Err(code) => {
+                        e.set_last_error(code);
+                        0
+                    }
                 }
             }
         }
         "VirtualFree" => {
             let (size, kind) = (e.arg(1), e.arg(2));
             if kind & 0x8000 != 0 {
-                e.mmu.release_region(a0) as u64
+                // MEM_RELEASE: the size must be 0, and the address the base of a reservation
+                if size != 0 {
+                    e.set_last_error(87);
+                    0
+                } else if e.mmu.release_region(a0) {
+                    1
+                } else {
+                    e.set_last_error(487);
+                    0
+                }
             } else {
-                e.mmu.drop_pages(a0 & !0xFFF, a0 + size);
-                1
+                match e.mmu.decommit_range(a0, size) {
+                    Ok(_) => 1,
+                    Err(code) => {
+                        e.set_last_error(code);
+                        0
+                    }
+                }
             }
         }
         "VirtualProtect" => {
@@ -516,22 +595,12 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "VirtualQuery" => {
             let mbi = e.arg(1);
             e.zero(mbi, 48);
-            let page = a0 & !0xFFF;
-            e.w64(mbi, page);
-            match e.mmu.region_of(a0) {
-                Some((s, end)) => {
-                    e.w64(mbi + 8, s);
-                    e.w32(mbi + 16, 4);
-                    e.w64(mbi + 24, end - page);
-                    e.w32(mbi + 32, 0x1000);
-                    e.w32(mbi + 36, 4);
-                    e.w32(mbi + 40, 0x20000);
-                }
-                None => {
-                    e.w64(mbi + 24, 0x1000);
-                    e.w32(mbi + 32, 0x10000);
-                    e.w32(mbi + 36, 1);
-                }
+            if !write_region_info(e, mbi, a0) {
+                // no region holds the address: free
+                e.w64(mbi, a0 & !0xFFF);
+                e.w64(mbi + 24, 0x1000);
+                e.w32(mbi + 32, 0x10000);
+                e.w32(mbi + 36, 1);
             }
             48
         }
@@ -637,4 +706,76 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
     };
     let _ = PEB;
     Some(r)
+}
+
+/// VirtualAlloc at a fixed address that is not reserved yet. Windows rounds the base down to
+/// the 64 KB allocation granularity and the size up to whole pages; `fixed_span` gives that
+/// effective range, which is checked against every other reservation before anything is
+/// changed. Returns the base actually reserved. With MEM_COMMIT the requested pages are
+/// committed, and a failed commit leaves no reservation behind. Err: the Windows error code.
+fn reserve_at(e: &mut Engine, a0: u64, size: u64, commit: bool) -> Result<u64, u32> {
+    e.mmu.reserve_fixed(a0, size, commit)
+}
+
+/// Writes the MEMORY_BASIC_INFORMATION (48 bytes, zeroed by the caller) of the page holding
+/// `addr`, when a region holds it. The state comes from the commit list: MEM_COMMIT for a
+/// committed page, MEM_RESERVE for a reserved-only one. RegionSize is the run of pages with
+/// that state, not the whole region. Returns false and writes nothing when no region holds `addr`.
+pub(crate) fn write_region_info(e: &mut Engine, buf: u64, addr: u64) -> bool {
+    let Some(run) = e.mmu.page_run(addr) else { return false };
+    let page = addr & !0xFFF;
+    e.w64(buf, page);
+    e.w64(buf + 8, run.region);
+    e.w32(buf + 16, 4);
+    e.w64(buf + 24, run.end - page);
+    if run.committed {
+        e.w32(buf + 32, 0x1000); // MEM_COMMIT
+        e.w32(buf + 36, 4); // PAGE_READWRITE, the protection the engine gives committed pages
+    } else {
+        e.w32(buf + 32, 0x2000); // MEM_RESERVE
+        e.w32(buf + 36, 0); // a reserved page has no protection
+    }
+    e.w32(buf + 40, 0x20000); // MEM_PRIVATE
+    true
+}
+
+/// ANSI copy of a UTF-16 string held by the process parameters. The copy is made
+/// once per (process, buffer) and kept for the life of the engine, so the pointer
+/// stays valid. The engine's ANSI code page is UTF-8, so the copy is UTF-8.
+fn startup_ansi(e: &mut Engine, wide: u64) -> u64 {
+    if wide == 0 {
+        return 0;
+    }
+    let pid = e.s.wpid;
+    let text = e.read_wstr(wide, 4096);
+    let mut cache = std::mem::take(&mut e.s.startup_ansi);
+    let a = cached_copy(&mut cache, pid, wide, || e.put_str(&text, false));
+    e.s.startup_ansi = cache;
+    a
+}
+
+/// Returns the copy kept for (pid, wide), making it with `make` on the first call.
+fn cached_copy(cache: &mut HashMap<(u32, u64), u64>, pid: u32, wide: u64, make: impl FnOnce() -> u64) -> u64 {
+    if let Some(&a) = cache.get(&(pid, wide)) {
+        return a;
+    }
+    let a = make();
+    cache.insert((pid, wide), a);
+    a
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::{cached_copy, HashMap};
+
+    #[test]
+    fn ansi_copies_are_per_process() {
+        let mut cache = HashMap::new();
+        let mut made = 0;
+        let a = cached_copy(&mut cache, 1, 0x1000, || { made += 1; 0xA000 });
+        let b = cached_copy(&mut cache, 2, 0x1000, || { made += 1; 0xB000 });
+        assert_ne!(a, b, "two processes with the same buffer address share a copy");
+        assert_eq!(cached_copy(&mut cache, 1, 0x1000, || { made += 1; 0xC000 }), 0xA000);
+        assert_eq!(made, 2);
+    }
 }

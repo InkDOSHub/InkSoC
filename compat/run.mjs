@@ -72,11 +72,18 @@ async function runOne({ files, exe, args }) {
   x.init(pool, 8192);
   wine = (await WebAssembly.instantiate(fs.readFileSync(path.join(ENGINE, 'wine.wasm')), { env: { memory: mem, load_ptr: x.wine_load_ptr, store_ptr: x.wine_store_ptr, malloc: x.wine_malloc, free: x.wine_free, sse2_memmove: x.wine_memmove, __inksoc_teb: x.wine_teb, ink_output: x.wine_output } })).instance.exports;
   const enc = (t) => new TextEncoder().encode(t);
-  for (const f of files) { const nm = enc(path.basename(f)), d = fs.readFileSync(f), b = new Uint8Array(nm.length + 1 + d.length); b.set(nm); b.set(d, nm.length + 1); put(b); x.add_file(); }
+  // same wording as the page's message (worker.js addFailure). MB = 2^20 bytes. The 4096 MB is the
+  // module's configured maximum, not a limit the browser guarantees.
+  const addFailed = (name, bytes) => {
+    const mb = (n) => (n / 1048576).toFixed(1);
+    const heap = typeof x.heap_used === 'function' ? mb(x.heap_used()) : '?';
+    return new Error(`the engine's heap has no room for ${name} (file ${mb(bytes)} MB; wasm memory ${mb(mem.buffer.byteLength)} MB; configured cap of this build 4096 MB, a setting of the build and not a limit the browser guarantees; engine heap in use, Rust live allocations ${heap} MB)`);
+  };
+  for (const f of files) { const nm = enc(path.basename(f)), d = fs.readFileSync(f), b = new Uint8Array(nm.length + 1 + d.length); b.set(nm); b.set(d, nm.length + 1); put(b); if (x.add_file() < 0) throw addFailed(path.basename(f), d.length); }
   // DRIVE=<local folder>=<Windows folder>: the folder's files as installed on drive C:, the program starts there
   if (process.env.DRIVE) {
     const [local, win] = process.env.DRIVE.split('=');
-    const walk = (d, w) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const lp = path.join(d, e.name), wp = w + '\\' + e.name; if (e.isDirectory()) walk(lp, wp); else { const nm = enc(wp), dt = fs.readFileSync(lp), b = new Uint8Array(nm.length + 1 + dt.length); b.set(nm); b.set(dt, nm.length + 1); put(b); x.add_file(); } } };
+    const walk = (d, w) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const lp = path.join(d, e.name), wp = w + '\\' + e.name; if (e.isDirectory()) walk(lp, wp); else { const nm = enc(wp), dt = fs.readFileSync(lp), b = new Uint8Array(nm.length + 1 + dt.length); b.set(nm); b.set(dt, nm.length + 1); put(b); if (x.add_file() < 0) throw addFailed(wp, dt.length); } } };
     if (x.set_home) { put(enc(win)); x.set_home(); }
     walk(local, win);
   }
