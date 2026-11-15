@@ -675,7 +675,12 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             let (access, disp, flags) = (e.arg(1) as u32, e.arg(4) as u32, e.arg(5) as u32);
             let Some(k) = key_of(&p) else {
                 if flags & 0x0200_0000 != 0 {
-                    return Some(e.new_handle(Handle::Dir));
+                    // C:\InkSoC (key "") or C:\ (key "c:"), as NtCreateFile keeps them
+                    let h = e.new_handle(Handle::Dir);
+                    let t = p.trim_end_matches(|c| c == '\\' || c == '.');
+                    let key = if t.len() <= 2 && t.ends_with(':') { "c:" } else { "" };
+                    e.s.fs.paths.insert(h, (key.to_string(), false));
+                    return Some(h);
                 }
                 e.set_last_error(5);
                 return Some(INVALID);
@@ -694,7 +699,9 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             }
             if e.is_dir(&k) {
                 if flags & 0x0200_0000 != 0 {
-                    return Some(e.new_handle(Handle::Dir));
+                    let h = e.new_handle(Handle::Dir);
+                    e.s.fs.paths.insert(h, (k, false));
+                    return Some(h);
                 }
                 e.set_last_error(5);
                 return Some(INVALID);

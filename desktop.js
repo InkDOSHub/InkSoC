@@ -242,7 +242,7 @@ function run(files, exe, args, label, home, opts = {}) {
   p.label = label;
   p.icon = opts.icon || 'application-x-executable';
   p.errLines = 0;
-  const w = p.w = new Worker('worker.js?v=75');
+  const w = p.w = new Worker('worker.js?v=76');
   w.onerror = (e) => { logError(label, 'engine worker failed: ' + (e.message || 'unknown error')); appendOut(out, '\nThe engine stopped: ' + (e.message || 'unknown error') + '\n'); };
   w.onmessage = (ev) => {
     const d = ev.data;

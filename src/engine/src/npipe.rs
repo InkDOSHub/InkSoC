@@ -264,7 +264,8 @@ impl Engine {
                 self.iosb(iosb, OK, 0);
                 return Some(OK);
             }
-            if !self.np_exists(&name) && !given {
+            // like Windows: no server ever created this pipe = fail now, even with a timeout
+            if !self.np_exists(&name) {
                 return Some(OBJECT_NAME_NOT_FOUND);
             }
             let ms = if !given {
