@@ -53,6 +53,10 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             e.w32(ty, 0x30); // PRODUCT_PROFESSIONAL
             1
         }
+        "VerQueryValueA" => match ver_query_a(e) {
+            Some(r) => r,
+            None => return e.not_mine(), // a 16-bit block: Wine's own
+        },
         "VerSetConditionMask" => a0,
         "VerifyVersionInfoW" | "VerifyVersionInfoA" => 1,
         "RtlVerifyVersionInfo" => 0, // we are Windows 10: every check passes
@@ -247,4 +251,57 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
         }
         _ => return e.not_mine(),
     })
+}
+
+/// VerQueryValueA(block, sub_block, &value, &len) on a 32-bit (Unicode) version block.
+/// Wine's converts the path with its ANSI code page table, which its locale startup
+/// fills and ours does not; the block format itself is simple to walk. Text values
+/// get an ANSI copy in the second half of the block, where Wine also puts it.
+fn ver_query_a(e: &mut Engine) -> Option<u64> {
+    let (block, sub, out, out_len) = (e.arg(0), e.arg(1), e.arg(2), e.arg(3));
+    if e.read_wstr(block + 6, 16) != "VS_VERSION_INFO" {
+        return None;
+    }
+    let path = e.read_cstr(sub, 512);
+    let mut node = block;
+    for part in path.split('\\').filter(|p| !p.is_empty()) {
+        node = ver_children(e, node).into_iter().find(|&c| e.read_wstr(c + 6, 256).eq_ignore_ascii_case(part))?;
+    }
+    let (value, units, text) = ver_value(e, node);
+    let ptr = if text {
+        let copy = block + e.r16(block) as u64 + (value - block);
+        for i in 0..units {
+            let c = e.r16(value + 2 * i);
+            e.w8(copy + i, if c < 0x80 { c as u8 } else { b'?' });
+        }
+        copy
+    } else {
+        value
+    };
+    e.w64(out, ptr);
+    if out_len != 0 {
+        e.w32(out_len, units as u32);
+    }
+    Some(1)
+}
+/// A version block node: (value address, value size, is text). Size in characters for text.
+fn ver_value(e: &mut Engine, node: u64) -> (u64, u64, bool) {
+    let key_len = e.read_wstr(node + 6, 256).encode_utf16().count() as u64;
+    let value = (node + 6 + 2 * (key_len + 1) + 3) & !3;
+    (value, e.r16(node + 2) as u64, e.r16(node + 4) == 1)
+}
+fn ver_children(e: &mut Engine, node: u64) -> Vec<u64> {
+    let end = node + e.r16(node) as u64;
+    let (value, units, text) = ver_value(e, node);
+    let mut c = (value + if text { 2 * units } else { units } + 3) & !3;
+    let mut v = Vec::new();
+    while c + 6 < end {
+        let len = e.r16(c) as u64;
+        if len == 0 {
+            break;
+        }
+        v.push(c);
+        c = (c + len + 3) & !3;
+    }
+    v
 }
