@@ -69,15 +69,15 @@ Não existe Claude Code GitHub Action instalada; `@claude` em comentário não i
 
 ### PR #8 — este documento de contexto
 - PR: https://github.com/InkDOSHub/InkSoC/pull/8
-- Branch: `docs/session-context`; head observado antes desta atualização: `a002958092eee91296d0c3e375dcfde921cca62d`.
-- Aberto, draft, não mergeado na consulta; revisão de conteúdo em andamento.
-- Os SHAs e estados deste bloco são snapshots; conferir PRs e Actions no GitHub antes de agir.
+- Branch: `docs/session-context`; head observado após sincronização não destrutiva com `main`: `e6e99a4d30785a40be430d5d49b6b7a79749f069`.
+- Aberto, draft, não mergeado; contém somente `docs/collaboration/SESSION_CONTEXT.md` (93 adições).
+- Auditoria de conteúdo concluída; revisão registrada na conversa do PR. Estado de mergeabilidade deve ser revalidado no GitHub.
 
 ### PR #9 — correção do PROJECT_LOG
 - PR: https://github.com/InkDOSHub/InkSoC/pull/9
-- Branch: `docs/project-log-pr7-merge`; head observado: `e8716829704226796649d8989eaa12107f8f6107`.
-- Altera somente `PROJECT_LOG.md`, adicionando registro de que PR #7 foi integrado via squash em `4776d79412c66b867391ee3e389a0d1a861ba586`.
-- Aberto, draft, não mergeado; auditoria independente pendente.
+- Branch: `docs/project-log-pr7-merge`; head observado após sincronização não destrutiva com `main`: `3108dea01a06837164b7f16317e202e652c7fd4f`.
+- Altera somente `PROJECT_LOG.md`, adicionando registro de que PR #7 foi integrado via squash em `4776d79412c66b867391ee3e389a0d1a861ba586` (13 adições, nenhuma remoção).
+- Conteúdo auditado e aceito em comentário de revisão; PR aberto, draft e não mergeado.
 
 ### Outras pendências documentais identificadas
 - `AI_COLLABORATION.md` ainda descreve Claude Opus e um protocolo antigo; `docs/collaboration/PROTOCOL.md` descreve o fluxo real humano-assistido. Harmonizar em tarefa documental separada, sem misturar com CI/runtime.
