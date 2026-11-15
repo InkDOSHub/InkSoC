@@ -186,6 +186,30 @@ impl Mmu {
         self.sh.regions.iter().any(|&(s, e)| addr >= s && addr < e)
     }
 
+    /// True when every page touched by `a..a+n` is in committed address space.
+    /// Read-only: it does not materialize pages, count a fault, or touch frames.
+    /// A range whose end overflows u64 is refused.
+    pub fn can_write_range(&self, a: u64, n: u64) -> bool {
+        if a == 0 || n == 0 {
+            return false;
+        }
+        let Some(last) = a.checked_add(n - 1) else { return false };
+        let last_page = last & !(PAGE - 1);
+        let mut page = a & !(PAGE - 1);
+        loop {
+            if !self.in_region(page) {
+                return false;
+            }
+            if page == last_page {
+                return true;
+            }
+            match page.checked_add(PAGE) {
+                Some(next) => page = next,
+                None => return false,
+            }
+        }
+    }
+
     /// The region (start, end) holding `addr`, if any.
     pub fn region_of(&self, addr: u64) -> Option<(u64, u64)> {
         self.sh.regions.iter().copied().find(|&(s, e)| addr >= s && addr < e)
@@ -538,5 +562,37 @@ impl Mmu {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod range_tests {
+    use super::*;
+
+    #[test]
+    fn range_check_has_no_side_effects() {
+        let mut m = Mmu::new(1, 1);
+        m.add_region(0x5A00_0000, 0x1_0000);
+        let pages = m.sh.table.len();
+        let faults = m.sh.faults;
+        let frames = m.sh.frames.iter().filter(|f| f.used).count();
+
+        assert!(m.can_write_range(0x5A00_0000, 104));
+        assert!(m.can_write_range(0x5A00_FF00, 0x100));
+        // straddles the end of the committed region
+        assert!(!m.can_write_range(0x5A00_FFF0, 104));
+        // entirely outside the region
+        assert!(!m.can_write_range(0x5A01_0100, 104));
+        // ranges whose end overflows u64, including the top of the address space
+        assert!(!m.can_write_range(u64::MAX - 10, 104));
+        assert!(!m.can_write_range(u64::MAX, 2));
+        assert!(!m.can_write_range(u64::MAX - 100, 200));
+        // degenerate arguments
+        assert!(!m.can_write_range(0, 104));
+        assert!(!m.can_write_range(0x5A00_0000, 0));
+
+        assert_eq!(m.sh.table.len(), pages, "range check materialized a page");
+        assert_eq!(m.sh.faults, faults, "range check counted a fault");
+        assert_eq!(m.sh.frames.iter().filter(|f| f.used).count(), frames, "range check took a frame");
     }
 }

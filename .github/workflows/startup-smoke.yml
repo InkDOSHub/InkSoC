@@ -29,14 +29,18 @@ jobs:
           cd src/engine
           cargo build --release --target wasm32-unknown-unknown
           cp target/wasm32-unknown-unknown/release/inksoc.wasm ../../inksoc.wasm
+      - name: Host unit tests (MMU range check)
+        run: |
+          cd src/engine
+          cargo test --release --lib range_tests
       - name: Compile startup probes
         run: |
           x86_64-w64-mingw32-gcc -O2 -Wall -o tests/startup/startup-info.exe tests/startup/startup-info.c
           x86_64-w64-mingw32-gcc -O2 -Wall -DSTARTUP_FIXTURE -o tests/startup/fixture-build.exe tests/startup/startup-info.c
-          x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_A -DCASE_STRADDLE -o tests/startup/startup-info-badptr-a-straddle.exe tests/startup/startup-info-badptr.c
-          x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_A -DCASE_UNMAPPED -o tests/startup/startup-info-badptr-a-unmapped.exe tests/startup/startup-info-badptr.c
-          x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_W -DCASE_STRADDLE -o tests/startup/startup-info-badptr-w-straddle.exe tests/startup/startup-info-badptr.c
-          x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_W -DCASE_UNMAPPED -o tests/startup/startup-info-badptr-w-unmapped.exe tests/startup/startup-info-badptr.c
+          x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_A -DCASE_WINDOW_END -o tests/startup/startup-info-badptr-a-window-end.exe tests/startup/startup-info-badptr.c
+          x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_A -DCASE_OUTSIDE -o tests/startup/startup-info-badptr-a-outside.exe tests/startup/startup-info-badptr.c
+          x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_W -DCASE_WINDOW_END -o tests/startup/startup-info-badptr-w-window-end.exe tests/startup/startup-info-badptr.c
+          x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_W -DCASE_OUTSIDE -o tests/startup/startup-info-badptr-w-outside.exe tests/startup/startup-info-badptr.c
       - name: Run startup probes in InkSoC
         env:
           LIMIT: "90"
@@ -90,7 +94,7 @@ jobs:
               return "UNCLASSIFIED"
 
           for api in ("a", "w"):
-              for case in ("straddle", "unmapped"):
+              for case in ("window-end", "outside"):
                   name = f"startup-info-badptr-{api}-{case}.exe"
                   report = run(os.path.abspath("tests/startup/" + name), name)
                   verdict = classify(report)
