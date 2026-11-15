@@ -1,0 +1,59 @@
+name: startup-smoke
+
+on:
+  pull_request:
+    paths:
+      - "src/engine/**"
+      - "tests/startup/**"
+      - ".github/workflows/startup-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  startup-info:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install toolchains
+        run: |
+          rustup target add wasm32-unknown-unknown
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64
+      - name: Build InkSoC engine
+        run: |
+          cd src/engine
+          cargo build --release --target wasm32-unknown-unknown
+          cp target/wasm32-unknown-unknown/release/inksoc.wasm ../../inksoc.wasm
+      - name: Compile startup probe
+        run: x86_64-w64-mingw32-gcc -O2 -Wall -o tests/startup/startup-info.exe tests/startup/startup-info.c
+      - name: Run startup probe in InkSoC
+        env:
+          LIMIT: "90"
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, sys
+          files = [os.path.abspath("tests/startup/startup-info.exe")]
+          with open("bin/wine/list.json", encoding="utf-8") as f:
+              files += [os.path.abspath(os.path.join("bin/wine", name)) for name in json.load(f)]
+          payload = json.dumps({"files": files, "exe": "startup-info.exe", "args": ""})
+          result = subprocess.run(
+              ["node", "compat/run.mjs", "--one", payload],
+              text=True, capture_output=True, timeout=120,
+          )
+          print(result.stdout)
+          if result.stderr:
+              print(result.stderr, file=sys.stderr)
+          try:
+              report = json.loads(result.stdout.strip().splitlines()[-1])
+          except Exception as exc:
+              raise SystemExit(f"Could not parse InkSoC result: {exc}")
+          if report.get("status") != "exit" or report.get("exitCode") != 0:
+              raise SystemExit(f"Startup probe failed: {report}")
+          if "INKSOC_STARTUP_INFO_OK" not in report.get("out", ""):
+              raise SystemExit(f"Startup probe marker missing: {report}")
+          PY
