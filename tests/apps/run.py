@@ -21,7 +21,8 @@ def drive_job(r, d, f):
     subprocess.run(['7z', 'x', '-y', '-o' + root, f], stdout=subprocess.DEVNULL, check=True)
     exes = [os.path.relpath(os.path.join(a, x), root) for a, _, xs in os.walk(root) for x in xs if x.lower().endswith('.exe')]
     print('EXES', r['name'], exes[:20])
-    if not os.path.exists(os.path.join(root, r['exe'].replace('\\', '/'))): failure_result(r['name'], 'missing_executable', r['exe'])
+    if not os.path.exists(os.path.join(root, r['exe'].replace('\\\\', '/'))):
+        failure_result(r['name'], 'missing_executable', r['exe'])
         return
     fs = []
     fs += [os.path.join(inksoc, 'bin/wine', x) for x in json.load(open(os.path.join(inksoc, 'bin/wine/list.json')))]
