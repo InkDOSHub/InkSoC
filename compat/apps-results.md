@@ -1,6 +1,6 @@
 # Common programs on InkSoC
 
-Engine f9371bb. Each program is downloaded from its official site and its installer (or the program itself) runs on the engine in Node on GitHub Actions (.github/workflows/compat-apps.yml). "running" = still going at the time limit.
+Engine 12d830e. Each program is downloaded from its official site and its installer (or the program itself) runs on the engine in Node on GitHub Actions (.github/workflows/compat-apps.yml). "running" = still going at the time limit.
 
 | Program | Group | Result | Where it stopped |
 |---|---|---|---|
@@ -9,7 +9,7 @@ Engine f9371bb. Each program is downloaded from its official site and its instal
 | obs | media | finished, 2079 files written |  |
 | vlc | media | finished, 592 files written |  |
 | audacity | media | not run |  |
-| libreoffice | office | not run |  |
+| libreoffice | office | finished, 13955 files written |  |
 | adobe-reader | office | stopped | image cannot be moved (no relocations) |
 | 7zip | tools | finished, 107 files written |  |
 | notepadpp | tools | finished, 239 files written |  |
@@ -17,7 +17,7 @@ Engine f9371bb. Each program is downloaded from its official site and its instal
 | python | tools | exit code 2147746291 |  |
 | rufus | tools | running, 1 window(s) |  |
 | gimp | graphics | exit code 3221225781 |  |
-| krita | graphics | not run |  |
+| krita | graphics | finished, 3459 files written |  |
 | blender | graphics | not run |  |
 | steam | games | finished, 36 files written |  |
 | supertuxkart | games | finished, 5554 files written |  |
