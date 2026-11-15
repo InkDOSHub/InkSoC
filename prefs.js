@@ -15,6 +15,7 @@ const PREF_DEFAULTS = {
   cores: 0, // 0 = automatic
   jit: true,
   smooth: true, // program screens scaled smoothly (off: sharp pixels)
+  ramMb: 0, // real RAM for each program in MB; 0 = the recommended amount (from the memory calibration)
 };
 const prefs = Object.assign({}, PREF_DEFAULTS);
 try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREF_KEY)) || {}); } catch (e) { /* private window */ }

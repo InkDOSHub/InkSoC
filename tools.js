@@ -72,7 +72,6 @@ function toolWindow(label, cls, ic) {
   p.con = consoleWindow(p, label);
   p.con.classList.add(cls);
   labelled(p.con.querySelector('span'), ic, label);
-  p.con.querySelector('table').remove();
   if (cls === 'win') p.con.style.left = Math.max(0, Math.min(110 + (progs.length % 5) * 28, desk.clientWidth - p.con.offsetWidth)) + 'px'; // the desktop icons stay visible (on a phone it fits the screen)
   raise(p);
   return p;
@@ -353,10 +352,18 @@ function openSettings() {
     op.oninput = () => setPref('padOpacity', +op.value);
     row('Controller opacity', null, op);
     row('Controller layout', 'Back to where the buttons start', button('Reset', () => { try { localStorage.removeItem('inksoc-pad'); } catch (e) { /* private */ } location.reload(); }));
-    head('Performance');
+    head('Advanced');
     const most = self.crossOriginIsolated ? Math.min(navigator.hardwareConcurrency || 4, 8) : 1;
     row('Cores', self.crossOriginIsolated ? 'For each program' : 'Several cores need hub.inkdos.workers.dev', choose('cores', [['0', 'Automatic'], ...Array.from({ length: most }, (_, i) => [String(i + 1), String(i + 1)])]));
     row('JIT compiler', 'Off only to find engine bugs (much slower)', check('jit'));
+    // fixed real RAM: the recommended amount is always shown next to it, with the calibration that sets it
+    const rec = recommendedMb(), cal = limits.get();
+    const calLim = cal.minLimit || (cal.calib && cal.calib.mb) || 0;
+    const sizes = [128, 256, 384, 512, 768, 1024, 1536, 2048, 3072];
+    if (prefs.ramMb && !sizes.includes(prefs.ramMb)) sizes.push(prefs.ramMb);
+    row('Real RAM for each program', 'Recommended: ' + rec + ' MB' + (calLim ? ' (half of the ' + fmt(calLim) + ' MB the tab held in calibration)' : ' (not calibrated yet: a safe amount)') + '. More than recommended can make the tab crash; the rest of a program\'s memory goes to swap on drive C:.',
+      choose('ramMb', [['0', 'Recommended (' + rec + ' MB)'], ...sizes.sort((a, b) => a - b).map((v) => [String(v), v + ' MB' + (v > rec ? ' (above recommended)' : '')])]));
+    row('Memory calibration', calLim ? 'Last result: the tab held ' + fmt(calLim) + ' MB' : 'Not done yet. The tab may reload while it measures', button(calLim ? 'Calibrate again' : 'Calibrate', () => { tool('diag', 'tests').then(() => { const b = document.getElementById('dg-calib'); if (b) b.click(); }); }));
     row('Last program', null, Object.assign(document.createElement('b'), { textContent: lastSpeed || '–' }));
     head('Storage');
     let persisted = false;
@@ -440,7 +447,7 @@ function openDiag(tab) {
     for (const k in pages) pages[k].el.hidden = k !== name;
     pages[name].enter();
   };
-  for (const [name, label] of [['proc', 'Processes'], ['res', 'Resources'], ['tests', 'Tests']]) {
+  for (const [name, label] of [['proc', 'Processes'], ['res', 'Resources'], ['log', 'Log'], ['tests', 'Tests']]) {
     const b = document.createElement('button');
     b.dataset.tab = name;
     b.textContent = label;
@@ -517,6 +524,31 @@ function openDiag(tab) {
       pg.tick();
       if (navigator.storage && navigator.storage.estimate) navigator.storage.estimate().then((e) => { quota = e; pg.tick(); }, () => {});
     };
+  }
+
+  /* ---- Log: program errors, page errors and crashes of the page (errlog in desktop.js, kept across crashes) ---- */
+  {
+    const pg = pages.log;
+    pg.el.innerHTML = '<p class="hint">Errors of the programs and of the page. If the page crashes, the next start adds what was running. Kept in this browser (last ' + LOG_MAX + ' lines).</p><div class="logbar"><button class="again">Copy</button> <button class="again">Clear</button></div><pre class="log"></pre>';
+    const [copy, clear] = pg.el.querySelectorAll('button'), out = pg.el.querySelector('pre');
+    const text = () => errlog.map((e) => new Date(e.at).toLocaleString() + '  [' + e.src + ']  ' + e.text).join('\n');
+    let shownCount = -1;
+    pg.tick = () => {
+      if (shownCount === errlog.length && errlog.length < LOG_MAX) return;
+      shownCount = errlog.length;
+      out.replaceChildren();
+      if (!errlog.length) { out.textContent = 'No errors.'; return; }
+      for (const e of errlog) {
+        const l = document.createElement('div');
+        if (e.src === 'crash') l.className = 'bad';
+        l.textContent = new Date(e.at).toLocaleTimeString() + '  [' + e.src + ']  ' + e.text;
+        out.append(l);
+      }
+      out.scrollTop = out.scrollHeight;
+    };
+    pg.enter = () => { shownCount = -1; pg.tick(); };
+    copy.onclick = async () => { try { await navigator.clipboard.writeText(text() || 'No errors.'); copy.lastChild.textContent = 'Copied'; } catch (e) { copy.lastChild.textContent = 'Copy failed'; } setTimeout(() => { copy.lastChild.textContent = 'Copy'; }, 2000); };
+    clear.onclick = () => { clearLog(); pg.enter(); };
   }
 
   /* ---- Tests, most useful first ---- */

@@ -9,12 +9,62 @@ const W = 1024, H = 768;
 const progs = [];
 let zTop = 10, nextId = 1;
 
-// fixed real RAM: the same rule as the tests page (half the lowest tab limit seen)
-function poolMb() {
+// recommended real RAM for each program: half the lowest tab limit the memory calibration saw
+function recommendedMb() {
   let s = {};
   try { s = JSON.parse(localStorage.getItem('inksoc-limits')) || {}; } catch (e) {}
   const lim = s.minLimit || (s.calib && !s.calib.running && s.calib.mb) || 0;
   return lim ? Math.max(128, Math.min(2048, Math.floor(lim * 0.5 / 64) * 64)) : 256;
+}
+// the real RAM a program gets: the fixed amount chosen in Settings, or the recommended one
+function poolMb() { return prefs.ramMb || recommendedMb(); }
+
+/* ---------- error log: program errors, page errors and page crashes ----------
+   Kept in localStorage 'inksoc-log' line by line, so it survives a crash of the tab. System Monitor shows it. */
+const LOG_KEY = 'inksoc-log', ALIVE_KEY = 'inksoc-alive', LOG_MAX = 400;
+const errlog = [];
+try { errlog.push(...(JSON.parse(localStorage.getItem(LOG_KEY)) || [])); } catch (e) { /* private window */ }
+function logError(src, text) {
+  errlog.push({ at: Date.now(), src, text: String(text).slice(0, 2000) });
+  if (errlog.length > LOG_MAX) errlog.splice(0, errlog.length - LOG_MAX);
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(errlog)); } catch (e) { /* full or private */ }
+}
+function clearLog() {
+  errlog.length = 0;
+  try { localStorage.removeItem(LOG_KEY); } catch (e) { /* private window */ }
+}
+// lines of a program's output that are errors (Wine's "err:", engine stops, exceptions)
+const ERR_LINE = /\berr:|\berror\b|exception|unhandled|panic|unreachable|fatal|crash|access violation|out of memory/i;
+addEventListener('error', (e) => logError('page', (e.message || 'error') + (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : '')));
+addEventListener('unhandledrejection', (e) => logError('page', 'unhandled: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+// crash detection: a mark that a normal close removes. Found at start = the last session died
+// (tab killed for memory, or the page froze); it says what was running then.
+try {
+  const last = JSON.parse(localStorage.getItem(ALIVE_KEY));
+  let calib = false;
+  try { calib = !!(JSON.parse(localStorage.getItem('inksoc-limits')) || {}).calib?.running; } catch (e) { /* none */ }
+  if (last) logError(calib ? 'calibration' : 'crash', (calib ? 'Expected: the memory calibration filled the tab until the browser reloaded it. ' : '') + 'The page stopped unexpectedly around ' + new Date(last.at).toLocaleString() + ' (the browser closed or reloaded the tab).' + (last.progs.length ? ' Running: ' + last.progs.join(', ') + '.' : ' No program was running.') + (last.ram ? ' Program RAM in use: ' + last.ram + ' MB.' : '') + (last.heap ? ' Page memory: ' + last.heap + ' MB.' : ''));
+} catch (e) { /* none */ }
+function aliveMark() {
+  const ram = progs.reduce((a, q) => a + (q.w && q.stats ? q.stats.resident * 4 / 1024 : 0), 0);
+  const heap = performance.memory ? performance.memory.usedJSHeapSize / 1048576 : 0;
+  try { localStorage.setItem(ALIVE_KEY, JSON.stringify({ at: Date.now(), progs: progs.filter((q) => q.w).map((q) => q.label), ram: Math.round(ram), heap: Math.round(heap) })); } catch (e) { /* private window */ }
+}
+setInterval(aliveMark, 3000);
+addEventListener('pagehide', () => { try { localStorage.removeItem(ALIVE_KEY); } catch (e) { /* private window */ } });
+addEventListener('pageshow', aliveMark);
+
+// console output, as Wine's console: plain text, only the last part kept (an endless log never slows the page)
+const OUT_MAX = 200000;
+function appendOut(out, text) {
+  if (!text) return;
+  out.append(text);
+  out.chars = (out.chars || 0) + text.length;
+  while (out.chars > OUT_MAX && out.firstChild) {
+    out.chars -= out.firstChild.textContent.length;
+    out.firstChild.remove();
+  }
+  if (!out.pending) { out.pending = true; requestAnimationFrame(() => { out.pending = false; out.scrollTop = out.scrollHeight; }); }
 }
 
 // the program screens are scaled to fit the desktop
@@ -55,7 +105,7 @@ function consoleWindow(p, title) {
   const n = progs.length;
   c.style.left = 12 + (n % 5) * 28 + 'px';
   c.style.top = 12 + (n % 5) * 28 + 'px';
-  c.innerHTML = '<div class="t"><span></span><button title="Hide">' + sym('window-minimize') + '</button><button title="Fill the screen">' + sym('window-maximize') + '</button><button title="Close">' + sym('window-close') + '</button></div><table></table><pre></pre><div class="grip" title="Resize"></div>';
+  c.innerHTML = '<div class="t"><span></span><button title="Hide">' + sym('window-minimize') + '</button><button title="Fill the screen">' + sym('window-maximize') + '</button><button title="Close">' + sym('window-close') + '</button></div><pre></pre>';
   c.querySelector('span').textContent = title;
   const [hide, max, stop] = c.querySelectorAll('.t button');
   hide.onclick = () => setHidden(p, true);
@@ -68,25 +118,39 @@ function consoleWindow(p, title) {
     before = { left: c.style.left, top: c.style.top, width: c.style.width, height: c.style.height };
     Object.assign(c.style, { left: '0px', top: '0px', width: desk.clientWidth + 'px', height: desk.clientHeight + 'px' });
   };
-  // resize by the bottom-right corner (works with a finger: pointer events, not CSS resize)
-  const grip = c.querySelector('.grip');
-  grip.addEventListener('pointerdown', (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    raise(p);
-    grip.setPointerCapture(e.pointerId);
-    const w0 = c.offsetWidth - e.clientX, h0 = c.offsetHeight - e.clientY;
-    grip.onpointermove = (m) => {
-      c.style.width = Math.max(220, Math.min(desk.clientWidth - c.offsetLeft, w0 + m.clientX)) + 'px';
-      c.style.height = Math.max(140, Math.min(desk.clientHeight - c.offsetTop, h0 + m.clientY)) + 'px';
-      before = null;
-    };
-    grip.onpointerup = () => { grip.onpointermove = null; };
-  });
+  // resize by any edge or corner: thin invisible strips around the window (pointer events, so a finger works)
+  for (const side of ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']) {
+    const g = document.createElement('div');
+    g.className = 'edge ' + side;
+    g.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      raise(p);
+      g.setPointerCapture(e.pointerId);
+      const x0 = e.clientX, y0 = e.clientY;
+      const l0 = c.offsetLeft, t0 = c.offsetTop, w0 = c.offsetWidth, h0 = c.offsetHeight;
+      g.onpointermove = (m) => {
+        const dx = m.clientX - x0, dy = m.clientY - y0;
+        if (side.includes('e')) c.style.width = Math.max(220, Math.min(desk.clientWidth - l0, w0 + dx)) + 'px';
+        if (side.includes('s')) c.style.height = Math.max(140, Math.min(desk.clientHeight - t0, h0 + dy)) + 'px';
+        if (side.includes('w')) {
+          const w = Math.max(220, w0 - Math.max(dx, -l0));
+          c.style.left = l0 + w0 - w + 'px'; c.style.width = w + 'px';
+        }
+        if (side.includes('n')) {
+          const h = Math.max(140, h0 - Math.max(dy, -t0));
+          c.style.top = t0 + h0 - h + 'px'; c.style.height = h + 'px';
+        }
+        before = null;
+      };
+      g.onpointerup = g.onpointercancel = () => { g.onpointermove = null; };
+    });
+    c.append(g);
+  }
   // drag by the title bar
   const t = c.querySelector('.t');
   t.addEventListener('pointerdown', (e) => {
-    if (e.target.tagName === 'BUTTON') return;
+    if (e.target.closest('button')) return; // a tap on the symbol inside a button must reach the button
     raise(p);
     t.setPointerCapture(e.pointerId);
     const x0 = e.clientX - c.offsetLeft, y0 = e.clientY - c.offsetTop;
@@ -177,10 +241,16 @@ function run(files, exe, args, label, home, opts = {}) {
   raise(p);
   p.label = label;
   p.icon = opts.icon || 'application-x-executable';
+  p.errLines = 0;
   const w = p.w = new Worker('worker.js?v=74');
+  w.onerror = (e) => { logError(label, 'engine worker failed: ' + (e.message || 'unknown error')); appendOut(out, '\nThe engine stopped: ' + (e.message || 'unknown error') + '\n'); };
   w.onmessage = (ev) => {
     const d = ev.data;
-    if (d.type === 'log') { out.textContent += d.text.replace(/\r/g, ''); out.scrollTop = out.scrollHeight; }
+    if (d.type === 'log') {
+      const text = d.text.replace(/\r/g, '');
+      appendOut(out, text);
+      if (p.errLines < 200 && ERR_LINE.test(text)) for (const l of text.split('\n')) if (l.trim() && ERR_LINE.test(l) && p.errLines++ < 200) logError(label, l.trim());
+    }
     else if (d.type === 'stats') {
       const gips = d.insns / d.ms / 1e6;
       // for System Monitor: the speed over the last second, not since the start
@@ -189,9 +259,7 @@ function run(files, exe, args, label, home, opts = {}) {
         if (p.lastAt && d.ms > p.lastMs) p.mips = (d.insns - p.lastIns) / (d.ms - p.lastMs) / 1000;
         p.lastAt = now; p.lastIns = d.insns; p.lastMs = d.ms;
       }
-      p.stats = d;
-      const tb = p.con.querySelector('table');
-      if (tb) tb.innerHTML = '<tr><td>' + fmt(d.insns / d.ms / 1000) + ' MIPS · ' + (d.jit ? 'JIT' : 'interpreter') + ' · ' + d.cores + (d.cores > 1 ? ' cores' : ' core') + (d.threads > 1 ? ' · ' + d.threads + ' threads' : '') + ' · RAM ' + fmt(d.resident * 4 / 1024) + '/' + fmt(d.frames * 4 / 1024) + ' MB' + (d.swapOut || d.swapIn ? ' · swap ' + fmt(d.swapOut * 4 / 1024) + ' MB out, ' + fmt(d.swapIn * 4 / 1024) + ' MB in, ' + fmt(d.swapMs) + ' ms on ' + (d.opfs ? 'OPFS' : 'RAM') : '') + '</td></tr>';
+      p.stats = d; // shown by System Monitor; the console stays plain text
       lastSpeed = d.cores + (d.cores > 1 ? ' cores' : ' core') + ' · ' + (gips >= 1 ? gips.toFixed(1) + ' GIPS' : fmt(gips * 1000) + ' MIPS');
     } else if (d.type === 'frame') frame(p, d);
     else if (d.type === 'audio') play(p, d);
@@ -200,7 +268,11 @@ function run(files, exe, args, label, home, opts = {}) {
       listDrive();
       // a program with windows that printed nothing: no console to show at the end either
       const quiet = p.cv && !out.textContent.trim();
-      out.innerHTML += d.ok ? '<b class="ok">\nFinished (exit code 0).</b>' : '<b class="bad">\n' + (d.error ? 'Stopped: ' + d.error : 'Exit code ' + d.exitCode) + '</b>';
+      if (!d.ok) logError(label, d.error ? 'Stopped: ' + d.error : 'Exit code ' + d.exitCode);
+      const end = document.createElement('b');
+      end.className = d.ok ? 'ok' : 'bad';
+      end.textContent = d.ok ? '\nFinished (exit code 0).' : '\n' + (d.error ? 'Stopped: ' + d.error : 'Exit code ' + d.exitCode);
+      out.append(end);
       for (const f of d.out || []) {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([f.data]));
@@ -232,7 +304,6 @@ function typingLine(p, out) {
   line.autocomplete = 'off';
   line.spellcheck = false;
   out.after(line);
-  p.con.querySelector('table').remove();
   const history = [];
   let at = 0;
   line.onkeydown = (e) => {
@@ -242,8 +313,7 @@ function typingLine(p, out) {
     const text = line.value;
     line.value = '';
     if (text.trim()) { history.push(text); at = history.length; }
-    out.textContent += text + '\n';
-    out.scrollTop = out.scrollHeight;
+    appendOut(out, text + '\n');
     p.w.postMessage({ type: 'stdin', text: text + '\n' });
   };
   p.con.addEventListener('pointerup', () => { if (!getSelection().toString()) line.focus(); });
@@ -362,7 +432,7 @@ setInterval(tick, 1000);
 // File Explorer, Command Prompt, System Monitor: tools.js loads the first time one is opened
 let toolsReady = null;
 function loadTools() {
-  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=14'; s.onload = ok; s.onerror = fail; document.head.append(s); });
+  toolsReady = toolsReady || new Promise((ok, fail) => { const s = document.createElement('script'); s.src = 'tools.js?v=15'; s.onload = ok; s.onerror = fail; document.head.append(s); });
   return toolsReady;
 }
 async function tool(name, arg) {

@@ -18,11 +18,11 @@
   #desk{position:fixed;top:44px;bottom:48px;left:0;right:0;background:var(--desk);overflow:hidden;touch-action:none}
   #desk canvas{position:absolute;left:0;top:0;pointer-events:none;image-rendering:auto}
   .con[hidden]{display:none}
-  .con{position:absolute;width:min(520px,calc(100% - 24px));height:min(320px,calc(100% - 24px));background:#111;color:#ddd;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.35);overflow:hidden;display:flex;flex-direction:column}
+  .con{position:absolute;width:min(520px,calc(100% - 24px));height:min(320px,calc(100% - 24px));background:#0c0c0c;color:#c0c0c0;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.35);overflow:hidden;display:flex;flex-direction:column}
   .con .t{background:#2b2b2b;color:#ccc;padding:6px 10px;font:12px system-ui;display:flex;gap:8px;align-items:center;cursor:move;user-select:none;-webkit-user-select:none;touch-action:none}
   .con .t span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .con .t button{background:none;border:0;color:#ccc;font:13px system-ui;cursor:pointer;padding:0 4px}
-  .con pre{margin:0;padding:10px;white-space:pre-wrap;word-break:break-word;font:12px Menlo,ui-monospace,monospace;overflow:auto;flex:1}
+  .con pre{margin:0;padding:6px 8px;white-space:pre-wrap;word-break:break-all;font:13px/1.25 Consolas,Menlo,ui-monospace,monospace;color:#c0c0c0;background:#0c0c0c;overflow:auto;flex:1}
   .con pre a{color:#c4b5fd}
   .con .ok{color:#4ade80}.con .bad{color:#f87171}
   .con table{font:11px system-ui;color:#aaa;border-collapse:collapse;margin:0 10px 8px}.con td{padding:1px 6px 1px 0}
@@ -50,7 +50,12 @@
   .tabs button{flex:1;font:inherit;border:0;border-radius:6px;padding:6px;background:none;color:inherit;cursor:pointer}
   .tabs button.on{background:var(--menu);box-shadow:0 1px 2px rgba(0,0,0,.15);font-weight:600}
   .sw{display:flex;gap:8px;align-items:center;font-weight:600;margin-bottom:8px}
-  .con .grip{position:absolute;right:0;bottom:0;width:26px;height:26px;cursor:nwse-resize;touch-action:none;background:linear-gradient(135deg,transparent 55%,rgba(128,128,128,.7) 55%,rgba(128,128,128,.7) 62%,transparent 62%,transparent 72%,rgba(128,128,128,.7) 72%,rgba(128,128,128,.7) 79%,transparent 79%)}
+  .con .edge{position:absolute;z-index:5;touch-action:none}
+  .con .edge.n,.con .edge.s{left:10px;right:10px;height:8px;cursor:ns-resize}.con .edge.n{height:5px}.con .edge.n{top:0}.con .edge.s{bottom:0}
+  .con .edge.e,.con .edge.w{top:14px;bottom:14px;width:8px;cursor:ew-resize}.con .edge.e{right:0}.con .edge.w{left:0}
+  .con .edge.ne,.con .edge.nw{width:10px;height:6px}.con .edge.se,.con .edge.sw{width:18px;height:18px}
+  .con .edge.nw{left:0;top:0;cursor:nwse-resize}.con .edge.se{right:0;bottom:0;cursor:nwse-resize}
+  .con .edge.ne{right:0;top:0;cursor:nesw-resize}.con .edge.sw{left:0;bottom:0;cursor:nesw-resize}
   #off{position:fixed;inset:0;z-index:50;background:#000;color:#ddd;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font:16px system-ui}
   #off[hidden]{display:none}
   #off button{margin-top:14px;font:15px system-ui;padding:8px 20px;border-radius:9px;border:0;background:var(--accent);color:#fff;cursor:pointer}
@@ -85,7 +90,7 @@
   .con .frow .z{color:#888;font-size:11px}
   .con .frow button{background:none;border:0;color:#bbb;cursor:pointer;font:12px system-ui;padding:2px 4px}
   .con .empty{color:#777;padding:12px;font:13px system-ui}
-  .con .cline{border:0;border-top:1px solid #2b2b2b;background:#161616;color:#eee;font:13px Menlo,ui-monospace,monospace;padding:8px 10px;outline:none}
+  .con .cline{border:0;background:#0c0c0c;color:#c0c0c0;font:13px/1.25 Consolas,Menlo,ui-monospace,monospace;padding:2px 8px 8px;outline:none;caret-color:#c0c0c0}
   /* shell: desktop icons, Start menu, File Explorer (a light window), System Monitor */
   #icons{position:absolute;left:8px;top:8px;bottom:8px;display:flex;flex-direction:column;flex-wrap:wrap;align-content:flex-start;gap:6px;pointer-events:none;z-index:0}
   .ico{width:84px;padding:6px 2px;border-radius:6px;text-align:center;color:#fff;font:12px -apple-system,system-ui,sans-serif;text-shadow:0 1px 2px rgba(0,0,0,.7);overflow-wrap:anywhere;user-select:none;-webkit-user-select:none}
@@ -124,8 +129,8 @@
   .sym.good{color:#2e9d4f}.sym.bad{color:#e5484d}.sym.warn{color:#e08a00}.sym.wait{color:#999}
   .top .ttl{display:flex;align-items:center;gap:6px}
   #more .sym{width:20px;height:20px}
-  .con .t button{display:flex;align-items:center;padding:3px 5px;border-radius:5px}.con .t button:hover{background:rgba(127,127,127,.25)}
-  .con .t button .sym{width:14px;height:14px}
+  .con .t button{display:flex;align-items:center;justify-content:center;min-width:36px;min-height:30px;padding:6px 8px;border-radius:6px;touch-action:manipulation}.con .t button .sym{pointer-events:none}.con .t button:hover{background:rgba(127,127,127,.25)}
+  .con .t button .sym{width:16px;height:16px}
   #menu #find{padding-left:32px;background:var(--bg) url(icons/sym/system-search-symbolic.svg) 10px center/16px no-repeat}
   .con.diag .mtabs{display:flex;gap:2px;padding:6px 10px 0;border-bottom:1px solid #e3e3e3;background:#fafafa}
   .con.diag .mtabs button{border:0;background:none;font:13px system-ui;padding:7px 14px;color:#555;border-bottom:2px solid transparent;cursor:pointer}
@@ -148,6 +153,8 @@
   .fbar button .sym{width:16px;height:16px}
   #walls [data-wall=photo] .sym{width:22px;height:22px}
   .con.diag .hint{margin:0 0 4px;color:#777;font-size:12px}
+  .con.diag pre.log{margin:8px 0 0;padding:8px;background:#0c0c0c;color:#c0c0c0;border-radius:6px;font:12px/1.35 Consolas,Menlo,ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;max-height:none;min-height:120px;user-select:text;-webkit-user-select:text}
+  .con.diag pre.log .bad{color:#f87171}
   .con.diag pre.res{margin:4px 0 8px;padding:8px 10px;max-height:220px;overflow:auto;background:#f4f4f6;border-radius:8px;font:12px ui-monospace,Menlo,monospace;white-space:pre-wrap}
   .con.diag .again,.con.diag .row button{padding:5px 14px;border-radius:8px;border:1px solid #ccc;background:#f4f4f4;font:13px system-ui;cursor:pointer}
   .con.diag .again{margin:8px 0}
@@ -208,8 +215,8 @@
 <div id="pad" hidden></div>
 </div>
 <div class="bar"><button id="start">Start</button><div id="tasks"></div><span id="status"></span><span id="clock"></span></div>
-<script src="prefs.js?v=1"></script>
-<script src="desktop.js?v=52"></script>
+<script src="prefs.js?v=2"></script>
+<script src="desktop.js?v=53"></script>
 <script src="pad.js?v=2"></script>
 <script src="wall.js?v=3"></script>
 </body>
