@@ -204,6 +204,60 @@ pub(crate) unsafe fn take_buf() -> Vec<u8> { std::mem::take(&mut BUF) }
 pub(crate) fn eng() -> &'static mut Engine { unsafe { ENGINE.as_mut().unwrap() } }
 
 pub fn console(s: &str) { unsafe { host_console(s.as_ptr(), s.len() as u32) } }
+/// The engine's own heap (files, windows, tables; not the program's memory): counts the
+/// bytes in use, and says what was asked when the browser gives no more memory.
+struct CountingAlloc;
+static HEAP_USED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+unsafe impl std::alloc::GlobalAlloc for CountingAlloc {
+    unsafe fn alloc(&self, l: std::alloc::Layout) -> *mut u8 {
+        let p = std::alloc::System.alloc(l);
+        note_alloc(p, l.size());
+        p
+    }
+    unsafe fn alloc_zeroed(&self, l: std::alloc::Layout) -> *mut u8 {
+        let p = std::alloc::System.alloc_zeroed(l);
+        note_alloc(p, l.size());
+        p
+    }
+    unsafe fn dealloc(&self, p: *mut u8, l: std::alloc::Layout) {
+        std::alloc::System.dealloc(p, l);
+        HEAP_USED.fetch_sub(l.size(), core::sync::atomic::Ordering::Relaxed);
+    }
+    unsafe fn realloc(&self, p: *mut u8, l: std::alloc::Layout, n: usize) -> *mut u8 {
+        let q = std::alloc::System.realloc(p, l, n);
+        if !q.is_null() {
+            HEAP_USED.fetch_sub(l.size(), core::sync::atomic::Ordering::Relaxed);
+        }
+        note_alloc(q, n);
+        q
+    }
+}
+fn note_alloc(p: *mut u8, n: usize) {
+    if p.is_null() {
+        let used = HEAP_USED.load(core::sync::atomic::Ordering::Relaxed);
+        let mut b = [0u8; 120];
+        let s = fmt_oom(&mut b, n, used);
+        unsafe { host_console(s.as_ptr(), s.len() as u32) }
+    } else {
+        HEAP_USED.fetch_add(n, core::sync::atomic::Ordering::Relaxed);
+    }
+}
+/// The out-of-memory line, written without allocating.
+fn fmt_oom(b: &mut [u8; 120], asked: usize, used: usize) -> &[u8] {
+    use std::io::Write;
+    let mut c = std::io::Cursor::new(&mut b[..]);
+    let _ = write!(c, "[engine] out of memory: asked {} KB, engine heap {} MB in use\n", asked >> 10, used >> 20);
+    let n = c.position() as usize;
+    &b[..n]
+}
+#[global_allocator]
+static ALLOC: CountingAlloc = CountingAlloc;
+/// Bytes of the engine's own heap in use.
+#[no_mangle]
+pub extern "C" fn heap_used() -> f64 {
+    HEAP_USED.load(core::sync::atomic::Ordering::Relaxed) as f64
+}
+
 /// An engine bug stops the page with only "unreachable": print where it happened first.
 fn panic_note() {
     std::panic::set_hook(Box::new(|i| console(&format!("[engine] internal error: {}\n", i))));

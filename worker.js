@@ -178,7 +178,7 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
   };
   let jitErr = 0;
   let wine;
-  let [wasm, wineWasm] = await Promise.all([mt ? 'inksoc-mt.wasm?v=61' : 'inksoc.wasm?v=84', 'wine.wasm?v=2'].map((u) => fetch(u).then((r) => r.arrayBuffer())));
+  let [wasm, wineWasm] = await Promise.all([mt ? 'inksoc-mt.wasm?v=62' : 'inksoc.wasm?v=85', 'wine.wasm?v=2'].map((u) => fetch(u).then((r) => r.arrayBuffer())));
   // test: the same engine on a shared memory (what several cores need), to compare speed
   if (mt) {
     importScripts('sharedmem.js?v=1');
@@ -361,7 +361,8 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
     try { st = x.run(2000000); } catch (e) {
       // "unreachable" without an [engine] line = the engine could not get more memory: show how much it had
       const cap = mt ? poolMb + 256 : shared ? poolMb + 192 : 4096;
-      throw new Error(`${e.message} [wasm memory ${mem.buffer.byteLength >> 20} of ${cap} MB]`);
+      const heap = x.heap_used ? `, engine heap ${(x.heap_used() / 1048576) | 0} MB` : '';
+      throw new Error(`${e.message} [wasm memory ${mem.buffer.byteLength >> 20} of ${cap} MB${heap}]`);
     }
     frame();
     pumpNet();
@@ -454,7 +455,7 @@ async function runLinux({ files, cmd, poolMb, jit, rows, cols }) {
       } catch (e) { return -1; }
     },
   };
-  const wasm = await fetch('inksoc.wasm?v=84').then((r) => r.arrayBuffer());
+  const wasm = await fetch('inksoc.wasm?v=85').then((r) => r.arrayBuffer());
   x = (await WebAssembly.instantiate(wasm, { env })).instance.exports;
   mem = x.memory;
   const enc = new TextEncoder();
