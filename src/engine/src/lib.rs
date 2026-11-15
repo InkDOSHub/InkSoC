@@ -637,6 +637,11 @@ pub extern "C" fn guest_read32(addr: u64) -> u32 {
     match e.mmu.read32(addr) { Ok(v) => v, Err(_) => { e.fault(addr); 0 } }
 }
 
+/// A free range found by find_free: its address, end, the bump pointer after it, and
+/// whether it came from a gap below the bump pointer.
+#[derive(Clone, Copy)]
+struct Found { a: u64, end: u64, next: u64, gap: bool }
+
 impl Engine {
     pub fn fault(&mut self, addr: u64) {
         let mut m = format!("access violation at 0x{:x} (rip 0x{:x})", addr, self.cpu.rip);
@@ -686,50 +691,52 @@ impl Engine {
     /// Address space for `size` bytes (rounded up to 64 KB), reserved only.
     pub fn reserve(&mut self, size: u64) -> Option<u64> {
         let size = crate::mmu::round_up_64k(size.max(1))?;
-        let (a, gap, next) = self.find_free(size)?;
-        self.mmu.add_reserved(a, size)?;
-        self.take_free(a, size, gap, next);
-        Some(a)
+        let f = self.find_free(size)?;
+        self.mmu.add_reserved(f.a, size)?;
+        self.take_free(f);
+        Some(f.a)
     }
 
     /// VirtualAlloc-style reservation: 64 KB aligned, committed. Nothing changes when it fails.
     pub fn alloc(&mut self, size: u64) -> Option<u64> {
         let size = crate::mmu::round_up_64k(size.max(1))?;
         if self.mmu.sh.committed.checked_add(size)? > self.mmu.sh.target_bytes { return None; }
-        let (a, gap, next) = self.find_free(size)?;
-        self.mmu.add_region(a, size)?;
-        self.take_free(a, size, gap, next);
-        Some(a)
+        let f = self.find_free(size)?;
+        self.mmu.add_region(f.a, size)?;
+        self.take_free(f);
+        Some(f.a)
     }
 
-    /// Where the next `size` bytes go, found without changing anything: the address, whether
-    /// it came from a gap below the bump pointer, and the bump pointer after it. The bump
-    /// pointer steps over anything already there (an image at its preferred base, a fixed
+    /// Where the next `size` bytes go, found without changing anything. The bump pointer
+    /// steps over anything already there (an image at its preferred base, a fixed
     /// allocation), with a 64 KB gap after it. A 32-bit program's memory stays below 4 GB.
-    fn find_free(&self, size: u64) -> Option<(u64, bool, u64)> {
+    /// When the top is used up, the search goes back for a gap below the bump pointer.
+    fn find_free(&self, size: u64) -> Option<Found> {
         let limit = if self.s.next_alloc < 0x1_0000_0000 { 0xFFFF_0000 } else { 0x7F00_0000_0000 };
         let mut a = self.s.next_alloc;
         while let Some(end) = self.mmu.overlap_end(a, a.checked_add(size)?) {
             a = crate::mmu::round_up_64k(end)?;
         }
-        if a.checked_add(size)? > limit {
+        let (end, next) = crate::mmu::span_after(a, size, 0x10000)?;
+        if end > limit {
             // the address space is used up to the top: go back for room that was freed
             // (a 32-bit program that allocates and frees big buffers gets there quickly)
             let from = if limit < 0x1_0000_0000 { crate::wow64::LOW_ALLOC } else { 0x0000_0200_0000_0000 };
             let a = self.mmu.first_gap(from, limit, size, 0x10000)?;
-            return Some((a, true, self.s.next_alloc));
+            let (end, _) = crate::mmu::span_after(a, size, 0)?;
+            return Some(Found { a, end, next: self.s.next_alloc, gap: true });
         }
-        let next = a.checked_add(size)?.checked_add(0x10000)?;
-        Some((a, false, next))
+        Some(Found { a, end, next, gap: false })
     }
 
-    /// Takes a range found by find_free, after the mapping succeeded. A gap leaves the bump
-    /// pointer alone; the JIT forgets any code it had compiled for that address.
-    fn take_free(&mut self, a: u64, size: u64, gap: bool, next: u64) {
-        if gap {
-            self.jit.forget(a, a + size);
+    /// Takes a range found by find_free, after the mapping succeeded. Nothing here can fail:
+    /// the values were checked when they were found. A gap leaves the bump pointer alone;
+    /// the JIT forgets any code it had compiled for that address.
+    fn take_free(&mut self, f: Found) {
+        if f.gap {
+            self.jit.forget(f.a, f.end);
         } else {
-            self.s.next_alloc = next;
+            self.s.next_alloc = f.next;
         }
     }
 

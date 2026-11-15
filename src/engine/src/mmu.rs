@@ -24,6 +24,13 @@ pub fn page_span(start: u64, size: u64) -> Option<(u64, u64)> {
     Some((s, end))
 }
 
+/// End of `a..a+size` and the bump pointer after it (the end plus `gap`), both checked.
+/// None when either does not fit in a u64.
+pub fn span_after(a: u64, size: u64, gap: u64) -> Option<(u64, u64)> {
+    let end = a.checked_add(size)?;
+    Some((end, end.checked_add(gap)?))
+}
+
 /// `x` rounded up to a 64 KB boundary; None when that does not fit in a u64.
 pub fn round_up_64k(x: u64) -> Option<u64> {
     Some(x.checked_add(0xFFFF)? & !0xFFFF)
@@ -982,6 +989,14 @@ mod accounting_tests {
         // no room below the limit: refused, not wrapped
         assert_eq!(m.first_gap(BASE, BASE + 0x1000, 0x2000, 0x10000), None);
         assert_eq!(snapshot(&m), before);
+    }
+
+    #[test]
+    fn span_after_is_checked() {
+        assert_eq!(span_after(BASE, 0x1000, 0x10000), Some((BASE + 0x1000, BASE + 0x11000)));
+        assert_eq!(span_after(u64::MAX - 0x10, 0x100, 0), None, "end overflows");
+        assert_eq!(span_after(u64::MAX - 0x1000, 0x1000, 1), None, "bump pointer overflows");
+        assert_eq!(span_after(u64::MAX - 0x1000, 0x1000, 0), Some((u64::MAX, u64::MAX)));
     }
 
     #[test]
