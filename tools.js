@@ -402,7 +402,7 @@ const limits = {
 };
 // one engine worker for a test: it answers through onmsg until the test ends it
 function testWorker(msg, onmsg, transfer) {
-  const w = new Worker('worker.js?v=84');
+  const w = new Worker('worker.js?v=85');
   w.onmessage = (ev) => onmsg(ev.data, w);
   w.onerror = (e) => onmsg({ type: 'done', ok: false, error: e.message || 'worker error' }, w);
   w.postMessage(msg, transfer || []);
@@ -883,7 +883,7 @@ async function streamTest(say, out, limits) {
   const total = Math.floor(lim * 0.7), gpu = Math.max(64, Math.floor(total * 0.35 / 4) * 4);
   const texMb = 2048, SIZE = 1024, BYTES = SIZE * SIZE * 4, count = texMb / 4, SHOW = 48;
   say('GPU pool ' + gpu + ' MB (' + gpu / 4 + ' textures), ' + texMb + ' MB of textures on the disk\n');
-  const io = new Worker('worker.js?v=84');
+  const io = new Worker('worker.js?v=85');
   await new Promise((r) => { io.onmessage = r; io.postMessage({ type: 'tex-init', count, size: BYTES }); });
   const dev = await (await navigator.gpu.requestAdapter()).requestDevice();
   let gpuErr = '';
