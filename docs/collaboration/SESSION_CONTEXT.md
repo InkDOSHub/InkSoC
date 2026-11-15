@@ -59,15 +59,27 @@ Não existe Claude Code GitHub Action instalada; `@claude` em comentário não i
 ### PR #6 — build WASM stable + multi-thread em PRs
 - PR: https://github.com/InkDOSHub/InkSoC/pull/6
 - Branch: `ci/pr-engine-build-stable-mt`
-- Head observado: `83b81ca3fbaaf646d8a501962fda6541d3792594`
-- `main` observado: `4776d79412c66b867391ee3e389a0d1a861ba586`
+- Head observado: `84074d8ce2b940086b0e228e4e8fc4b4d61dbe53`
+- Base observada: `main` = `4776d79412c66b867391ee3e389a0d1a861ba586` no momento da auditoria do PR.
 - Aberto, draft, não mergeado na consulta.
-- Tarefa `INKSOC-2026-002` já registrada no comentário https://github.com/InkDOSHub/InkSoC/pull/6#issuecomment-6897170469: atualizar branch por merge não destrutivo com main, parar se houver conflito, manter diff restrito a `.github/workflows/engine.yml`, aguardar Actions no novo SHA e manter draft.
-- Run anterior #43728544126 passou stable, multi-thread e upload no SHA antigo; publish foi skipped como esperado. Não usar essa run como validação de um head atualizado.
-- Próxima ação: verificar se Claude executou a tarefa; auditar o novo head e Actions antes de qualquer nova instrução.
+- Diff auditado: somente `.github/workflows/engine.yml`; 3 commits à frente e 0 atrás da base usada na auditoria.
+- Run #43732957605, vinculada ao SHA exato `84074d8`: build stable SUCCESS, build multi-thread SUCCESS, upload de artefatos SUCCESS e job publish SKIPPED (esperado em pull_request). Artefato `engine-wasm`: 1.164.229 bytes; SHA-256 `dacb9d562fdf155c6e8b8e480beca0d16c325fad584a4dfdd991dc524ca3f847`.
+- Review GPT-6: ACCEPTED para o escopo de CI. Isto não valida o engine funcionalmente no navegador e não autoriza merge.
+- PR permanece draft; merge depende de autorização explícita.
+
+### PR #8 — este documento de contexto
+- PR: https://github.com/InkDOSHub/InkSoC/pull/8
+- Branch: `docs/session-context`; head observado antes desta atualização: `a002958092eee91296d0c3e375dcfde921cca62d`.
+- Aberto, draft, não mergeado na consulta; revisão de conteúdo em andamento.
+- Os SHAs e estados deste bloco são snapshots; conferir PRs e Actions no GitHub antes de agir.
+
+### PR #9 — correção do PROJECT_LOG
+- PR: https://github.com/InkDOSHub/InkSoC/pull/9
+- Branch: `docs/project-log-pr7-merge`; head observado: `e8716829704226796649d8989eaa12107f8f6107`.
+- Altera somente `PROJECT_LOG.md`, adicionando registro de que PR #7 foi integrado via squash em `4776d79412c66b867391ee3e389a0d1a861ba586`.
+- Aberto, draft, não mergeado; auditoria independente pendente.
 
 ### Outras pendências documentais identificadas
-- `PROJECT_LOG.md` contém entradas antigas que ainda descrevem PR #7 como draft, embora PR #7 tenha sido merged.
 - `AI_COLLABORATION.md` ainda descreve Claude Opus e um protocolo antigo; `docs/collaboration/PROTOCOL.md` descreve o fluxo real humano-assistido. Harmonizar em tarefa documental separada, sem misturar com CI/runtime.
 
 ## 7. Como iniciar uma nova sessão
