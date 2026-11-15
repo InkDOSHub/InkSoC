@@ -204,6 +204,10 @@ pub(crate) unsafe fn take_buf() -> Vec<u8> { std::mem::take(&mut BUF) }
 pub(crate) fn eng() -> &'static mut Engine { unsafe { ENGINE.as_mut().unwrap() } }
 
 pub fn console(s: &str) { unsafe { host_console(s.as_ptr(), s.len() as u32) } }
+/// An engine bug stops the page with only "unreachable": print where it happened first.
+fn panic_note() {
+    std::panic::set_hook(Box::new(|i| console(&format!("[engine] internal error: {}\n", i))));
+}
 
 // ---- exports to JS ----
 
@@ -219,6 +223,7 @@ pub extern "C" fn buffer(len: u32) -> *mut u8 {
 #[no_mangle]
 #[allow(static_mut_refs)]
 pub extern "C" fn init(pool_mb: u32, target_mb: u32) {
+    panic_note();
     unsafe {
         SHARED = Some(Shared {
             exited: false, main_done: false, exit_code: 0, error: None,
