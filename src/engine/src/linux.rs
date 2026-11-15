@@ -222,7 +222,7 @@ impl Engine {
         // the page's files go to /root; an ELF also goes to /bin (busybox: every applet links to it)
         let nm = |e: &Engine, k: &str| e.s.names.get(k).cloned().unwrap_or_else(|| k.to_string());
         let files: Vec<(String, Vec<u8>)> = self.s.files.iter().map(|(k, v)| (nm(self, k), v.clone())).collect();
-        let bytes = self.s.files.get(name).cloned().ok_or_else(|| format!("{} not found", name))?;
+        let bytes = self.s.files.get_copy(name).ok_or_else(|| format!("{} not found", name))?;
         let name = nm(self, name);
         // a .tar is a root file system (e.g. Alpine's minirootfs): it is unpacked at /
         let mut files = files;

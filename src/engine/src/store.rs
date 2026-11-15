@@ -18,6 +18,8 @@ extern "C" {
 pub const SPILL: u32 = 0x7FFF_FFF0;
 /// closed files from this size go to the spill file
 const SPILL_MIN: usize = 64 << 10;
+/// small closed files kept in memory, in all, before they go to the spill file too
+const SMALL_KEPT: u64 = 32 << 20;
 
 const PIECE: usize = 1 << 20;
 /// files above this size are read piece by piece where they are, never whole
@@ -45,6 +47,8 @@ pub struct Store {
     pub loaded_bytes: u64,
     /// where the next spilled file goes in the spill file
     spill_at: u64,
+    /// bytes of small closed files kept in memory
+    small_kept: u64,
 }
 
 // all use is under the engine lock (one core at a time)
@@ -71,13 +75,16 @@ impl Store {
     /// A file no handle holds any more: its bytes leave memory when they are still on disk
     /// (unchanged), or go to the spill file when big.
     pub fn release(&mut self, k: &str) {
-        if let Some(v) = self.clean().remove(k) {
-            self.data().remove(k);
-            self.lazy().insert(k.to_string(), v);
+        if self.forget(k) {
             return;
         }
         let Some(d) = self.data().get(k) else { return };
-        if d.len() < SPILL_MIN {
+        // small files stay in memory, up to SMALL_KEPT in all (an installer writes thousands)
+        if d.len() < SPILL_MIN && self.small_kept + d.len() as u64 <= SMALL_KEPT {
+            self.small_kept += d.len() as u64;
+            return;
+        }
+        if d.is_empty() {
             return;
         }
         let n = d.len() as u64;
@@ -158,6 +165,23 @@ impl Store {
             self.fill(k);
         }
         self.data().get(k).map(|b| &**b)
+    }
+    /// A copy of the file's bytes (a DLL or program being loaded). A drive file that was
+    /// only on disk goes back there afterwards instead of staying in memory twice.
+    pub fn get_copy(&mut self, k: &str) -> Option<Vec<u8>> {
+        let was_on_disk = self.lazy().contains_key(k);
+        let v = self.get(k).cloned();
+        if was_on_disk {
+            self.forget(k);
+        }
+        v
+    }
+    /// Drops the bytes of a file read in and unchanged since (they are still on disk).
+    fn forget(&mut self, k: &str) -> bool {
+        let Some(v) = self.clean().remove(k) else { return false };
+        self.data().remove(k);
+        self.lazy().insert(k.to_string(), v);
+        true
     }
     pub fn get_mut(&mut self, k: &str) -> Option<&mut Vec<u8>> {
         if self.lazy().contains_key(k) {

@@ -13,7 +13,7 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 // SEC_IMAGE: must be a PE file
                 let Some(Handle::File { name, .. }) = e.s.fs.handles.get(&file) else { return Some(INVALID_HANDLE) };
                 let name = name.clone();
-                let ok = e.s.files.get(&name).map_or(false, |d| d.len() > 0x40 && &d[..2] == b"MZ");
+                let ok = e.s.files.size(&name).unwrap_or(0) > 0x40 && e.s.files.read_at(&name, 0, 2).map_or(false, |d| d == b"MZ");
                 if !ok {
                     return Some(INVALID_IMAGE_FORMAT);
                 } // STATUS_INVALID_IMAGE_FORMAT
@@ -63,7 +63,7 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                     }
                     return Some(OK);
                 }
-                let Some(b) = e.s.files.get(file).cloned() else { return Some(INVALID_HANDLE) };
+                let Some(b) = e.s.files.get_copy(file) else { return Some(INVALID_HANDLE) };
                 let file = file.clone();
                 let slot = e.s.image_slots.get(&file).copied();
                 let (a, sz, moved) = match crate::pe::map_image(e, &b, slot) {
@@ -153,7 +153,7 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             // (section, class, info*, length, return length*)
             let (cls, out, ret) = (e.arg(1), e.arg(2), e.arg(4));
             let (img, size) = match e.s.fs.handles.get(&a0) {
-                Some(Handle::ImageSection { file }) => (e.s.files.get(file).cloned(), 0),
+                Some(Handle::ImageSection { file }) => (e.s.files.get_copy(file), 0),
                 Some(Handle::Section { size, .. }) => (None, *size),
                 _ => return Some(INVALID_HANDLE),
             };
@@ -223,7 +223,7 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 };
                 (f, e.arg(3), e.arg(4))
             };
-            let Some(d) = e.s.files.get(&file).cloned() else { return Some(OBJECT_NAME_NOT_FOUND) };
+            let Some(d) = e.s.files.get_copy(&file) else { return Some(OBJECT_NAME_NOT_FOUND) };
             let Some(a) = e.alloc((d.len() as u64 + 0xFFF) & !0xFFF) else { return Some(NO_MEMORY) };
             let _ = e.mmu.write_bytes(a, &d);
             e.w64(pp, a);

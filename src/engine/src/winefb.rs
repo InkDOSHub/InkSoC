@@ -235,7 +235,7 @@ impl Engine {
         if let Some(i) = pe::find_module(self, file) {
             return Some(i);
         }
-        let bytes = self.s.files.get(file).cloned()?;
+        let bytes = self.s.files.get_copy(file)?;
         let i = pe::load_image(self, file, &bytes, false).ok()?;
         // the core modules share the engine's state: their own DllMain must not run
         if ["wine-ntdll.dll", "wine-kernelbase.dll", "wine-kernel32.dll"].contains(&file) {
@@ -288,7 +288,7 @@ impl Engine {
         for t in [nls, nls + 0x40] {
             let _ = self.mmu.write_bytes(t, &[0xE9, 0xFD, 4, 0, 0x3F, 0, 0xFD, 0xFF, 0x3F, 0, 0x3F, 0]);
         }
-        if let Some(cm) = self.s.files.get("l_intl.nls").cloned() {
+        if let Some(cm) = self.s.files.get_copy("l_intl.nls") {
             let a = self.heap_alloc(cm.len() as u64, false);
             let _ = self.mmu.write_bytes(a, &cm);
             let n = u16::from_le_bytes([cm[2], cm[3]]) as u64;

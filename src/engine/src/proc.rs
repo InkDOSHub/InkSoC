@@ -150,7 +150,7 @@ impl Engine {
     /// CreateProcess: loads `exe` in a new address space with its own PEB and
     /// main thread. Returns (process id, thread id, thread handle).
     pub fn create_process(&mut self, exe: &str, cmd: &str, env: Vec<u16>, std: [u64; 3], suspended: bool) -> Result<(u32, u32, u64), String> {
-        let bytes = self.s.files.get(exe).cloned().ok_or_else(|| format!("{} not found", exe))?;
+        let bytes = self.s.files.get_copy(exe).ok_or_else(|| format!("{} not found", exe))?;
         let parent = self.s.wpid;
         // the GDI handle table: every process sees it at the same place (shared memory in
         // Windows); the child starts with a copy of the entries made so far

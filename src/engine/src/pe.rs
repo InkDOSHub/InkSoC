@@ -47,13 +47,13 @@ pub fn load_by_name(e: &mut Engine, name: &str) -> Result<usize, String> {
     if let Some(i) = find_module(e, &n) { return Ok(i); }
     // API-set DLLs that programs ship (forwarders without relocations): ours stand in for them
     let api_set = n.starts_with("api-ms-win-") || n.starts_with("ext-ms-");
-    if let Some(bytes) = e.s.files.get(&n).cloned().filter(|_| !api_set) {
+    if let Some(bytes) = e.s.files.get_copy(&n).filter(|_| !api_set) {
         return load_image(e, &n, &bytes, false);
     }
     // a DLL in a folder (LoadLibrary with a path)
     if name.contains(['\\', '/']) {
         if let Some(k) = crate::files::key_of(name) {
-            if let Some(bytes) = e.s.files.get(&k).cloned() {
+            if let Some(bytes) = e.s.files.get_copy(&k) {
                 // its folder is searched for the DLLs it needs (LOAD_WITH_ALTERED_SEARCH_PATH)
                 if let Some(i) = k.rfind('\\') { let d = k[..i].to_string(); if !e.s.dll_dirs.contains(&d) { e.s.dll_dirs.push(d); } }
                 return load_image(e, &n, &bytes, false);
@@ -63,12 +63,12 @@ pub fn load_by_name(e: &mut Engine, name: &str) -> Result<usize, String> {
     if !api_set {
         let dirs = e.s.dll_dirs.clone();
         for d in dirs.iter().rev() {
-            if let Some(bytes) = e.s.files.get(&format!("{}\\{}", d, n)).cloned() { return load_image(e, &n, &bytes, false); }
+            if let Some(bytes) = e.s.files.get_copy(&format!("{}\\{}", d, n)) { return load_image(e, &n, &bytes, false); }
         }
     }
     // a DLL the engine does not implement at all: Wine's, as program code
     if !NATIVE_DLLS.contains(&n.as_str()) {
-        if let Some(bytes) = e.s.files.get(&format!("wine-{}", n)).cloned() {
+        if let Some(bytes) = e.s.files.get_copy(&format!("wine-{}", n)) {
             // window-system DLLs: their DllMain needs the graphics kernel, which console programs never use
             let gui = ["shell32.dll", "ole32.dll", "combase.dll", "imm32.dll", "winmm.dll", "setupapi.dll", "shcore.dll"].contains(&n.as_str());
             let r = load_image(e, &n, &bytes, false)?;
