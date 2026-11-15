@@ -561,8 +561,11 @@ async function listDrive() {
       const top = p.split('\\')[1] || '';
       if (/\\desktop\\[^\\]+$/i.test(win) && /\.(lnk|exe)$/i.test(name)) onDesk.push({ path: win, file: f });
       if (/\.lnk$/i.test(name) && /\\(start menu|desktop)\\/i.test(win) && !skipLink.test(name)) links.push({ path: win, file: f });
-      const deep = /^program files/i.test(top) ? 3 : 2; // C:\Program Files\App\app.exe or C:\App\app.exe
-      if (depth === deep && /\.exe$/i.test(name) && !skip.test(name) && (deep === 3 || !system.test(top))) exes.push(win);
+      // C:\Program Files\App\app.exe, C:\Program Files\App\program\app.exe (LibreOffice, and bin folders), or C:\App\app.exe
+      const inPF = /^program files/i.test(top);
+      const sub = /\\(program|bin)$/i.test(path);
+      const ok = inPF ? depth === 3 || (depth === 4 && sub) : depth === 2 && !system.test(top);
+      if (ok && /\.exe$/i.test(name) && !skip.test(name)) exes.push(win);
     }
   };
   if (root) {
