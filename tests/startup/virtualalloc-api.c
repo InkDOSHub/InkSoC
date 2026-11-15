@@ -91,8 +91,8 @@ int main(void)
                      ERR_INVALID_ADDRESS, "decommit past the end")) return 1;
     if (expect_error(VirtualFree(base, (SIZE_T)-1, MEM_DECOMMIT),
                      ERR_INVALID_ADDRESS, "decommit with an overflowing size")) return 1;
-    if (expect_error(VirtualFree(base, 0, MEM_DECOMMIT),
-                     ERR_INVALID_PARAMETER, "decommit with size 0")) return 1;
+    if (expect_error(VirtualFree(base + 0x1000, 0, MEM_DECOMMIT),
+                     ERR_INVALID_ADDRESS, "zero-size decommit that is not the base")) return 1;
     if (expect_byte(&base[0x2000], 0x5A, "after refused decommits")) return 1;
 
     /* two adjacent reservations: a decommit that crosses from one into the other is refused,
@@ -147,6 +147,25 @@ int main(void)
     unsigned char *r5 = VirtualAlloc((LPVOID)0x5B400000, 0x10000, MEM_RESERVE, PAGE_NOACCESS);
     if (!r5 || !VirtualAlloc(r5 + 0x1000, 0x1000, MEM_COMMIT, PAGE_READWRITE)) return bad("partly committed reservation");
     if (!VirtualFree(r5, 0, MEM_RELEASE)) return bad("release of a partly committed reservation");
+
+    /* MEM_DECOMMIT with size 0 at the base decommits the whole region; the reservation
+       stays, and committing again gives zeroed pages */
+    unsigned char *r6 = VirtualAlloc((LPVOID)0x5B600000, 0x10000, MEM_RESERVE, PAGE_NOACCESS);
+    if (!r6 || !VirtualAlloc(r6, 0x1000, MEM_COMMIT, PAGE_READWRITE)) return bad("reserve for zero-size decommit");
+    if (!VirtualAlloc(r6 + 0x2000, 0x1000, MEM_COMMIT, PAGE_READWRITE)) return bad("commit second page for zero-size decommit");
+    r6[0x0000] = 0x77;
+    r6[0x2000] = 0x88;
+    if (expect_error(VirtualFree(r6 + 0x1000, 0, MEM_DECOMMIT),
+                     ERR_INVALID_ADDRESS, "zero-size decommit that is not the base")) return 1;
+    if (expect_error(VirtualFree((LPVOID)0x5C100000, 0, MEM_DECOMMIT),
+                     ERR_INVALID_ADDRESS, "zero-size decommit of a never-reserved address")) return 1;
+    if (expect_byte(&r6[0x0000], 0x77, "after refused zero-size decommits")) return 1;
+    if (!VirtualFree(r6, 0, MEM_DECOMMIT)) return bad("zero-size decommit at the base");
+    if (!VirtualAlloc(r6, 0x1000, MEM_COMMIT, PAGE_READWRITE)) return bad("commit after the zero-size decommit");
+    if (expect_byte(&r6[0x0000], 0x00, "first page after decommit and commit again")) return 1;
+    if (!VirtualAlloc(r6 + 0x2000, 0x1000, MEM_COMMIT, PAGE_READWRITE)) return bad("commit second page again");
+    if (expect_byte(&r6[0x2000], 0x00, "second page after decommit and commit again")) return 1;
+    if (!VirtualFree(r6, 0, MEM_RELEASE)) return bad("release after zero-size decommit");
 
     /* release the rest */
     if (!VirtualFree(r2, 0, MEM_RELEASE)) return bad("release first adjacent reservation");

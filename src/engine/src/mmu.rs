@@ -372,14 +372,20 @@ impl Mmu {
         self.commit_span(s, e)
     }
 
-    /// VirtualFree MEM_DECOMMIT: removes the committed part of [start, start+size) and
-    /// drops its page contents. The whole range must lie inside one region, and size
-    /// must be non-zero; otherwise nothing changes (487 invalid address, 87 invalid
-    /// parameter). Ok: bytes that were committed and are now decommitted.
+    /// VirtualFree MEM_DECOMMIT. With a size, decommits [start, start+size): the whole
+    /// range must lie inside one region. With size 0, `start` must be the base address of
+    /// a region, and the whole region is decommitted; the reservation stays. Every check
+    /// is made before anything changes, so a refused call leaves no partial state.
+    /// Ok: bytes that were committed and are now decommitted. Err: 487 invalid address.
     pub fn decommit_range(&mut self, start: u64, size: u64) -> Result<u64, u32> {
-        if size == 0 { return Err(87); }
-        let (s, e) = page_span(start, size).ok_or(487u32)?;
-        if !self.inside_region(s, e) { return Err(487); }
+        let (s, e) = if size == 0 {
+            let (rs, re) = *self.sh.regions.iter().find(|r| r.0 == start).ok_or(487u32)?;
+            (rs, re)
+        } else {
+            let (s, e) = page_span(start, size).ok_or(487u32)?;
+            if !self.inside_region(s, e) { return Err(487); }
+            (s, e)
+        };
         let removed = self.uncommit_span(s, e);
         self.drop_pages(s, e);
         Ok(removed)
@@ -969,13 +975,39 @@ mod accounting_tests {
     }
 
     #[test]
-    fn decommit_of_zero_size_is_refused() {
+    fn zero_size_decommit_takes_the_whole_region_and_keeps_it() {
         let mut m = Mmu::new(1, 1);
         m.add_reserved(BASE, 0x1_0000);
-        m.commit_in_region(BASE, 0x1000).unwrap();
+        m.add_reserved(BASE + 0x2_0000, 0x1_0000); // another reservation
+        m.commit_in_region(BASE, 0x4000).unwrap();
+        m.commit_in_region(BASE + 0x2_0000, 0x1000).unwrap();
         let before = snapshot(&m);
-        assert_eq!(m.decommit_range(BASE, 0), Err(87));
-        assert_eq!(snapshot(&m), before);
+        // not the base of a region, and not reserved: refused, nothing changes
+        assert_eq!(m.decommit_range(BASE + 0x4000, 0), Err(487));
+        assert_eq!(m.decommit_range(BASE + 0x9_0000, 0), Err(487));
+        assert_eq!(snapshot(&m), before, "a refused zero-size decommit changed the state");
+        // the base: the committed part of that region goes, the region stays
+        assert_eq!(m.decommit_range(BASE, 0), Ok(0x4000));
+        assert_eq!(m.sh.committed, 0x1000);
+        assert!(m.sh.regions.contains(&(BASE, BASE + 0x1_0000)), "the reservation was removed");
+        assert!(!m.can_write_range(BASE, 104));
+        assert!(m.can_write_range(BASE + 0x2_0000, 104), "another reservation was touched");
+        check(&m);
+        // a later commit over the same region works again
+        assert_eq!(m.commit_in_region(BASE, 0x1000), Ok(0x1000));
+        assert_eq!(m.decommit_range(BASE, 0), Ok(0x1000));
+        assert_eq!(m.sh.committed, 0x1000);
+        check(&m);
+    }
+
+    #[test]
+    fn zero_size_decommit_of_a_reservation_without_commits_removes_nothing() {
+        let mut m = Mmu::new(1, 1);
+        m.add_reserved(BASE, 0x1_0000);
+        assert_eq!(m.decommit_range(BASE, 0), Ok(0));
+        assert!(m.sh.regions.contains(&(BASE, BASE + 0x1_0000)));
+        assert_eq!(m.sh.committed, 0);
+        check(&m);
     }
 
     #[test]
