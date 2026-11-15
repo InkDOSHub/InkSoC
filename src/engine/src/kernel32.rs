@@ -209,12 +209,17 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
                     (56, 0xA0), // dwFillAttribute
                     (60, 0xA4), // dwFlags
                 ] {
-                    e.w32(a0 + dst, e.r32(p + src));
+                    let value = e.r32(p + src);
+                    e.w32(a0 + dst, value);
                 }
-                e.w16(a0 + 64, e.r16(p + 0xA8)); // wShowWindow
-                e.w64(a0 + 80, e.r64(p + 0x20)); // hStdInput
-                e.w64(a0 + 88, e.r64(p + 0x28)); // hStdOutput
-                e.w64(a0 + 96, e.r64(p + 0x30)); // hStdError
+                let show_window = e.r16(p + 0xA8);
+                e.w16(a0 + 64, show_window); // wShowWindow
+                let stdin = e.r64(p + 0x20);
+                let stdout = e.r64(p + 0x28);
+                let stderr = e.r64(p + 0x30);
+                e.w64(a0 + 80, stdin); // hStdInput
+                e.w64(a0 + 88, stdout); // hStdOutput
+                e.w64(a0 + 96, stderr); // hStdError
             }
             0
         }
