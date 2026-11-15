@@ -8,6 +8,8 @@
 - Estado: **implementado (documentação)**. Nenhum build ou teste de runtime executado; nenhum workflow alterado.
 - Riscos / pendências: nenhuma nova.
 - Próxima ação autorizada: auditoria GPT-6 do PR #7; merge só com autorização do mantenedor.
+- Observação (2026-11-15): o rodapé `Claude-Session` do commit `b07a31860ef1fcebd204a6a53df887894a026aeb` aponta para uma sessão anterior, não para a sessão que fez a alteração. O mantenedor decidiu não corrigir por reescrita de histórico (sem force-push); o conteúdo do commit não é afetado.
+- Auditoria GPT-6 do PR #7: **REVISION_REQUIRED** apenas por título/descrição do PR desatualizados; conteúdo documental considerado consistente. Título e descrição do PR atualizados em seguida.
 
 ## Atualização — 2026-11-15 — Protocolo de colaboração por eventos
 
