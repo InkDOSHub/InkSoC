@@ -1,6 +1,6 @@
 # Common programs on InkSoC
 
-Engine 86248ed. Each program is downloaded from its official site and its installer (or the program itself) runs on the engine in Node on GitHub Actions (.github/workflows/compat-apps.yml). "running" = still going at the time limit.
+Engine c017c5c. Each program is downloaded from its official site and its installer (or the program itself) runs on the engine in Node on GitHub Actions (.github/workflows/compat-apps.yml). "running" = still going at the time limit.
 
 | Program | Group | Result | Where it stopped |
 |---|---|---|---|
@@ -8,7 +8,7 @@ Engine 86248ed. Each program is downloaded from its official site and its instal
 | firefox | browser | not run |  |
 | obs | media | finished, 2079 files written |  |
 | vlc | media | finished, 592 files written |  |
-| audacity | media | not run |  |
+| audacity | media | running, 1 window(s) |  |
 | libreoffice | office | finished, 13955 files written |  |
 | adobe-reader | office | stopped | image cannot be moved (no relocations) |
 | 7zip | tools | finished, 107 files written |  |
