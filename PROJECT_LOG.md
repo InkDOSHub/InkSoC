@@ -2,7 +2,7 @@
 
 - Agente executor: GPT-6 (auditoria e documentação).
 - Agente revisor: pendente de revisão independente.
-- Issue/PR: PR draft de infraestrutura de colaboração, a ser aberto nesta branch.
+- Issue/PR: [PR #7 — protocolo de colaboração por eventos](https://github.com/InkDOSHub/InkSoC/pull/7), aberto em draft.
 - Branch: `docs/collaboration-cycle-v1`.
 - Baseline verificada: `main` em `d923a3eae86669d807b15d131400636e8137b74d`.
 - Alteração: adicionados `docs/collaboration/PROTOCOL.md`, `TASK_TEMPLATE.md`, `AUDIT_TEMPLATE.md` e `INTEGRATION_DESIGN.md`. Definem ciclo por eventos, estados, contratos de evidência, auditoria cruzada, idempotência, limites de automação e alternativas de notificação.
