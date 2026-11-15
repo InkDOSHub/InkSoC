@@ -1,23 +1,30 @@
-# Builds the engine (inksoc.wasm and the multi-core inksoc-mt.wasm) after every change
-# to its code, raises their ?v= in worker.js so browsers fetch the new ones, and commits
-# them to main (GitHub Pages then publishes).
+# Builds stable and multi-thread WASM engines. Pull requests validate both variants
+# without write permissions or publication; main pushes publish generated artifacts.
 name: engine
 on:
   push:
     branches: [main]
-    paths: [src/engine/**]
+    paths:
+      - 'src/engine/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/engine/**'
+      - '.github/workflows/engine.yml'
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 concurrency:
-  group: engine
+  group: engine-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Toolchains
+      - name: Install WASM target and toolchains
         run: |
           rustup target add wasm32-unknown-unknown
           rustup toolchain install nightly --profile minimal -c rust-src -t wasm32-unknown-unknown
@@ -29,14 +36,40 @@ jobs:
             src/engine/target
             src/engine/target-mt
           key: engine-${{ hashFiles('src/engine/Cargo.lock') }}
-      - name: Build
+      - name: Build stable WASM engine
         run: |
           cd src/engine
           cargo build --release --target wasm32-unknown-unknown
           cp target/wasm32-unknown-unknown/release/inksoc.wasm ../../
-          sh build-mt.sh
-      - name: Commit
+      - name: Build multi-thread WASM engine
+        run: sh src/engine/build-mt.sh
+      - name: Upload generated engine artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-wasm
+          path: |
+            inksoc.wasm
+            inksoc-mt.wasm
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download generated engine artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: engine-wasm
+          path: .engine-artifacts
+      - name: Commit and publish generated engine
         run: |
+          cp .engine-artifacts/inksoc.wasm .
+          cp .engine-artifacts/inksoc-mt.wasm .
           git diff --quiet -- inksoc.wasm inksoc-mt.wasm && exit 0
           python3 tools/bump-versions.py
           git config user.name "github-actions[bot]"
