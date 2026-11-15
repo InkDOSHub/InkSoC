@@ -41,6 +41,7 @@ jobs:
           x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_A -DCASE_OUTSIDE -o tests/startup/startup-info-badptr-a-outside.exe tests/startup/startup-info-badptr.c
           x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_W -DCASE_WINDOW_END -o tests/startup/startup-info-badptr-w-window-end.exe tests/startup/startup-info-badptr.c
           x86_64-w64-mingw32-gcc -O2 -Wall -DPROBE_W -DCASE_OUTSIDE -o tests/startup/startup-info-badptr-w-outside.exe tests/startup/startup-info-badptr.c
+          x86_64-w64-mingw32-gcc -O2 -Wall -o tests/startup/virtualalloc-api.exe tests/startup/virtualalloc-api.c
       - name: Run startup probes in InkSoC
         env:
           LIMIT: "90"
@@ -101,4 +102,13 @@ jobs:
                   print(f"bad pointer {api.upper()} {case}: {verdict}")
                   if verdict != "ACCESS_VIOLATION":
                       raise SystemExit(f"Bad pointer probe {name} not an access violation ({verdict}): {report}")
+
+          # 4. VirtualAlloc / VirtualFree through the API: commits inside, past and
+          # outside a reservation, repeated commits and decommits, release.
+          report = run(os.path.abspath("tests/startup/virtualalloc-api.exe"), "virtualalloc-api.exe")
+          if report.get("status") != "exit" or report.get("exitCode") != 0:
+              raise SystemExit(f"VirtualAlloc probe failed: {report}")
+          if "VIRTUALALLOC_API_OK" not in report.get("out", ""):
+              raise SystemExit(f"VirtualAlloc probe marker missing: {report}")
+          print("VirtualAlloc API probe: OK")
           PY

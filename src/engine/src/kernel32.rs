@@ -522,7 +522,9 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         // ---- virtual memory ----
         "VirtualAlloc" => {
             let size = e.arg(1);
-            let commit = e.arg(2) & 0x1000 != 0;
+            let kind = e.arg(2);
+            let reserve = kind & 0x2000 != 0;
+            let commit = kind & 0x1000 != 0;
             if a0 == 0 {
                 if commit {
                     e.alloc(size).unwrap_or(0)
@@ -530,24 +532,30 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
                     e.reserve(size).unwrap_or(0)
                 }
             } else if e.mmu.region_of(a0).is_some() {
-                // a range inside an existing reservation: MEM_COMMIT commits it
-                if commit {
-                    e.mmu.commit_range(a0, size);
-                }
-                a0 & !0xFFF
-            } else {
-                let start = a0 & !0xFFFF;
-                let end = (a0 + size + 0xFFFF) & !0xFFFF;
-                if e.mmu.overlaps(start, end) {
+                // inside an existing reservation: only MEM_COMMIT, only within that region
+                if !commit || reserve {
                     e.set_last_error(487);
                     0
                 } else {
-                    if commit {
-                        e.mmu.add_region(start, end - start);
-                    } else {
-                        e.mmu.add_reserved(start, end - start);
+                    match e.mmu.commit_in_region(a0, size) {
+                        Ok(_) => a0 & !0xFFF,
+                        Err(code) => {
+                            e.set_last_error(code);
+                            0
+                        }
                     }
-                    a0
+                }
+            } else if commit && !reserve {
+                // committing an address that was never reserved (ERROR_INVALID_ADDRESS)
+                e.set_last_error(487);
+                0
+            } else {
+                match reserve_at(e, a0, size, commit) {
+                    Ok(()) => a0,
+                    Err(code) => {
+                        e.set_last_error(code);
+                        0
+                    }
                 }
             }
         }
@@ -555,10 +563,11 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             let (size, kind) = (e.arg(1), e.arg(2));
             if kind & 0x8000 != 0 {
                 e.mmu.release_region(a0) as u64
-            } else {
-                e.mmu.decommit_range(a0, size);
-                e.mmu.drop_pages(a0 & !0xFFF, a0 + size);
+            } else if e.mmu.decommit_range(a0, size).is_some() {
                 1
+            } else {
+                e.set_last_error(87);
+                0
             }
         }
         "VirtualProtect" => {
@@ -690,6 +699,25 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
     };
     let _ = PEB;
     Some(r)
+}
+
+/// VirtualAlloc at a fixed address that is not reserved yet: reserves the 64 KB aligned
+/// range and, with MEM_COMMIT, commits the requested pages. A failed commit leaves no
+/// reservation behind. Err: the Windows error code.
+fn reserve_at(e: &mut Engine, a0: u64, size: u64, commit: bool) -> Result<(), u32> {
+    let start = a0 & !0xFFFF;
+    let end = a0.checked_add(size).and_then(|x| x.checked_add(0xFFFF)).ok_or(487u32)? & !0xFFFF;
+    if e.mmu.overlaps(start, end) {
+        return Err(487);
+    }
+    e.mmu.add_reserved(start, end - start);
+    if commit {
+        if let Err(code) = e.mmu.commit_in_region(a0, size) {
+            e.mmu.release_region(start);
+            return Err(code);
+        }
+    }
+    Ok(())
 }
 
 /// ANSI copy of a UTF-16 string held by the process parameters. The copy is made
