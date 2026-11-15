@@ -1,23 +1,29 @@
 # Builds the engine (inksoc.wasm and the multi-core inksoc-mt.wasm) after every change
-# to its code, raises their ?v= in worker.js so browsers fetch the new ones, and commits
-# them to main (GitHub Pages then publishes).
+# to its code. Pushes to main publish generated artifacts; pull requests only validate
+# both build variants and never commit or publish generated files.
 name: engine
 on:
   push:
     branches: [main]
-    paths: [src/engine/**]
+    paths:
+      - 'src/engine/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/engine/**'
+      - '.github/workflows/engine.yml'
   workflow_dispatch:
 permissions:
   contents: write
 concurrency:
-  group: engine
+  group: engine-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Toolchains
+      - name: Install WASM target and toolchains
         run: |
           rustup target add wasm32-unknown-unknown
           rustup toolchain install nightly --profile minimal -c rust-src -t wasm32-unknown-unknown
@@ -29,13 +35,15 @@ jobs:
             src/engine/target
             src/engine/target-mt
           key: engine-${{ hashFiles('src/engine/Cargo.lock') }}
-      - name: Build
+      - name: Build stable WASM engine
         run: |
           cd src/engine
           cargo build --release --target wasm32-unknown-unknown
           cp target/wasm32-unknown-unknown/release/inksoc.wasm ../../
-          sh build-mt.sh
-      - name: Commit
+      - name: Build multi-thread WASM engine
+        run: sh src/engine/build-mt.sh
+      - name: Commit and publish generated engine (main push only)
+        if: github.event_name != 'pull_request'
         run: |
           git diff --quiet -- inksoc.wasm inksoc-mt.wasm && exit 0
           python3 tools/bump-versions.py
