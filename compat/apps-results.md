@@ -1,6 +1,6 @@
 # Common programs on InkSoC
 
-Engine 4ab87a9. Each program is downloaded from its official site and its installer (or the program itself) runs on the engine in Node on GitHub Actions (.github/workflows/compat-apps.yml). "running" = still going at the time limit.
+Engine 2fc7edc. Each program is downloaded from its official site and its installer (or the program itself) runs on the engine in Node on GitHub Actions (.github/workflows/compat-apps.yml). "running" = still going at the time limit.
 
 | Program | Group | Result | Where it stopped |
 |---|---|---|---|
@@ -15,7 +15,7 @@ Engine 4ab87a9. Each program is downloaded from its official site and its instal
 | notepadpp | tools | finished, 239 files written |  |
 | winrar | tools | finished, 28 files written |  |
 | python | tools | exit code 2147746291 |  |
-| rufus | tools | running, 1 window(s) |  |
+| rufus | tools | not run |  |
 | gimp | graphics | exit code 3221225781 |  |
 | krita | graphics | finished, 3459 files written |  |
 | blender | graphics | not run |  |
