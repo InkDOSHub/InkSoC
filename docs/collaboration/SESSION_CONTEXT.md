@@ -1,7 +1,7 @@
 # InkSoC — Contexto operacional de sessão
 
 > Documento de passagem compacto. Não é histórico completo nem fonte superior ao estado atual do GitHub.
-> Atualizado em: 2026-11-15. Baseline observada: `main` = `4776d79412c66b867391ee3e389a0d1a861ba586`.
+> Atualizado em: 2026-11-15 (revisão às 16:47 UTC). `main` observado nesta revisão: `9b9c0944aa5ed75482bc0089d6e96e2da069b047`; a base original deste PR era `4776d79412c66b867391ee3e389a0d1a861ba586`.
 
 ## 1. Projeto em uma frase
 
