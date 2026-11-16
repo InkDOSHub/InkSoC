@@ -215,7 +215,7 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
   // [op][id u32][len u32][data] records (1 connect "host:port", 2 data, 3 close); see net.rs.
   const WISP = /\.workers\.dev$/.test(self.location.hostname) ? `wss://${self.location.host}/net/wisp/` : 'wss://hub.inkdos.workers.dev/net/wisp/';
   let ws = null, wsq = [];
-  const got = new Set(), live = new Set();
+  const got = new Set(), live = new Set(), netMeta = new Map();
   const wsSend = (b) => { if (ws && ws.readyState === 1) ws.send(b); else wsq.push(b); };
   const packet = (t, id, body) => { const b = new Uint8Array(5 + body.length); b[0] = t; new DataView(b.buffer).setUint32(1, id, true); b.set(body, 5); return b; };
   const netIn = (id, kind, d) => { put(d || new Uint8Array(0)); x.win_net_in(id, kind); };
@@ -229,9 +229,19 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
       if (b.length < 5) return;
       const id = new DataView(b.buffer).getUint32(1, true);
       if (b[0] === 2) { got.add(id); netIn(id, 1, b.subarray(5)); }
-      else if (b[0] === 4 && live.delete(id)) { netIn(id, got.has(id) || b[5] === 2 ? 2 : 3); got.delete(id); }
+      else if (b[0] === 4 && live.delete(id)) {
+        const received = got.has(id), reason = b.length > 5 ? b[5] : 0, target = netMeta.get(id) || 'unknown host';
+        if (reason !== 2) post('log', { text: '[network] WISP close ' + target + ' reason=0x' + reason.toString(16).padStart(2, '0') + (received ? ' after data' : ' before data') + '\\n' });
+        netIn(id, received || reason === 2 ? 2 : 3);
+        got.delete(id); netMeta.delete(id);
+      }
     };
-    const lost = () => { ws = null; for (const id of live) netIn(id, got.has(id) ? 2 : 3); live.clear(); got.clear(); wsq = []; };
+    const lost = (event) => {
+      if (ws && live.size) post('log', { text: '[network] WISP WebSocket closed' + (event && event.code ? ' code=' + event.code : '') + (event && event.reason ? ' reason=' + event.reason : '') + '\\n' });
+      ws = null;
+      for (const id of live) netIn(id, got.has(id) ? 2 : 3);
+      live.clear(); got.clear(); netMeta.clear(); wsq = [];
+    };
     ws.onclose = lost;
     ws.onerror = lost;
   };
@@ -246,13 +256,14 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
       if (op === 1) {
         if (!ws) openWs();
         live.add(id);
-        const s = new TextDecoder().decode(d), k = s.lastIndexOf(':'), host = enc(s.slice(0, k)), body = new Uint8Array(3 + host.length);
+        const s = new TextDecoder().decode(d), k = s.lastIndexOf(':'), target = s, host = enc(s.slice(0, k)), body = new Uint8Array(3 + host.length);
+        netMeta.set(id, target);
         body[0] = 1;
         new DataView(body.buffer).setUint16(1, +s.slice(k + 1), true);
         body.set(host, 3);
         wsSend(packet(1, id, body));
       } else if (op === 2) wsSend(packet(2, id, d));
-      else if (op === 3) { got.delete(id); live.delete(id); wsSend(packet(4, id, new Uint8Array([2]))); }
+      else if (op === 3) { got.delete(id); live.delete(id); netMeta.delete(id); wsSend(packet(4, id, new Uint8Array([2]))); }
     }
   };
   x.init(poolMb, targetMb);
