@@ -1,0 +1,42 @@
+name: platform-smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "platform/**"
+      - "desktop.js"
+      - "index.html"
+      - "assets/**"
+      - "tools/platform-smoke.py"
+      - ".github/workflows/platform-smoke.yml"
+  push:
+    branches: [feature/inkdos-breeze-platform]
+    paths:
+      - "platform/**"
+      - "desktop.js"
+      - "index.html"
+      - "assets/**"
+      - "tools/platform-smoke.py"
+      - ".github/workflows/platform-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check shell and bridge JavaScript syntax
+        run: |
+          node --check desktop.js
+          node --check assets/gerenciador-app.js
+          node --check platform/shared/shell-bridge.js
+          node --check platform/apps/zip/worker.js
+          node --check platform/apps/gravador/gravar.js
+      - name: Check app catalog and local entrypoint references
+        run: python3 tools/platform-smoke.py
