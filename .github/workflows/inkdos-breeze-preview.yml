@@ -3,7 +3,7 @@ name: InkDOS Breeze preview (GitHub Pages)
 on:
   push:
     branches:
-      - feature/inkdos-breeze-platform
+      - main
     paths:
       - "platform/**"
       - ".github/workflows/inkdos-breeze-preview.yml"
