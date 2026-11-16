@@ -104,9 +104,17 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             OK
         }
         "NtProtectVirtualMemory" => {
-            let old = e.arg(4);
-            e.w32(old, 4);
-            OK
+            let (base_ptr, size_ptr, new_prot, old_ptr) = (e.arg(1), e.arg(2), e.arg(3) as u32, e.arg(4));
+            let (base, size) = (e.r64(base_ptr), e.r64(size_ptr));
+            if base == 0 || size == 0 { return Some(INVALID_PARAMETER); }
+            let page = base & !0xFFF;
+            let (old_prot, ok) = e.mmu.protect_pages(page, size, new_prot);
+            if ok {
+                e.w32(old_ptr, old_prot);
+                OK
+            } else {
+                INVALID_PARAMETER
+            }
         }
         "NtFlushInstructionCache" | "NtLockVirtualMemory" | "NtUnlockVirtualMemory" => OK,
         "NtQueryVirtualMemory" => {

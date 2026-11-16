@@ -55,13 +55,14 @@ pub struct Jit {
     l1: Vec<(u64, u32)>,
     pub blocks: u64,
     pub failed: u64,
+    pub fallbacks: u64,
     pub bytes: u64,
     pub ms: f64,
 }
 
 impl Default for Jit {
     fn default() -> Jit {
-        Jit { on: true, map: HashMap::new(), hits: HashMap::new(), l1: vec![(u64::MAX, NONE); 4096], blocks: 0, failed: 0, bytes: 0, ms: 0.0 }
+        Jit { on: true, map: HashMap::new(), hits: HashMap::new(), l1: vec![(u64::MAX, NONE); 4096], blocks: 0, failed: 0, fallbacks: 0, bytes: 0, ms: 0.0 }
     }
 }
 
@@ -184,6 +185,7 @@ pub extern "C" fn jit_wr(a: u64, v: u64, size: u32) {
 #[no_mangle]
 pub extern "C" fn jit_step(next: u64) -> u32 {
     let e = crate::eng();
+    e.jit.fallbacks += 1;
     #[cfg(feature = "prof")]
     {
         let rip = e.cpu.rip;

@@ -146,7 +146,7 @@ const TLB_SIZE: usize = 8192;
 struct Pte { frame: u32, slot: u32 }
 
 #[derive(Clone, Copy)]
-struct Frame { vpn: u64, used: bool, referenced: bool, dirty: bool, asid: u32 }
+struct Frame { vpn: u64, used: bool, referenced: bool, dirty: bool, asid: u32, protect: u32 }
 
 // layout read by JIT code: tag @0, add @8, writable @12 (16 bytes).
 // add = host address of the page minus its guest address (mod 2^32): the host
@@ -226,7 +226,7 @@ impl Mmu {
         let sh = Box::leak(Box::new(MmuShared {
             asid: 0,
             pool: vec![0u8; n * PAGE as usize],
-            frames: vec![Frame { vpn: 0, used: false, referenced: false, dirty: false, asid: 0 }; n],
+            frames: vec![Frame { vpn: 0, used: false, referenced: false, dirty: false, asid: 0, protect: 4 }; n],
             free: (0..n as u32).rev().collect(), limbo: Vec::new(),
             hand: 0,
             table: HashMap::new(),
@@ -542,6 +542,29 @@ impl Mmu {
         true
     }
 
+    /// Changes protection on [start, start+size) to new_protect, returning previous protection and success.
+    /// Returns (old_protect, ok); ok is false if any page in the range is not committed.
+    pub fn protect_pages(&mut self, start: u64, size: u64, new_protect: u32) -> (u32, bool) {
+        if size == 0 { return (0, false); }
+        let (s, e) = match page_span(start, size) {
+            Some(x) => x,
+            None => return (0, false),
+        };
+        let mut old_protect = 0u32;
+        for p in (s..e).step_by(PAGE as usize) {
+            let pte = match self.sh.table.get(&p) {
+                Some(pte) => pte,
+                None => return (0, false),
+            };
+            if pte.frame == NONE { return (0, false); }
+            let fi = pte.frame as usize;
+            if old_protect == 0 { old_protect = self.sh.frames[fi].protect; }
+            self.sh.frames[fi].protect = new_protect;
+            self.shoot(p);
+        }
+        (old_protect, true)
+    }
+
     /// Which process's pages new frames belong to (eviction only takes the running one's).
     pub fn set_asid(&mut self, a: u32) { self.sh.asid = a; }
     pub fn flush_tlb(&mut self) { for t in self.tlb.iter_mut() { t.tag = u64::MAX; } }
@@ -567,7 +590,7 @@ impl Mmu {
             };
             let (src, dst) = (pte.frame as usize * PAGE as usize, f as usize * PAGE as usize);
             self.sh.pool.copy_within(src..src + PAGE as usize, dst);
-            self.sh.frames[f as usize] = Frame { vpn, used: true, referenced: false, dirty: true, asid: self.sh.asid };
+            self.sh.frames[f as usize] = Frame { vpn, used: true, referenced: false, dirty: true, asid: self.sh.asid, protect: 4 };
             table.insert(vpn, Pte { frame: f, slot: NONE });
         }
         Some(Space { table, regions: self.sh.regions.clone(), committed: self.sh.committed, commits: self.sh.commits.clone() })
@@ -671,7 +694,7 @@ impl Mmu {
             } else {
                 self.sh.pool[off..off + PAGE as usize].fill(0);
             }
-            self.sh.frames[f as usize] = Frame { vpn, used: true, referenced: false, dirty: false, asid: self.sh.asid };
+            self.sh.frames[f as usize] = Frame { vpn, used: true, referenced: false, dirty: false, asid: self.sh.asid, protect: 4 };
             self.sh.table.get_mut(&vpn).unwrap().frame = f;
             f
         };

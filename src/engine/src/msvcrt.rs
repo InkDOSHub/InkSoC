@@ -25,7 +25,6 @@ pub struct Stream {
     eof: bool,
 }
 
-#[derive(Default)]
 pub struct Crt {
     iob: u64,
     lconv: u64,
@@ -33,21 +32,32 @@ pub struct Crt {
     data: HashMap<String, u64>,
     initterm: Vec<(Vec<u64>, u64)>, // pending constructors, caller rsp
     pub streams: HashMap<u64, Stream>,
-    pending: Option<(u64, u32)>, // a store that crosses a page, done through BOUNCE
+    pending: Option<(u64, u32)>, // a store that crosses a page, done through bounce
+    bounce: [u8; 64],              // per-core bounce buffer (protected by Mmu lock during CPU execution)
 }
 
-static mut BOUNCE: [u8; 64] = [0; 64];
-
-#[allow(static_mut_refs)]
-fn bounce() -> u64 {
-    unsafe { BOUNCE.as_ptr() as u64 }
+impl Default for Crt {
+    fn default() -> Self {
+        Crt {
+            iob: 0,
+            lconv: 0,
+            strerror: 0,
+            data: HashMap::new(),
+            initterm: Vec::new(),
+            streams: HashMap::new(),
+            pending: None,
+            bounce: [0; 64],
+        }
+    }
 }
+
 
 impl Engine {
     fn flush_pending(&mut self) {
         if let Some((a, n)) = self.s.crt.pending.take() {
+            let bounce_ptr = self.s.crt.bounce.as_ptr() as u64;
             for i in 0..n as u64 {
-                let v = unsafe { *(bounce() as *const u8).add(i as usize) };
+                let v = unsafe { *(bounce_ptr as *const u8).add(i as usize) };
                 if self.mmu.write8(a + i, v).is_err() {
                     self.fault(a + i);
                 }
@@ -60,12 +70,13 @@ impl Engine {
         if addr < WINE_PRIVATE_END {
             return addr;
         }
+        let bounce_ptr = self.s.crt.bounce.as_ptr() as u64;
         if (addr & 0xFFF) + bytes as u64 <= 4096 {
             return match self.mmu.host_addr(addr, write) {
                 Ok(h) => h,
                 Err(_) => {
                     self.fault(addr);
-                    bounce()
+                    bounce_ptr
                 }
             };
         }
@@ -82,11 +93,11 @@ impl Engine {
                     }
                 };
                 unsafe {
-                    *(bounce() as *mut u8).add(i as usize) = v;
+                    *(bounce_ptr as *mut u8).add(i as usize) = v;
                 }
             }
         }
-        bounce()
+        bounce_ptr
     }
 
     /// Byte access that works for program and Wine-private addresses.

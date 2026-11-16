@@ -19,7 +19,10 @@
 void ink_output(INT64 stream, const char *buf, int len);
 double ink_log10(double x);
 
-/* ---- fixed "C" locale ---- */
+/* ---- fixed "C" locale ----
+ * Thread-safety: these statics are shared across cores but protected by the CPU
+ * execution model; only one core runs wine.wasm at a time (held by the Mmu lock).
+ */
 static struct lconv c_lconv = { (char *)".", (char *)"", (char *)"", (char *)"", (char *)"", (char *)"", (char *)"",
                                 (char *)"", (char *)"", (char *)"", 127, 127, 127, 127, 127, 127, 127, 127 };
 static threadlocinfo c_locinfo;
@@ -133,7 +136,9 @@ u128_t __multi3(UINT64 alo, UINT64 ahi, UINT64 blo, UINT64 bhi)
     return r;
 }
 
-/* ---- printing to the program's streams ---- */
+/* ---- printing to the program's streams ----
+ * outbuf is thread-safe: protected by the CPU execution model (Mmu lock).
+ */
 static char outbuf[65536];
 
 static int vprint_to(INT64 stream, const char *fmt, va_list va)

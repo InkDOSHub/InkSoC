@@ -7,7 +7,7 @@
 # Needs clang/llc/wasm-ld 18, binaryen (wasm-opt, wasm-dis, wasm-as) and git.
 set -e
 cd "$(dirname "$0")"
-TAG=wine-10.0
+TAG=wine-11.0
 W=.cache/wine
 if [ ! -d $W ]; then
   git clone -q --depth 1 --filter=blob:none --sparse -b $TAG https://github.com/wine-mirror/wine.git $W
