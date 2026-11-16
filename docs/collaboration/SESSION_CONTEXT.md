@@ -1,106 +1,77 @@
-# InkSoC — Contexto operacional de sessão
+# InkSoC — contexto operacional
 
-> Documento de passagem compacto. Não é histórico completo nem fonte superior ao estado atual do GitHub.
-> Atualizado em: 2026-11-15. `main` observado: `9b9c0944aa5ed75482bc0089d6e96e2da069b047`.
-> Os estados e SHAs abaixo são snapshots; revalidar antes de qualquer ação.
+> Resumo técnico para continuidade. Não é transcrição de conversas nem histórico completo.
+> Atualizado em 2026-11-16. Baseline consultada: `main` em `6f96656504a247f0d2a116b441e3d01e7e190841`.
+> Revalidar branches, PRs, workflows e SHA antes de cada alteração.
 
-## 1. Projeto em uma frase
+## 1. Projeto
 
-Engine x86-64 própria em Rust/WebAssembly, com JIT, suporte a código 32-bit/WoW64 e componentes Wine, executada no browser com foco em WebKit/iPhone/iPad.
+Engine x86-64 em Rust/WebAssembly, JIT, suporte a código 32-bit/WoW64 e componentes Wine, executada no navegador, com foco em WebKit/iPhone/iPad. Drive C: e dados de programas ficam no armazenamento privado do navegador (OPFS).
 
-## 2. Fonte de verdade — consultar antes de agir
+## 2. Responsabilidades atuais
 
-1. `main`, commits, branches, PRs e GitHub Actions atuais.
-2. `docs/collaboration/PROTOCOL.md`: fluxo humano-assistido e regras de governança.
-3. `PROJECT_LOG.md`: histórico resumido; pode conter registros antigos.
-4. `ROADMAP.md`: prioridades técnicas, não autorização automática.
-5. `VALIDATION_MATRIX.md`: níveis e critérios de validação.
-6. Código, testes e workflows da área afetada.
+- **Mantenedor humano:** define prioridades, fornece validação no dispositivo real e mantém a decisão final sobre merge/publicação.
+- **GPT-6:** responsável pela condução técnica nesta etapa: investiga o repositório, propõe arquitetura, implementa diretamente em branches autorizadas, revisa diffs, acompanha GitHub Actions e reporta limites/evidências.
+- **GitHub:** fonte de verdade para código, histórico, PRs e resultados automatizados.
+- **GitHub Actions:** builds e testes reproduzíveis associados a SHAs.
 
-Este arquivo é um índice operacional, não um substituto do GitHub.
+Claude Code não é mais dependência operacional deste projeto. Não criar tarefas que dependam de créditos, execução ou resposta desse agente.
 
-## 3. Papéis e fluxo real
+## 3. Fluxo de trabalho e confiabilidade
 
-- **Mantenedor:** define prioridades, transfere tarefas entre agentes e autoriza merges.
-- **GPT-6:** investiga GitHub, lê código/diffs/Actions, planeja, especifica e audita.
-- **Claude Code:** executor numa máquina na nuvem com repositório clonado; recebe tarefas manualmente e implementa em branch autorizada.
-- **GitHub Actions:** executa builds e testes automatizados vinculados a SHAs.
-- **GitHub:** memória persistente e fonte de verdade do projeto.
+1. Consultar o estado real de `main`, branches, PRs e Actions.
+2. Definir uma alteração lógica por branch/PR, com hipótese, arquivos afetados, riscos e critérios de aceitação.
+3. Implementar em branch isolada; nunca editar `main` diretamente, fazer force-push ou reescrever histórico.
+4. Rodar verificações locais disponíveis e workflows automatizados; vincular resultados ao SHA exato.
+5. Revisar o diff e os efeitos colaterais; atualizar documentação de estado com fatos verificáveis.
+6. Mantenedor testa no Safari/iPhone/iPad quando o cenário depende do dispositivo real.
+7. Merge em `main` somente após autorização explícita e específica.
 
-Fluxo: GPT-6 verifica estado → define tarefa delimitada → mantenedor transfere para Claude → Claude implementa em branch e abre/atualiza PR draft → Actions valida → GPT-6 audita diretamente no GitHub.
+A autorização geral para conduzir o projeto permite investigar e implementar em branches e abrir PRs. Não equivale a autorização irrestrita para apagar dados, alterar segredos/configurações administrativas, reescrever histórico ou fazer merge sem confirmação específica.
 
-Não existe Claude Code GitHub Action instalada; comentário `@claude` não inicia execução. Não há despacho automático nem fluxo de e-mail dedicado.
+## 4. Prioridades técnicas conhecidas
 
-## 4. Economia de créditos e contexto
+### P0 — Steam e transporte de rede
+- Logs de 2026-11-15 mostram Steam Setup com exit code 1 e falhas de download de `bins_cef_win32_win7-64` e `bins_webhelpers_win32_win7-64` com zero bytes recebidos, apesar de respostas reportadas como HTTP 200.
+- Isso sugere investigar o caminho de rede/stream antes de continuar ajustando apenas geometria da janela. A causa ainda não está diagnosticada.
+- Transporte TCP do engine está em `src/engine/src/net.rs`; a ponte browser/túnel está em `worker.js`. Verificar fluxo WISP, buffers, encerramento, backpressure, DNS, TLS, HTTP e downloads maiores.
+- Não repetir calibração que force o navegador a esgotar memória. A calibração anterior provocou reload deliberado da aba.
 
-- GPT-6 faz investigação e auditoria diretamente no GitHub sempre que possível.
-- Claude Haiku 5.5 atua como executor de tarefas delimitadas, não como agente de exploração.
-- Uma tarefa por vez, com escopo, arquivos permitidos/proibidos e comandos definidos.
-- Não repetir leituras, buscas, builds ou testes ainda válidos para o mesmo SHA.
-- Sem refatorações oportunistas ou expansão de escopo.
-- Diante de conflito, bloqueio ou ambiguidade, parar e relatar.
-- Relatório mínimo: branch, SHA, arquivos alterados, comandos/resultados, links de Actions e limitações.
-- Economizar tokens sem reduzir testes, revisão independente ou segurança.
+### P1 — abertura de arquivos e integração com InkDOS Hub
+- InkDOS Hub já possui launcher por extensão, handoff por IndexedDB e aplicativos web de texto, documentos, PDF, planilhas, apresentações, EPUB, imagens, mídia e código.
+- Referências no Hub: `inicio/lancador.js`, `inkdos/apps/txt/`, `inkdos/apps/documents/`, `inkdos/apps/pdf/`, `inkdos/apps/spreadsheets/`, `apps/codigo/`.
+- InkSoC mantém C: em OPFS sob `inksoc-c`; integração precisa de uma ponte explícita e segura entre o drive virtual e os apps do Hub. Não presumir que compartilhar IndexedDB ou origem já resolve permissões, isolamento, persistência ou salvamento de volta.
+- Objetivo: abrir/visualizar e, quando suportado, editar/salvar arquivos sem perder dados ou quebrar o isolamento entre aplicativos.
 
-## 5. Regras invioláveis
+### P1 — monitor de recursos
+- Distinguir memória residente do engine, heap WASM, heap JavaScript, swap/OPFS, armazenamento virtual C: e quota/uso do site.
+- Não chamar memória configurada de memória física do dispositivo.
+- Rede deve medir bytes efetivamente encaminhados pelo túnel.
+- GPU real por processo e disco físico do dispositivo podem não ser expostos pelo navegador; mostrar indisponível quando não houver fonte confiável, nunca inventar zero.
 
-1. Nunca editar `main` diretamente; usar branch isolada e PR.
-2. Nunca fazer merge sem autorização explícita e específica do mantenedor.
-3. Não fazer force-push nem reescrever histórico sem autorização.
-4. Uma mudança lógica por PR; não ampliar escopo.
-5. Não remover/enfraquecer testes para obter CI verde.
-6. Distinguir identificado, diagnosticado, implementado, compilado, testado, validado e confirmado funcionalmente.
-7. Conferir evidências de CI no SHA exato.
-8. Classificar falhas: CODE, TEST, INFRA, NETWORK, TIMEOUT, ENVIRONMENT ou UNKNOWN.
-9. Build/instalação concluídos não provam compatibilidade funcional.
-10. Registrar decisões duradouras e marcos verificáveis no GitHub.
+### P2 — shell, descoberta e atalhos
+- Rever descoberta de aplicativos para priorizar atalhos reais do Menu Iniciar/Desktop e entry points conhecidos, evitando listar executáveis auxiliares como aplicativos independentes.
+- Criar atalhos de forma persistente e documentar o alvo real.
+- Corrigir caminhos inválidos e garantir navegação coerente pelo C:.
 
-## 6. Estado dos trabalhos no snapshot
+### P3 — compatibilidade
+- Construir matriz por aplicativo, versão, arquitetura, instalação, inicialização, interface, rede, I/O e encerramento.
+- Build ou instalação concluídos não significam compatibilidade funcional.
+- Não declarar suporte genérico a Windows; publicar apenas cenários efetivamente testados.
 
-### PR #6 — build WASM stable + multi-thread em PRs
+## 5. Estado do repositório na última consulta
 
-- PR: https://github.com/InkDOSHub/InkSoC/pull/6
-- Branch: `ci/pr-engine-build-stable-mt`
-- Head: `8782e11f17821a967013a6d3dcc968d9c1c6a64b`; base `main`: `9b9c0944aa5ed75482bc0089d6e96e2da069b047`.
-- Aberto, draft, não mergeado; diff restrito a `.github/workflows/engine.yml` (43 adições, 10 remoções); `mergeable: true`.
-- Run #43737980582, vinculada ao SHA exato: workflow SUCCESS; job `build` SUCCESS; builds stable e multi-thread SUCCESS; upload SUCCESS; job `publish` SKIPPED (esperado em `pull_request`).
-- Artefato `engine-wasm`: 1.164.229 bytes; SHA-256 `ea51a491097ea84a1dce9b6e09f7d19cde454c69a707ee06e19678ff4d36e095`.
-- Auditoria GPT-6 ACCEPTED registrada no PR e vinculada ao head `8782e11`.
-- Evidência valida somente o escopo de CI/build e geração do artefato. Não houve validação funcional do engine no navegador. Merge depende de autorização explícita.
+- `main`: `6f96656504a247f0d2a116b441e3d01e7e190841`.
+- PRs #2 e #3 estavam abertos em 2026-11-16; seus SHAs-base não coincidiam com o HEAD atual de `main`. Reavaliar diff, ancestralidade e checks antes de reutilizar ou integrar.
+- Graphify está em `src/engine/src/graphify-out`; usá-lo para navegação do engine antes de releituras amplas.
 
-### PR #8 — este documento de contexto
+## 6. Privacidade em repositório público
 
-- PR: https://github.com/InkDOSHub/InkSoC/pull/8
-- Branch: `docs/session-context`.
-- Aberto, draft, não mergeado; um arquivo (`docs/collaboration/SESSION_CONTEXT.md`).
-- Esta atualização registra o resultado final da run #43737980582 e sincroniza os snapshots dos PRs #6, #9 e #10.
-- O head atual e a mergeabilidade devem ser consultados diretamente no GitHub antes de novas ações; esta atualização não altera `main`.
+- Não publicar transcrições de conversa, contexto pessoal, nomes reais, e-mails, identificadores de conta, endereços, caminhos locais, nomes privados de arquivos, tokens, credenciais ou dados de terceiros.
+- Logs públicos devem ser técnicos, mínimos e anonimizados; usar rótulos como `mantenedor`, dados sintéticos e caminhos fictícios.
+- Não anexar screenshots, PDFs ou arquivos reais do usuário a Issues/PRs. Reproduzir problemas com arquivos sintéticos.
+- Histórico Git já publicado não é apagado por editar um arquivo atual; qualquer dado sensível encontrado deve ser avaliado separadamente, sem reescrita de histórico sem autorização e plano específico.
 
-### PR #9 — correção do PROJECT_LOG
+## 7. Regra de evidência
 
-- PR: https://github.com/InkDOSHub/InkSoC/pull/9
-- Branch: `docs/project-log-pr7-merge`; head observado: `3108dea01a06837164b7f16317e202e652c7fd4f`.
-- Aberto, draft, não mergeado; altera somente `PROJECT_LOG.md` (13 adições, 0 remoções); `mergeable: true`.
-- Registra que PR #7 foi integrado via squash em `4776d79412c66b867391ee3e389a0d1a861ba586`.
-
-### PR #10 — harmonização do guia de colaboração
-
-- PR: https://github.com/InkDOSHub/InkSoC/pull/10
-- Branch: `docs/harmonize-ai-collaboration`; head observado: `534ce17148b12cab80a63ff78071da201189dc49`.
-- Aberto, draft, não mergeado; altera somente `AI_COLLABORATION.md` (92 adições, 128 remoções); `mergeable: true`.
-- Alinha o guia ao protocolo operacional atual, substituindo referências antigas a Claude Opus por Claude Code.
-
-### PR #7 — protocolo de colaboração
-
-- Integrado em 2026-11-15 via squash merge.
-- Merge commit em `main`: `4776d79412c66b867391ee3e389a0d1a861ba586`.
-
-## 7. Como iniciar uma nova sessão
-
-Mensagem sugerida:
-
-> Vamos continuar o InkSoC. Leia primeiro `docs/collaboration/SESSION_CONTEXT.md` no GitHub, depois consulte o estado atual de main, PRs, branches e Actions. Use o GitHub como fonte de verdade, revalide SHAs e continue da próxima ação autorizada. Não repita análises ainda válidas nem presuma que os snapshots continuam atuais.
-
-## 8. Atualização deste arquivo
-
-Atualizar em marcos relevantes (merge, novo PR prioritário, mudança de protocolo, decisão arquitetural ou mudança do fluxo de trabalho). Manter curto; substituir estados antigos em vez de acumular diário. Registrar data e SHA-base observado. Não copiar logs extensos nem declarar testes sem evidência.
+Distinguir sempre: identificado, diagnosticado, implementado, compilado, testado, validado e confirmado funcionalmente. Relatórios devem registrar SHA, comandos/testes, resultados, Actions e limitações. Nunca afirmar que algo foi testado no Safari ou no dispositivo do mantenedor sem evidência fornecida por ele.
