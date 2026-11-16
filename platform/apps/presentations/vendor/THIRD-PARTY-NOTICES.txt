@@ -1,0 +1,1 @@
+This folder bundles JSZip. Its license text is in ../../licenses/JSZIP.txt. Font licenses are beside the font files.

@@ -1,0 +1,4 @@
+Shared InkDOS app services adapted from https://github.com/InkDOSHub/inkdoshub.github.io
+Source revision: 3a827c9867ed7dac51479586c2388be39ea6278d
+Original path: inkdos/shared/
+Adapted for InkDOS Breeze; see the Git history for shell integration changes.

@@ -1,0 +1,1 @@
+This folder bundles Pako. Its license text is in ../../licenses/PAKO.txt.

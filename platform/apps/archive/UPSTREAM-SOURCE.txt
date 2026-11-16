@@ -1,0 +1,4 @@
+Source repository: https://github.com/InkDOSHub/inkdoshub.github.io
+Source revision: 3a827c9867ed7dac51479586c2388be39ea6278d
+Original app path: apps/zip/
+The app was adapted to run inside InkDOS Breeze. See the repository history for integration changes.
