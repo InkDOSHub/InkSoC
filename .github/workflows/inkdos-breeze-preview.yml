@@ -29,6 +29,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: feature/inkdos-breeze-platform
+      - name: Record preview source revision
+        run: echo "Published source commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
       - name: Upload Breeze static site
