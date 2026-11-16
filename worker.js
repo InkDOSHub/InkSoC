@@ -231,13 +231,13 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
       if (b[0] === 2) { got.add(id); netIn(id, 1, b.subarray(5)); }
       else if (b[0] === 4 && live.delete(id)) {
         const received = got.has(id), reason = b.length > 5 ? b[5] : 0, target = netMeta.get(id) || 'unknown host';
-        if (reason !== 2) post('log', { text: '[network] WISP close ' + target + ' reason=0x' + reason.toString(16).padStart(2, '0') + (received ? ' after data' : ' before data') + '\\n' });
+        if (reason !== 2) post('log', { text: '[network] WISP close ' + target + ' reason=0x' + reason.toString(16).padStart(2, '0') + (received ? ' after data' : ' before data') + '\n' });
         netIn(id, received || reason === 2 ? 2 : 3);
         got.delete(id); netMeta.delete(id);
       }
     };
     const lost = (event) => {
-      if (ws && live.size) post('log', { text: '[network] WISP WebSocket closed' + (event && event.code ? ' code=' + event.code : '') + (event && event.reason ? ' reason=' + event.reason : '') + '\\n' });
+      if (ws && live.size) post('log', { text: '[network] WISP WebSocket closed' + (event && event.code ? ' code=' + event.code : '') + (event && event.reason ? ' reason=' + event.reason : '') + '\n' });
       ws = null;
       for (const id of live) netIn(id, got.has(id) ? 2 : 3);
       live.clear(); got.clear(); netMeta.clear(); wsq = [];

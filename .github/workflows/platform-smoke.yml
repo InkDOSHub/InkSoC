@@ -34,6 +34,7 @@ jobs:
       - name: Check shell and bridge JavaScript syntax
         run: |
           node --check desktop.js
+          node --check worker.js
           node --check assets/gerenciador-app.js
           node --check platform/shared/shell-bridge.js
           node --check platform/apps/zip/worker.js
