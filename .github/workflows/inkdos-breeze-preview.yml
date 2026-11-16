@@ -1,0 +1,40 @@
+name: InkDOS Breeze preview (GitHub Pages)
+
+on:
+  push:
+    branches:
+      - feature/inkdos-breeze-platform
+    paths:
+      - "platform/**"
+      - ".github/workflows/inkdos-breeze-preview.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: inkdos-breeze-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout preview source
+        uses: actions/checkout@v4
+        with:
+          ref: feature/inkdos-breeze-platform
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload Breeze static site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: platform
+      - name: Deploy preview
+        id: deployment
+        uses: actions/deploy-pages@v4
