@@ -1,0 +1,7 @@
+7-Zip WebAssembly runtime
+Upstream: https://github.com/InkDOSHub/inkdoshub.github.io
+Pinned commit: 3a827c9867ed7dac51479586c2388be39ea6278d
+Binary: apps/zip/7z/7zz.wasm
+The binary is fetched from this immutable source revision when the archive worker starts.
+Archive processing is local to the browser; this loader does not upload user files.
+See License.txt and unRarLicense.txt for upstream license terms.

@@ -10,7 +10,7 @@ var linhas = [];
 function estado(t, p) { postMessage({ estado: t, p: p }); }
 async function novo() {
   linhas = [];
-  return SevenZip({ locateFile: function (f) { return /\.wasm(?:$|\?)/.test(f) ? "https://raw.githubusercontent.com/InkDOSHub/inkdoshub.github.io/main/apps/zip/7z/7zz.wasm" : "7z/" + f; }, print: function (t) { linhas.push(t); }, printErr: function (t) { linhas.push(t); } });
+  return SevenZip({ locateFile: function (f) { return /\.wasm(?:$|\?)/.test(f) ? "https://raw.githubusercontent.com/InkDOSHub/inkdoshub.github.io/3a827c9867ed7dac51479586c2388be39ea6278d/apps/zip/7z/7zz.wasm" : "7z/" + f; }, print: function (t) { linhas.push(t); }, printErr: function (t) { linhas.push(t); } });
 }
 function montar(sz, arq) {
   var FS = sz.FS;

@@ -126,15 +126,7 @@
     };
   }
 
-  /* ArtCraft editor by file extension. */
-  function editorDe(nome) {
-    var e = String(nome || "").toLowerCase().split(".").pop();
-    if (/^(xlsx|xlsm|xls|ods|csv|tsv)$/.test(e)) return "gridcraft";
-    if (/^(deckcraft|pptx|ppsx|ppt|odp|key)$/.test(e)) return "deckcraft";
-    return "wordcraft";
-  }
-
-  /* Used by the home screen (inicio/) and the InkDOS apps (ArtCraft editors). */
+  /* Shared app navigation exposed to the shell and standard app pages. */
   window.InkPaginas = {
     raiz: RAIZ,
     apps: APPS,
@@ -143,19 +135,6 @@
       var a = appDe(id); if (!a) return;
       var u = new URL(a.url, RAIZ).href;
       abrirUrl(u, "inkdoshub-" + id);
-    },
-    /* The InkDOS app stored the document in the "inkdos-tool-handoff" IndexedDB, read by assets/artcraft-host.js.
-       win: the tab opened on tap, before reading the document. */
-    abrirEditor: function (info, win) {
-      var url = new URL("apps/" + editorDe(info.nome) + "/?inkdos-handoff=" + encodeURIComponent(info.id), RAIZ).href;
-      if (win && !win.closed) {
-        win.location.replace(url);
-        try { win.focus(); } catch (_) {}
-        return;
-      }
-      var w = null;
-      if (novaAba) try { w = window.open(url, "_blank"); } catch (_) {}
-      if (!w) location.href = url;
     },
   };
 })();
