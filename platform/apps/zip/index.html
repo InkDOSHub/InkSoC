@@ -48,7 +48,7 @@
 <link rel="icon" type="image/svg+xml" href="../../../assets/icones-inkdos/zip.svg"></head>
 <body class="ink-app" data-idioma data-simbolo="../../../assets/icones-inkdos/zip.svg">
 <header class="ink-bar">
-  <a class="ink-home" href="../../../index.html" target="_top" data-icone="voltar">InkDOS Hub</a>
+  <a class="ink-home inkdos-hub-link" href="../../../index.html" target="_top" data-icone="voltar">InkDOS Hub</a>
   <span class="ink-title">Zip</span>
   <span class="ink-spacer"></span>
   <details class="i solto"><summary title="About" aria-label="About">i</summary><div class="pop"><p>Opens and creates compressed archives with 7-Zip, on this device. Opens .zip, .rar, .7z, .tar, .gz, .bz2, .xz, .tgz and many others (iso, cab, dmg, arj, lzh, wim...). Creates .zip, .7z, .tar and .tar.xz, with an optional password for .zip and .7z. RAR files can only be opened: the RAR format is proprietary and only WinRAR can create it. Files are processed on the device's disk, a piece at a time, so large archives work too. 7-Zip is free software (LGPL and unRAR license).</p></div></details>
@@ -107,5 +107,6 @@
 <input type="file" id="mais" multiple>
 <input type="file" id="pasta" webkitdirectory multiple>
 <script src="app.js?v=5"></script>
+<script src="../../shared/shell-bridge.js"></script>
 </body>
 </html>

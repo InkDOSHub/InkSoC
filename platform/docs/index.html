@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<title>Documentação · InkDOS Breeze</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#1d2939;background:#eef2f7;--line:#dbe3ee;--blue:#2563eb;--muted:#65758b;--panel:#fff}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#eef3f9,#e4ebf5);min-height:100vh}
+header{height:58px;display:flex;align-items:center;gap:12px;padding:0 20px;background:rgba(255,255,255,.9);border-bottom:1px solid var(--line);position:sticky;top:0;backdrop-filter:blur(14px)}
+header strong{font-size:15px}header span{color:var(--muted);font-size:13px}
+main{max-width:980px;margin:0 auto;padding:24px 18px 48px}
+.hero{padding:24px;border-radius:20px;background:linear-gradient(125deg,#fff,#eaf2ff);border:1px solid var(--line);box-shadow:0 12px 30px rgba(31,55,88,.07)}
+.hero h1{margin:0 0 8px;font-size:26px}.hero p{margin:0;color:#52647b;line-height:1.6;max-width:760px}
+h2{font-size:18px;margin:26px 0 12px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px;text-align:left;box-shadow:0 3px 10px rgba(31,55,88,.035)}
+button.card{font:inherit;color:inherit;cursor:pointer;width:100%}button.card:hover{border-color:#9bbcf5;background:#fafdff}
+.card strong{display:block;margin-bottom:5px}.card p{font-size:13px;line-height:1.5;color:var(--muted);margin:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-top:10px}
+ul{padding-left:20px;margin:8px 0}li{margin:8px 0;line-height:1.5;color:#47566b}code{font-size:12px;background:#f0f4fa;padding:2px 5px;border-radius:5px;color:#24446f}
+.note{font-size:13px;color:var(--muted);line-height:1.55}
+.tag{display:inline-block;font-size:11px;color:#1d4ed8;background:#eaf2ff;padding:4px 8px;border-radius:20px;margin-bottom:8px}
+@media(max-width:520px){main{padding:14px 12px 32px}.hero{padding:18px}.hero h1{font-size:22px}header{padding:0 14px}}
+</style>
+</head>
+<body>
+<header><strong>InkDOS Breeze</strong><span>Central de documentação</span></header>
+<main>
+<section class="hero">
+<span class="tag">GUIA INTERNO</span>
+<h1>Aplicativos e extensões</h1>
+<p>Esta documentação acompanha a versão do sistema. Abra um aplicativo pelos cartões abaixo. Os módulos e extensões compatíveis são carregados pelo próprio aplicativo, dentro da janela da shell — não é necessário iniciar ferramentas separadas.</p>
+</section>
+<h2>Aplicativos padrão</h2>
+<div class="grid">
+<button class="card" data-inkdos-open="documents"><strong>Documentos</strong><p>Criação e edição de DOCX, RTF e documentos compatíveis.</p></button>
+<button class="card" data-inkdos-open="spreadsheets"><strong>Planilhas</strong><p>Planilhas, fórmulas, importação e exportação de arquivos.</p></button>
+<button class="card" data-inkdos-open="presentations"><strong>Apresentações</strong><p>Edição de slides e modo de apresentação.</p></button>
+<button class="card" data-inkdos-open="pdf"><strong>PDF</strong><p>Leitura, anotações e ferramentas de páginas.</p></button>
+<button class="card" data-inkdos-open="txt"><strong>Texto simples</strong><p>Leitura e edição de arquivos de texto, inclusive arquivos grandes.</p></button>
+<button class="card" data-inkdos-open="epub"><strong>Leitor EPUB</strong><p>Leitura, navegação, marcadores e anotações.</p></button>
+<button class="card" data-inkdos-open="zip"><strong>Arquivos e ZIP</strong><p>Abrir e criar arquivos compactados; o motor 7-Zip é carregado quando necessário.</p></button>
+<button class="card" data-inkdos-open="gravador"><strong>Gravador</strong><p>Gravação de microfone e captura de áudio quando o navegador oferece suporte.</p></button>
+<button class="card" data-inkdos-open="inkcam"><strong>Webcam</strong><p>Acesso à câmera e aos recursos de compartilhamento disponíveis.</p></button>
+</div>
+<h2>Extensões integradas</h2>
+<div class="panel">
+<ul>
+<li><b>Documentos:</b> módulos de edição DOCX, estrutura de seções e comandos do documento carregados junto ao editor.</li>
+<li><b>PDF:</b> revisão e anotações, além das ações de excluir, extrair, mesclar, mover, girar e dividir páginas.</li>
+<li><b>Planilhas:</b> avaliador de fórmulas e módulos de importação/exportação XLS e XLSX.</li>
+<li><b>Apresentações:</b> módulos de edição e controle de apresentação de slides.</li>
+<li><b>EPUB:</b> navegação, estado de leitura, marcadores e anotações.</li>
+<li><b>Texto:</b> suporte de visualização para arquivos extensos.</li>
+</ul>
+<p class="note">Esses recursos são módulos internos dos aplicativos padrão. A documentação não promete compatibilidade com extensões externas arbitrárias; cada módulo precisa ser compatível com o aplicativo que o executa.</p>
+</div>
+<h2>Ajuda dentro dos aplicativos</h2>
+<div class="panel">
+<p class="note">Nos aplicativos Documentos, PDF, Planilhas, Apresentações e EPUB, abra o menu do próprio aplicativo e procure a opção de ajuda. A explicação específica do aplicativo fica junto de seus comandos. Esta central reúne a visão geral e permite abrir cada aplicativo diretamente.</p>
+</div>
+<h2>Sobre o InkSoC</h2>
+<div class="panel">
+<p class="note">O InkDOS Breeze prioriza aplicativos web e WebAssembly. O InkSoC é apenas um runtime experimental para tentar executar alguns instaladores e programas Windows. Não é Wine nem um Windows completo; programas podem falhar por APIs ausentes, rede, gráficos ou limitações do navegador. O uso de arquivos e permissões continua sujeito ao navegador e ao sistema do dispositivo.</p>
+</div>
+</main>
+<script src="../shared/shell-bridge.js"></script>
+</body></html>

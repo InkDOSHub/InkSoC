@@ -6,8 +6,8 @@
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/inkdoshub-icone-32.png?v=8">
 <title>InkSoC · InkDOS Hub</title>
 <style>
-  :root{--bg:#fff;--fg:#111;--muted:#666;--border:#ddd;--accent:#7c3aed;--soft:#ede9fe;--softfg:#5b21b6;--bar:rgba(255,255,255,.92);--menu:#fff;--hover:#f3f0ff;--desk:#3a6ea5}
-  @media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#111;--fg:#eee;--muted:#999;--border:#333;--soft:#2e1065;--softfg:#ddd6fe;--bar:rgba(28,28,30,.92);--menu:#1c1c1e;--hover:#2e1065}}
+  :root{--bg:#fff;--fg:#111;--muted:#666;--border:#ddd;--accent:#2563eb;--soft:#dbeafe;--softfg:#1d4ed8;--bar:rgba(248,250,252,.94);--menu:#fff;--hover:#eff6ff;--desk:#dce6f2}
+  @media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#111;--fg:#eee;--muted:#999;--border:#333;--soft:#1e3a8a;--softfg:#dbeafe;--bar:rgba(24,32,44,.94);--menu:#202a38;--hover:#26364a}}
   :root[data-theme=dark]{--bg:#111;--fg:#eee;--muted:#999;--border:#333;--soft:#2e1065;--softfg:#ddd6fe;--bar:rgba(28,28,30,.92);--menu:#1c1c1e;--hover:#2e1065}
   *{box-sizing:border-box}
   html,body{height:100%}
@@ -123,6 +123,13 @@
   .con.win .frow.sel{background:#cfe0fa}
   .con.win .frow button{color:#555}
   .con.win .frow .z{color:#777}
+  .con.webapp{width:min(960px,calc(100% - 24px));height:min(700px,calc(100% - 24px));background:#eef1f5;color:#172033}
+  .con.webapp .t{flex:none;background:#e8edf5;color:#172033;border-bottom:1px solid #d5deea}
+  .con.webapp .t button{color:#34445d}
+  .con.webapp iframe{display:block;flex:1;width:100%;min-height:0;border:0;background:#eef1f5}
+  #inkapps{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+  #inkapps .it{min-width:0}
+  @media(max-width:520px){.con.webapp{width:calc(100% - 12px);height:calc(100% - 12px);left:6px!important;top:6px!important}#inkapps{grid-template-columns:1fr}}
   .con.win .empty{color:#888}
   .con.win.drop .flist{outline:2px dashed #6b8fd6;outline-offset:-4px}
   .sym{display:inline-block;width:16px;height:16px;flex:none;background:currentColor;-webkit-mask:var(--s) center/contain no-repeat;mask:var(--s) center/contain no-repeat;vertical-align:-3px}
@@ -185,13 +192,15 @@
 </style>
 </head>
 <body>
-<div class="top"><a href="/">&lt; InkDOS Hub</a><b class="ttl"><img class="ic" src="icons/computer.svg" alt="">InkSoC</b><span class="r"><button id="more" title="Menu"><i class="sym" style="--s:url(icons/sym/open-menu-symbolic.svg)"></i></button></span></div>
+<div class="top"><a href="/">&lt; InkDOS Hub</a><b class="ttl"><img class="ic" src="icons/computer.svg" alt="">InkDOS Breeze</b><span class="r"><button id="more" title="Menu"><i class="sym" style="--s:url(icons/sym/open-menu-symbolic.svg)"></i></button></span></div>
 <div id="desk"><div id="icons"></div></div>
 <div class="pop" id="menu" hidden>
   <input type="search" id="find" placeholder="Search programs" autocomplete="off" spellcheck="false">
   <div class="mh">Installed programs</div>
   <div id="installed"></div>
-  <div class="mh">Windows</div>
+  <div class="mh">InkDOS apps</div>
+  <div id="inkapps"></div>
+  <div class="mh">System tools</div>
   <button class="it" data-tool="files"><img class="ic" src="icons/system-file-manager.svg" alt="">File Explorer</button>
   <button class="it" data-tool="console"><img class="ic" src="icons/utilities-terminal.svg" alt="">Command Prompt</button>
   <button class="it" data-tool="diag"><img class="ic" src="icons/utilities-system-monitor.svg" alt="">System Monitor</button>
@@ -206,9 +215,9 @@
     <p>A full controller over the program's screen: two sticks, D-pad, A B X Y, L1 R1 L2 R2, Select and Start. Games that support controllers see an Xbox controller; games that only read the keyboard get arrows, Z X A S, Q W E R, Enter and Esc. "Edit" moves controls and changes their size. A controller connected to this device (Bluetooth or USB) works too, even with these hidden.</p>
   </div>
   <div data-pane="about">
-  <p><b>InkSoC</b> runs Windows programs (.exe, 64-bit and 32-bit) in this tab with its own engine: no Wine install, no Linux, nothing sent to a server.</p>
+  <p><b>InkDOS Breeze</b> reúne os aplicativos web e WebAssembly dentro desta shell. O trabalho cotidiano deve acontecer nos aplicativos padrão.</p><p><b>InkSoC</b> é um runtime experimental para tentar executar alguns programas Windows (.exe). Não é Wine nem uma implementação completa do Windows; a compatibilidade varia por programa.</p>
   <p>Drive C: lives in this browser's private storage and stays after a reload. To bring a program in, drop its file on the desktop or use "Copy here…" in File Explorer; it lands in Downloads, and a double tap opens it there (.exe runs, .msi installs, .zip unpacks). Installed programs appear in Start.</p>
-  <p>Each running program gets a button in the bar: tap it to bring it to the front or hide it. Windows move by their title bar and change size by their bottom-right corner; the maximize button fills the screen. Several cores need the hub.inkdos.workers.dev address.</p>
+  <p>Aplicativos e programas abertos recebem um botão na barra. Toque nele para trazer a janela à frente ou minimizá-la. A documentação interna explica os aplicativos e suas extensões.</p><button class="it" id="docsOpen" type="button">Documentação do InkDOS Breeze</button>
   </div>
 </div>
 <div id="off" hidden><p>InkSoC is shut down.<br><small>Every program stopped and drive C: is saved.</small></p><button onclick="location.reload()">Turn on</button></div>
@@ -216,7 +225,7 @@
 </div>
 <div class="bar"><button id="start">Start</button><div id="tasks"></div><span id="status"></span><span id="clock"></span></div>
 <script src="prefs.js?v=2"></script>
-<script src="desktop.js?v=67"></script>
+<script src="desktop.js?v=68"></script>
 <script src="pad.js?v=2"></script>
 <script src="wall.js?v=3"></script>
 </body>

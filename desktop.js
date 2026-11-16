@@ -167,6 +167,57 @@ function consoleWindow(p, title) {
   return c;
 }
 
+
+/* ---------- InkDOS web apps: native shell windows hosting the standard local apps ---------- */
+const WEB_APPS = [
+  { id:'docs', label:'Documentação', path:'platform/docs/index.html', icon:'application-x-executable' },
+  { id:'documents', label:'Documentos', path:'platform/apps/documents/index.html', icon:'application-x-executable' },
+  { id:'spreadsheets', label:'Planilhas', path:'platform/apps/spreadsheets/index.html', icon:'application-x-executable' },
+  { id:'presentations', label:'Apresentações', path:'platform/apps/presentations/index.html', icon:'application-x-executable' },
+  { id:'pdf', label:'PDF', path:'platform/apps/pdf/index.html', icon:'application-x-executable' },
+  { id:'txt', label:'Texto', path:'platform/apps/txt/index.html', icon:'application-x-executable' },
+  { id:'epub', label:'Leitor EPUB', path:'platform/apps/epub/index.html', icon:'application-x-executable' },
+  { id:'zip', label:'Arquivos e ZIP', path:'platform/apps/zip/index.html', icon:'application-x-executable' },
+  { id:'gravador', label:'Gravador', path:'platform/apps/gravador/index.html', icon:'application-x-executable' },
+  { id:'inkcam', label:'Webcam', path:'platform/apps/inkcam/index.html', icon:'application-x-executable' }
+];
+function openWebApp(id) {
+  const app = WEB_APPS.find((a) => a.id === id);
+  if (!app) return;
+  const old = progs.find((p) => p.webAppId === id);
+  if (old) { setHidden(old, false); raise(old); return; }
+  const p = { id: nextId++, z: 0, hidden: false, conAway: false, webAppId: id };
+  progs.push(p);
+  p.btn = document.createElement('button');
+  p.btn.className = 'task';
+  labelled(p.btn, app.icon, app.label);
+  p.btn.onclick = () => {
+    if (p.hidden) { setHidden(p, false); raise(p); }
+    else if (p.z === zTop) setHidden(p, true);
+    else raise(p);
+  };
+  $('tasks').append(p.btn);
+  p.con = consoleWindow(p, app.label);
+  p.con.classList.add('win', 'webapp');
+  const frameEl = document.createElement('iframe');
+  frameEl.src = app.path;
+  frameEl.title = app.label;
+  frameEl.loading = 'eager';
+  frameEl.referrerPolicy = 'same-origin';
+  frameEl.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox');
+  frameEl.setAttribute('allow', 'camera; microphone; display-capture; clipboard-read; clipboard-write');
+  p.frame = frameEl;
+  p.con.querySelector('pre').replaceWith(frameEl);
+  raise(p);
+}
+window.addEventListener('message', (event) => {
+  if (event.origin !== location.origin) return;
+  const p = progs.find((q) => q.frame && q.frame.contentWindow === event.source);
+  if (!p || !event.data || typeof event.data !== 'object') return;
+  if (event.data.type === 'inkdos:open-app' && typeof event.data.id === 'string') openWebApp(event.data.id);
+  if (event.data.type === 'inkdos:close-app') close(p);
+});
+
 // sound: each program's audio streams play through one Web Audio context. Browsers start
 // it only after a tap or click, so every tap on the page tries to wake it.
 const sound = { ctx: null, streams: new Map() };
@@ -398,6 +449,7 @@ function closePops() { for (const id of pops) $(id).hidden = true; }
 function togglePop(id) { const h = $(id).hidden; closePops(); $(id).hidden = !h; return h; }
 $('start').onclick = (e) => { e.stopPropagation(); if (togglePop('menu')) { listDrive(); $('find').value = ''; showMenu(); } };
 $('more').onclick = (e) => { e.stopPropagation(); togglePop('infop'); };
+$('docsOpen').onclick = () => { closePops(); openWebApp('docs'); };
 // the top menu has two tabs: Info and Controls
 for (const b of document.querySelectorAll('.tabs button')) {
   b.onclick = () => {
@@ -590,6 +642,7 @@ async function listDrive() {
 function showMenu() {
   const q = $('find').value.trim().toLowerCase();
   const list = programs.filter((p) => !q || p.name.toLowerCase().includes(q));
+  const appList = WEB_APPS.filter((a) => !q || a.label.toLowerCase().includes(q));
   const none = document.createElement('div');
   none.className = 'none';
   none.textContent = programs.length ? 'No program matches' : 'None yet: install one from File Explorer';
@@ -601,6 +654,14 @@ function showMenu() {
     b.onclick = () => { closePops(); runPath(p.path, p.name); };
     return b;
   }) : [none]));
+  $('inkapps').replaceChildren(...appList.map((app) => {
+    const b = document.createElement('button');
+    b.className = 'it';
+    labelled(b, app.icon, app.label);
+    b.dataset.appId = app.id;
+    b.onclick = () => { closePops(); openWebApp(app.id); };
+    return b;
+  }));
 }
 
 /* ---------- context menu: right click, or touch and hold ---------- */
