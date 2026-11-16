@@ -629,10 +629,6 @@ function openDiag(tab) {
     mem(lim ? true : null, lim ? 'tab limit ' + fmt(lim) + ' MB, programs get ' + poolMb() + ' MB of real RAM' : 'not calibrated: programs get a safe ' + poolMb() + ' MB. Run "Calibrate memory" below');
     const cores = row('Several cores');
     cores(self.crossOriginIsolated, self.crossOriginIsolated ? (navigator.hardwareConcurrency || '?') + ' cores in this device; programs get ' + coresFor() : 'this address gives 1 core; hub.inkdos.workers.dev gives several');
-    const engine = row('Engine runs a Windows program');
-    const t0 = performance.now();
-    const done = await testRun(null, 'stage1.exe', '', () => {}, 1);
-    engine(!!done.ok, done.ok ? 'stage1.exe finished in ' + Math.round(performance.now() - t0) + ' ms · ' + mips(done.stats) : 'stopped: ' + (done.error || 'exit code ' + done.exitCode));
     const room = row('Space for drive C:');
     try {
       const est = await navigator.storage.estimate();
@@ -756,24 +752,6 @@ function openDiag(tab) {
   adv.innerHTML = '<summary>Advanced</summary>';
   list.append(adv);
   list = adv;
-  test('engine', 'Engine self-test', 'Integers, floating point, DLLs, msvcrt and threads, each checked against the right answer', async (say) => {
-    for (const exe of ['stage1.exe', 'stage2.exe', 'stage4.exe']) {
-      const t0 = performance.now();
-      const d = await testRun(null, exe, '', () => {}, exe === 'stage4.exe' ? coresFor() : 1);
-      say((d.ok ? 'passed  ' : 'FAILED  ') + exe + ' · ' + Math.round(performance.now() - t0) + ' ms · ' + mips(d.stats) + (d.ok ? '' : ' · ' + (d.error || 'exit code ' + d.exitCode)) + '\n');
-    }
-  });
-  test('swap', 'Swap', 'A program uses 512 MB with only 128 MB of real RAM: the rest goes to drive C: and back, every page checked', (say) => new Promise((res) => {
-    let s = null;
-    testWorker({ type: 'proof', poolMb: 128, targetMb: 8192, testMb: 512 }, (d, w) => {
-      if (d.type === 'log') say(d.text);
-      else if (d.type === 'stats') s = d;
-      else if (d.type === 'done') {
-        say((d.ok ? '\nPassed' : '\nFailed: ' + (d.error || 'exit code ' + d.exitCode)) + (s ? ' · ' + fmt(s.swapOut) + ' pages out, ' + fmt(s.swapIn) + ' in, ' + fmt(s.swapMs) + ' ms of ' + fmt(s.ms) + ' ms in swap' : ''));
-        w.terminate(); res();
-      }
-    });
-  }));
   test('tex', 'GPU memory', 'Fills the GPU with textures in 128 MB steps (the tab may reload)', async (say) => {
     const gl = document.createElement('canvas').getContext('webgl2');
     if (!gl) { say('No WebGL2.'); return; }

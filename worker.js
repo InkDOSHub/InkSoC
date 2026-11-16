@@ -482,100 +482,6 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
 let stopAsked = false;
 const yieldNow = () => new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = () => r(); c.port2.postMessage(0); });
 
-/* Linux terminal: busybox (or another static x86-64 program) on the engine.
-   The worker keeps the terminal's line discipline: in line mode it echoes and
-   edits the line, in raw mode (the shell's own line editor) keys go straight in. */
-let lxs = null;
-async function runLinux({ files, cmd, poolMb, jit, rows, cols }) {
-  const dec = new TextDecoder();
-  let mem, x;
-  const out = (t) => post('out', { text: t });
-  const env = {
-    host_console: (p, n) => out(dec.decode(new Uint8Array(mem.buffer, p >>> 0, n).slice(), { stream: true })),
-    host_now_ms: () => performance.now(),
-    host_epoch_ms: () => Date.now(),
-    host_random: (p, n) => { const v = new Uint8Array(mem.buffer, p >>> 0, n); for (let i = 0; i < n; i += 65536) { const b = new Uint8Array(Math.min(65536, n - i)); crypto.getRandomValues(b); v.set(b, i); } },
-    host_swap_write: () => { throw new Error('swap'); },
-    host_swap_read: () => { throw new Error('swap'); },
-    host_drive_read: () => 0,
-    host_gl: () => NaN, // Windows-only parts of the engine
-    host_audio: () => {},
-    wine_call: () => 0,
-    host_jit: (p, n) => {
-      try {
-        const m = new WebAssembly.Module(new Uint8Array(mem.buffer, p >>> 0, n).slice());
-        const i = new WebAssembly.Instance(m, { env: { memory: mem, rd: x.jit_rd, wr: x.jit_wr, step: x.jit_step, cond: x.jit_cond } });
-        const t = x.__indirect_function_table, k = t.grow(1);
-        t.set(k, i.exports.f);
-        return k;
-      } catch (e) { return -1; }
-    },
-  };
-  const wasm = await fetch('inksoc.wasm?v=94').then((r) => r.arrayBuffer());
-  x = (await WebAssembly.instantiate(wasm, { env })).instance.exports;
-  mem = x.memory;
-  const enc = new TextEncoder();
-  const put = (bytes) => { const p = x.buffer(bytes.length); new Uint8Array(mem.buffer, p >>> 0, bytes.length).set(bytes); };
-  const putFile = (name, data, boot) => {
-    const nm = enc.encode(name), d = new Uint8Array(data), b = new Uint8Array(nm.length + 1 + d.length);
-    b.set(nm); b.set(d, nm.length + 1); put(b);
-    if (boot) { if (x.add_file() < 0) throw addFailure(name, d.length, mem, x, 4096); } else x.linux_put_file();
-  };
-  x.init(poolMb, 4096);
-  if (jit === false) x.set_jit(0);
-  // nothing is held yet: a file that does not fit ends the run with one 'done' and the reason
-  try { for (const f of files) putFile(f.name, f.data, true); } catch (e) { post('done', { ok: false, error: (e && e.message) || String(e) }); return; }
-  put(enc.encode(files[0].name + '\0' + cmd));
-  if (x.start() !== 0) { post('done', { ok: false, error: new TextDecoder().decode(new Uint8Array(mem.buffer, (x.msg_ptr() >>> 0), x.msg_len()).slice()) }); return; }
-  x.linux_winsize(rows || 30, cols || 100);
-  let line = '';
-  const keys = [];
-  const send = (t) => { const b = enc.encode(t); put(b); x.linux_stdin(b.length); };
-  lxs = {
-    key(t) { keys.push(t); },
-    resize(r, c) { x.linux_winsize(r, c); },
-    put(name, data) { putFile(name, data, false); },
-    get(path) {
-      put(enc.encode(path));
-      const n = x.linux_get_file();
-      return n < 0 ? null : new Uint8Array(mem.buffer, (x.out_ptr() >>> 0), n).slice();
-    },
-  };
-  const feed = () => {
-    while (keys.length) {
-      const s = keys.shift();
-      const lf = x.linux_lflag(), canon = lf & 2, echo = lf & 8;
-      if (!canon) { send(s); continue; }
-      for (const ch of s) {
-        if (ch === '\x03') { x.linux_interrupt(); line = ''; out('^C\r\n'); }
-        else if (ch === '\r' || ch === '\n') { if (echo) out('\r\n'); send(line + '\n'); line = ''; }
-        else if (ch === '\x7f' || ch === '\b') { if (line) { line = [...line].slice(0, -1).join(''); if (echo) out('\b \b'); } }
-        else if (ch === '\x04') { if (line) { send(line); line = ''; } else x.linux_eof(); }
-        else if (ch === '\x15') { if (echo) out('\b \b'.repeat([...line].length)); line = ''; }
-        else if (ch >= ' ' || ch === '\t') { line += ch; if (echo) out(ch); }
-      }
-    }
-  };
-  let st, last = 0;
-  while (true) {
-    feed();
-    st = x.run(2000000);
-    if (st === 1 || st === 2) break;
-    if (st === 3) await new Promise((r) => setTimeout(r, Math.min(30, Math.max(0, x.stat(17)))));
-    else await yieldNow();
-    const t = performance.now();
-    if (t - last > 1000) { last = t; post('stats', { insns: x.stat(0), ms: t, jitBlocks: x.stat(13) }); }
-  }
-  lxs = null;
-  const error = st === 2 ? new TextDecoder().decode(new Uint8Array(mem.buffer, (x.msg_ptr() >>> 0), x.msg_len()).slice()) : '';
-  post('done', { ok: st === 1, error, exitCode: x.stat(6) });
-}
-
-async function runProof({ poolMb, targetMb, testMb }) {
-  const data = await fetch('test.exe?v=1').then((r) => r.arrayBuffer());
-  return runEngine({ files: [{ name: 'test.exe', data }], exe: 'test.exe', poolMb, targetMb, poke: [0x140002000, testMb] });
-}
-
 function isPe32(buf) {
   const b = new Uint8Array(buf);
   if (b.length < 0x40 || b[0] !== 0x4D || b[1] !== 0x5A) return false;
@@ -587,7 +493,8 @@ async function runExec(d) {
   let files = d.files;
   const fetched = !files;
   if (fetched) {
-    const names = d.exe === 'stage1.exe' || !d.exe ? ['stage1.exe', 'testdll.dll'] : [d.exe];
+    if (!d.exe) { post('done', { ok: false, error: 'no program named' }); return; }
+    const names = [d.exe];
     files = await Promise.all(names.map(async (name) => ({ name, data: await fetch(name + '?v=2').then((r) => r.arrayBuffer()) })));
   }
   // big picked files (a 400 MB .msi) do not fit in the engine's memory: they go to a scratch
@@ -636,7 +543,7 @@ async function runExec(d) {
     }
   }
   try {
-    return await runEngine({ files, exe: d.exe || 'stage1.exe', cmd: d.cmd, poolMb: d.poolMb, targetMb: d.targetMb, jit: d.jit, shared: d.shared, cores: d.cores, strong: d.strong, opt: d.opt, drive: d.drive, home: d.home, reg, typing: d.typing });
+    return await runEngine({ files, exe: d.exe, cmd: d.cmd, poolMb: d.poolMb, targetMb: d.targetMb, jit: d.jit, shared: d.shared, cores: d.cores, strong: d.strong, opt: d.opt, drive: d.drive, home: d.home, reg, typing: d.typing });
   } finally {
     if (spill) await (await navigator.storage.getDirectory()).removeEntry(spill.name, { recursive: true }).catch(() => {});
   }
@@ -736,10 +643,6 @@ onmessage = (ev) => {
   if (d.type === 'win') { if (winX) winX.win_input(d.k, d.x, d.y, d.d); return; }
   if (d.type === 'pad') { if (winX && winX.win_pad) winX.win_pad(d.on, d.b, d.l, d.r); return; }
   if (d.type === 'stdin') { if (typeIn) typeIn(d.text); return; }
-  if (d.type === 'key') { if (lxs) lxs.key(d.data); return; }
-  if (d.type === 'resize') { if (lxs) lxs.resize(d.rows, d.cols); return; }
-  if (d.type === 'put') { if (lxs) lxs.put(d.name, d.data); return; }
-  if (d.type === 'get') { const b = lxs && lxs.get(d.path); postMessage({ type: 'file', path: d.path, data: b && b.buffer }, b ? [b.buffer] : []); return; }
-  const go = { linux: runLinux, proof: runProof, exec: runExec, opfs: opfsLatency, calibrate, hold, 'tex-init': texInit, 'tex-get': texGet, 'tex-done': texDone }[d.type];
+  const go = { exec: runExec, opfs: opfsLatency, calibrate, hold, 'tex-init': texInit, 'tex-get': texGet, 'tex-done': texDone }[d.type];
   if (go) go(d).catch((e) => post('done', { ok: false, error: String(e && e.message || e) }));
 };
