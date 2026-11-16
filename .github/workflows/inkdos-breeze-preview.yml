@@ -29,6 +29,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: feature/inkdos-breeze-platform
+      - name: Validate Breeze preview source
+        run: |
+          test -s platform/index.html
+          test -s platform/shell/shell.js
+          test -s platform/shell/apps.js
+          node --check platform/shell/shell.js
+          node --check platform/shell/apps.js
       - name: Record preview source revision
         run: echo "Published source commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
       - name: Configure GitHub Pages
