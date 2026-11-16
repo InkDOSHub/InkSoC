@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head><script src="../../assets/endereco.js?v=2"></script>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob: https://huggingface.co https://*.huggingface.co https://*.hf.co; worker-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" type="image/png" sizes="32x32" href="../../assets/inkdoshub-icone-32.png?v=8">
+<link rel="icon" type="image/png" sizes="192x192" href="../../assets/inkdoshub-icone-192.png?v=8">
+<link rel="apple-touch-icon" sizes="180x180" href="../../assets/inkdoshub-icone-180.png?v=8">
+<title>Recorder · InkDOS Hub</title>
+<script src="../../assets/tema.js?v=1"></script>
+<script src="../../assets/idioma.js?v=1"></script>
+<script src="../../assets/gerenciador-app.js?v=10"></script>
+<link rel="stylesheet" href="../../assets/barra.css?v=5">
+<script src="../../assets/barra.js?v=5" defer></script>
+<link rel="stylesheet" href="../../assets/midia.css?v=3">
+<link rel="stylesheet" href="../../assets/info.css?v=2">
+<style>
+  .palco{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:20px;text-align:center}
+  .palco p{margin:0;color:var(--muted);font-size:13px;line-height:1.5;max-width:460px}
+  .tempo{font-size:52px;font-weight:300;font-variant-numeric:tabular-nums}
+  .nivel{width:min(420px,100%);height:4px;border-radius:2px;background:var(--border);overflow:hidden}
+  .nivel span{display:block;height:100%;width:0;background:#e5484d;transition:width .1s linear}
+  .rec{width:68px;height:68px;border-radius:50%;border:3px solid var(--muted);background:none;padding:0;display:grid;place-items:center;cursor:pointer}
+  .rec::after{content:"";width:54px;height:54px;border-radius:50%;background:#e5484d}
+  #parar::after{width:26px;height:26px;border-radius:5px}
+  .rec:disabled{opacity:.4;cursor:default}
+  .aviso{color:#e5484d !important}
+  .info{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--card);border-top:1px solid var(--border);font-size:14px;min-height:44px;box-sizing:border-box;flex-wrap:wrap}
+  .info input{flex:0 1 200px;min-width:120px;font:inherit;font-size:14px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)}
+  .lista{display:flex;flex-direction:column}
+  .item{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;border-bottom:1px solid var(--border)}
+  .item .nome{flex:1;min-width:120px;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item .nome small{display:block;color:var(--muted);font-size:12px}
+  .ink-btn:disabled{opacity:.45;cursor:default}
+  #modos .ink-btn[aria-pressed=true]{background:var(--btn-active);font-weight:600}
+  details.i.solto .pop{left:auto;right:0;top:auto;bottom:30px}
+  #sem-suporte{color:#e5484d}
+  .tr-opcoes[hidden]{display:none}
+  .tr-opcoes{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  #tr-escolher{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  #tr-texto{width:min(640px,100%);min-height:180px;flex:1;font:inherit;font-size:14px;line-height:1.5;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);resize:vertical;text-align:left}
+</style>
+<style>
+/* screen mode without recordings: only the notice in the middle */
+html.md-sem-audios #cartao-audios{display:none!important}
+.md-vazio-tela svg{width:56px;height:56px;fill:none;stroke:var(--muted);stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;opacity:.6}
+.md-vazio-tela h2{margin:4px 0 0;font-size:17px;font-weight:600}
+.md-vazio-tela p:not([id]){margin:0 0 8px;font-size:13px;color:var(--muted)}
+#escolher-tela{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;padding:8px 16px}
+</style>
+</head>
+<body class="ink-app" data-idioma>
+<header class="ink-bar">
+  <a class="ink-home" href="../../" data-icone="voltar">InkDOS Hub</a>
+  <span class="ink-title">Recorder</span>
+  <span class="ink-spacer"></span>
+  <span id="modos" style="display:contents">
+    <button class="ink-btn" data-modo="sistema" aria-pressed="true">Computer sound</button>
+    <button class="ink-btn" data-modo="mic">Microphone</button>
+    <button class="ink-btn" data-modo="tela">Screen recording</button>
+    <button class="ink-btn" data-modo="transcrever">Transcription</button>
+  </span>
+</header>
+<main class="ink-main">
+  <div class="md-wrap">
+    <section class="md-stage md-hide" id="cartao-tela">
+      <div class="palco md-vazio-tela">
+        <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10.5" r="2.5"/></svg>
+        <h2>No recording chosen</h2>
+        <p>Choose a screen recording from Photos to keep only its sound.</p>
+        <button class="ink-btn" id="escolher-tela">Choose the recording</button>
+        <div class="nivel"><span id="nivel-tela"></span></div>
+        <p id="estado-tela" data-idioma-nao></p>
+      </div>
+      <div class="info"><strong style="flex:1">Screen recording (iPad)</strong>
+        <details class="i solto"><summary title="How it works" aria-label="How it works">i</summary><div class="pop"><ol>
+          <li>Open Control Center and touch and hold Screen Recording. Turn the microphone on if you also want your voice mixed in.</li>
+          <li>Start the recording, watch what you want, then stop it. It goes to Photos.</li>
+          <li>Tap “Choose the recording”: only the sound is kept (.m4a, in the list). The video is not stored here; delete it from Photos if you no longer need it.</li>
+        </ol><p>Kept only in this browser until you delete it. Nothing is sent anywhere.</p></div></details>
+      </div>
+    </section>
+    <aside class="md-side md-hide" id="cartao-audios">
+      <h2><span>Extracted sound</span></h2>
+      <div id="lista-audios" class="lista md-list"></div>
+      <p id="vazio-audios" class="md-empty">Nothing here yet.</p>
+    </aside>
+    <section class="md-stage md-hide" id="cartao-transcrever">
+      <div class="palco">
+        <div class="tr-opcoes">
+          <select id="tr-modelo" class="ink-btn" title="Model">
+            <option value="tiny">Fast (32 MB)</option>
+            <option value="base">Better (60 MB)</option>
+            <option value="small">Precise (190 MB, slow)</option>
+          </select>
+          <select id="tr-idioma" class="ink-btn" title="Language">
+            <option value="auto">Detect language</option>
+            <option value="pt">Português</option>
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="fr">Français</option>
+            <option value="de">Deutsch</option>
+            <option value="it">Italiano</option>
+            <option value="ja">日本語</option>
+          </select>
+          <button class="ink-btn" id="tr-escolher">Choose audio or video</button>
+        </div>
+        <div class="nivel"><span id="tr-nivel"></span></div>
+        <p id="tr-estado" data-idioma-nao></p>
+        <textarea id="tr-texto" readonly hidden data-idioma-nao></textarea>
+        <div class="tr-opcoes" id="tr-acoes" hidden>
+          <button class="ink-btn" id="tr-copiar">Copy</button>
+          <button class="ink-btn" id="tr-txt">Download .txt</button>
+          <button class="ink-btn" id="tr-srt">Download .srt</button>
+        </div>
+      </div>
+      <div class="info"><strong style="flex:1">Offline transcription (AI)</strong>
+        <details class="i solto"><summary title="How it works" aria-label="How it works">i</summary><div class="pop">
+          <p>Turns speech into text on this device with whisper.cpp. The model is downloaded once and kept in this browser; after that it works offline. Nothing is sent anywhere.</p>
+          <p>Fast is good for clear speech. Better makes fewer mistakes but takes about twice as long; Precise is the most accurate and about four times slower than Better. Choosing the language instead of “Detect language” also helps.</p>
+          <p><button class="ink-btn" id="tr-apagar" type="button">Delete downloaded models</button></p>
+        </div></details>
+      </div>
+    </section>
+    <section class="md-stage" id="cartao-gravar">
+      <div class="palco">
+        <p id="sem-suporte" hidden>This browser cannot record the computer’s sound. Use Chrome or Edge on a Windows computer. Safari (iPad, iPhone, Mac) does not let websites capture other windows’ sound.</p>
+        <select id="fonte" class="ink-btn" hidden data-idioma-nao title="Sound source"></select>
+        <span class="tempo" id="tempo" data-idioma-nao>0:00:00</span>
+        <div class="nivel" title="Sound level"><span id="nivel"></span></div>
+        <button class="rec" id="gravar" title="Record" aria-label="Record"></button>
+        <button class="rec md-hide" id="parar" title="Stop" aria-label="Stop"></button>
+        <p id="estado" data-idioma-nao></p>
+      </div>
+      <div class="info">
+        <input type="text" id="nome" value="Recording" aria-label="Name" data-idioma-nao>
+        <details class="i solto"><summary title="How it works" aria-label="How it works">i</summary><div class="pop">
+          <div id="cartao-sistema"><ol>
+            <li>Open what you want to record in another tab or window.</li>
+            <li>Tap Record. In the window that appears, choose the tab with the sound (keep “Also share tab audio” on) or Entire screen (turn on “Also share system audio”).</li>
+            <li>Keep this tab open. Tap Stop, or “Stop sharing”, when you are done.</li>
+          </ol>
+          <p>About 22 MB per hour (Opus, .webm). Nothing is sent anywhere: the file stays on this computer.</p></div>
+          <p id="dica-mic" class="md-hide">Records the microphone (the iPad’s, or the one chosen in the browser).</p>
+          <p>The file goes to Downloads and to the Music list.</p>
+        </div></details>
+      </div>
+    </section>
+  </div>
+</main>
+<script src="../../assets/midia.js?v=4"></script>
+<script src="../../assets/icones.js?v=2"></script>
+<input id="arquivo-tela" type="file" accept="video/*,.mp4,.mov,.m4v" hidden>
+<script src="extrair-m4a.js?v=1"></script>
+<input id="tr-arquivo" type="file" accept="audio/*,video/*" hidden>
+<script src="gravar.js?v=10"></script>
+<script src="transcrever.js?v=5"></script>
+</body>
+</html>
