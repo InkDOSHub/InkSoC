@@ -288,7 +288,7 @@
           linha.appendChild(botao("Share", function () { navigator.share({ files: [arq] }).catch(function () {}); }));
         }
         linha.appendChild(botao("Download", function () { inkBaixar(arq); }));
-        if (window.inkTranscrever) linha.appendChild(botao("Transcribe", function () { escolherModo("transcrever"); inkTranscrever(arq); }));
+
         linha.appendChild(botao("Delete", function () { audios.remover(i.id).then(listarAudios); }));
         caixa.appendChild(linha);
       });

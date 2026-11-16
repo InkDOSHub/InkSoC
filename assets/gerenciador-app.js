@@ -14,6 +14,9 @@
     { id: "pdf", nome: "PDF", url: "platform/apps/pdf/index.html" },
     { id: "txt", nome: "Plain text", url: "platform/apps/txt/index.html" },
     { id: "epub", nome: "EPUB reader", url: "platform/apps/epub/index.html" },
+    { id: "photo", nome: "Photos", url: "platform/apps/photo/index.html" },
+    { id: "music", nome: "Music", url: "platform/apps/music/index.html" },
+    { id: "transfer", nome: "Transfer", url: "platform/apps/transfer/index.html" },
     { id: "zip", nome: "Zip", url: "platform/apps/zip/index.html" },
     { id: "gravador", nome: "Recorder", url: "platform/apps/gravador/index.html" },
     { id: "webcam", nome: "Webcam", url: "platform/apps/inkcam/index.html" },
@@ -133,6 +136,7 @@
     novaAba: novaAba,
     abrir: function (id) {
       var a = appDe(id); if (!a) return;
+      if (window.parent !== window) { window.parent.postMessage({ type: "inkdos:open-app", id: id }, location.origin); return; }
       var u = new URL(a.url, RAIZ).href;
       abrirUrl(u, "inkdoshub-" + id);
     },

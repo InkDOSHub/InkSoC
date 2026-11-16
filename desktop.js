@@ -177,6 +177,9 @@ const WEB_APPS = [
   { id:'pdf', label:'PDF', path:'platform/apps/pdf/index.html', icon:'application-x-executable' },
   { id:'txt', label:'Texto', path:'platform/apps/txt/index.html', icon:'application-x-executable' },
   { id:'epub', label:'Leitor EPUB', path:'platform/apps/epub/index.html', icon:'application-x-executable' },
+  { id:'photo', label:'Fotos', path:'platform/apps/photo/index.html', icon:'application-x-executable' },
+  { id:'music', label:'Música', path:'platform/apps/music/index.html', icon:'application-x-executable' },
+  { id:'transfer', label:'Transferir arquivos', path:'platform/apps/transfer/index.html', icon:'application-x-executable' },
   { id:'zip', label:'Arquivos e ZIP', path:'platform/apps/zip/index.html', icon:'application-x-executable' },
   { id:'gravador', label:'Gravador', path:'platform/apps/gravador/index.html', icon:'application-x-executable' },
   { id:'inkcam', label:'Webcam', path:'platform/apps/inkcam/index.html', icon:'application-x-executable' }
