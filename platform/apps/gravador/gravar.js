@@ -1,0 +1,300 @@
+// Computer sound recorder: getDisplayMedia (tab or whole screen with system sound) and
+// MediaRecorder with audio only, in Opus (.webm, ~22 MB per hour). Works in Chrome and Edge on
+// Windows; Safari does not offer capture of other windows. The file goes to Downloads and to the
+// Music list (decision of 2026-10-28: no folder picker).
+(function () {
+  "use strict";
+  var ESTE = document.currentScript ? document.currentScript.src : location.href;
+  var $ = function (id) { return document.getElementById(id); };
+  var t = InkIdioma.t;
+  var KBPS = 48000;
+  var gravador = null, fluxo = null;
+  var partes = [], bytes = 0, inicio = 0, relogio = null, nomeArquivo = "";
+  var ctx = null, analisador = null;
+
+  // iPad/iPhone: Safari does have getDisplayMedia, but never delivers sound; there the path is screen recording
+  var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  var suporta = !ios && !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia && window.MediaRecorder);
+  var temMic = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+  // modes: computer sound (Chrome/Edge), microphone, or iPad screen recording (the system records; here we only extract the sound)
+  var modo = suporta ? "sistema" : "tela";
+  function escolherModo(m) {
+    modo = m;
+    [].forEach.call(document.querySelectorAll("#modos [data-modo]"), function (b) { b.setAttribute("aria-pressed", String(b.dataset.modo === m)); });
+    $("cartao-sistema").classList.toggle("md-hide", m !== "sistema");
+    $("sem-suporte").hidden = !(m === "sistema" && !suporta);
+    $("cartao-tela").classList.toggle("md-hide", m !== "tela");
+    if ($("cartao-audios")) $("cartao-audios").classList.toggle("md-hide", m !== "tela");
+    $("cartao-gravar").classList.toggle("md-hide", m === "tela");
+    $("dica-mic").classList.toggle("md-hide", m !== "mic");
+    $("gravar").disabled = (m === "sistema" && !suporta) || (m === "mic" && !temMic);
+    // without this the button just sits there, unexplained (e.g. an app that does not allow the microphone for sites)
+    estado(m === "mic" && !temMic ? t("This browser or app does not give websites access to the microphone. Open this page in Safari.") : "", m === "mic" && !temMic);
+  }
+  $("modos").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-modo]");
+    if (b && !gravador) escolherModo(b.dataset.modo);
+  });
+  if (ios) { var bs = document.querySelector('#modos [data-modo="sistema"]'); if (bs) bs.style.display = "none"; }
+  escolherModo(modo);
+  function estado(txt, aviso) { $("estado").textContent = txt || ""; $("estado").classList.toggle("aviso", !!aviso); }
+  function hms(s) { s = Math.floor(s); return Math.floor(s / 3600) + ":" + String(Math.floor(s / 60) % 60).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); }
+  function doisDig(n) { return String(n).padStart(2, "0"); }
+
+  try { var n = localStorage.getItem("inkdoshub-gravador-nome"); if (n) $("nome").value = n; } catch (_) {}
+
+  /* ---------- Gravar ---------- */
+  function nomeSeguro(valor) {
+    return String(valor || "").replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ").replace(/[. ]+$/g, "").trim().slice(0, 100) || t("Recording");
+  }
+  function nomeNovo() {
+    var d = new Date(), base = nomeSeguro($("nome").value);
+    $("nome").value = base;
+    try { localStorage.setItem("inkdoshub-gravador-nome", base); } catch (_) {}
+    return base + " " + d.getFullYear() + "-" + doisDig(d.getMonth() + 1) + "-" + doisDig(d.getDate()) + " " + doisDig(d.getHours()) + "-" + doisDig(d.getMinutes()) + ".webm";
+  }
+  /* ---------- Windows app: sound from a single program ---------- */
+  var AUD = window.inkHubNativo && window.inkHubNativo.audio, pararApp = null;
+  function listarApps() {
+    var sel = $("fonte"), atual = sel.value;
+    AUD.apps().then(function (lista) {
+      sel.textContent = "";
+      var o = document.createElement("option"); o.value = ""; o.textContent = t("Whole computer"); sel.appendChild(o);
+      lista.forEach(function (a) { var o = document.createElement("option"); o.value = a.pid; o.textContent = a.titulo; sel.appendChild(o); });
+      sel.value = lista.some(function (a) { return a.pid === atual; }) ? atual : "";
+    }).catch(function () {});
+  }
+  if (AUD) { $("fonte").hidden = false; listarApps(); $("fonte").addEventListener("focus", listarApps); $("fonte").addEventListener("mousedown", listarApps); }
+  // PCM 16-bit, 48 kHz, stereo -> MediaStream (played only to the recorder, not to the speakers)
+  function fluxoDoApp(pid) {
+    var ac = new AudioContext({ sampleRate: 48000 }), dest = ac.createMediaStreamDestination(), quando = 0, resto = null;
+    function dado(b) {
+      if (resto) { var j = new Uint8Array(resto.length + b.length); j.set(resto); j.set(b, resto.length); b = j; resto = null; }
+      var n = Math.floor(b.length / 4); if (b.length % 4) resto = b.slice(n * 4);
+      if (!n) return;
+      var v = new DataView(b.buffer, b.byteOffset, n * 4), buf = ac.createBuffer(2, n, 48000), e = buf.getChannelData(0), d = buf.getChannelData(1);
+      for (var i = 0; i < n; i++) { e[i] = v.getInt16(i * 4, true) / 32768; d[i] = v.getInt16(i * 4 + 2, true) / 32768; }
+      var s = ac.createBufferSource(); s.buffer = buf; s.connect(dest);
+      quando = Math.max(quando, ac.currentTime + 0.05); s.start(quando); quando += buf.duration;
+    }
+    return AUD.iniciar(pid, dado, function () { parar(); }).then(function (ok) {
+      if (!ok) { ac.close(); throw new Error(t("Could not capture this program's sound.")); }
+      pararApp = function () { pararApp = null; AUD.parar(); ac.close().catch(function () {}); };
+      return dest.stream;
+    });
+  }
+
+  $("gravar").onclick = async function () {
+    estado("");
+    try {
+      if (modo === "sistema" && AUD && $("fonte").value) fluxo = await fluxoDoApp($("fonte").value);
+      else if (modo === "mic") fluxo = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      else fluxo = await navigator.mediaDevices.getDisplayMedia({
+        video: true, // Chrome requires video to show the picker; it is not recorded
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
+        systemAudio: "include", selfBrowserSurface: "exclude", surfaceSwitching: "include",
+      });
+    } catch (e) {
+      if (modo === "mic" && e && e.name === "NotAllowedError") estado(t("Microphone access was denied. Allow it for this site (on the iPad: Settings › Apps › Safari › Microphone) and try again."), true);
+      else if (e && e.name !== "NotAllowedError" && e.name !== "AbortError") estado(String(e.message || e), true);
+      return;
+    }
+    var faixas = fluxo.getAudioTracks();
+    if (!faixas.length) {
+      fluxo.getTracks().forEach(function (f) { f.stop(); });
+      estado(t("No sound was shared. Try again and turn on “Also share tab audio” or “Also share system audio”."), true);
+      return;
+    }
+    var audio = new MediaStream(faixas);
+    var tipo = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].filter(function (m) { return MediaRecorder.isTypeSupported(m); })[0];
+    nomeArquivo = nomeNovo();
+    if (/mp4/.test(tipo || "")) nomeArquivo = nomeArquivo.replace(/\.webm$/, ".m4a");
+    partes = []; bytes = 0;
+    var opcoes = { audioBitsPerSecond: KBPS };
+    if (tipo) opcoes.mimeType = tipo;
+    try { gravador = new MediaRecorder(audio, opcoes); }
+    catch (e) {
+      fluxo.getTracks().forEach(function (f) { f.stop(); }); fluxo = null; gravador = null;
+      $("nome").disabled = false;
+      estado(t("Could not start recording: {error}", { error: e && (e.name || e.message) || "MediaRecorder error" }), true);
+      return;
+    }
+    gravador.ondataavailable = function (e) {
+      if (!e.data || !e.data.size) return;
+      bytes += e.data.size;
+      partes.push(e.data);
+    };
+    gravador.onstop = terminar;
+    gravador.onerror = function () {
+      estado(t("Recording error; attempting to save the captured audio."), true);
+      if (gravador && gravador.state !== "inactive") parar();
+    };
+    fluxo.getTracks().forEach(function (f) { f.onended = parar; });
+    try { gravador.start(5000); }
+    catch (e) {
+      gravador = null;
+      fluxo.getTracks().forEach(function (f) { f.stop(); }); fluxo = null;
+      $("nome").disabled = false;
+      estado(t("Could not start recording: {error}", { error: e && (e.name || e.message) || "MediaRecorder error" }), true);
+      return;
+    }
+    inicio = Date.now();
+    acordado(true);
+    medir(audio);
+    $("gravar").classList.add("md-hide"); $("parar").classList.remove("md-hide");
+    $("nome").disabled = true;
+    relogio = setInterval(function () {
+      $("tempo").textContent = hms((Date.now() - inicio) / 1000);
+      estado(t("Recording {name} · {size}", { name: nomeArquivo, size: inkTamanho(bytes) }));
+    }, 1000);
+  };
+
+  // keeps the screen on while recording: on iPad and iPhone the lock screen pauses the page and the recording
+  var trava = null;
+  function acordado(sim) {
+    if (!sim) { if (trava) trava.release().catch(function () {}); trava = null; return; }
+    if (trava || !navigator.wakeLock || document.visibilityState !== "visible") return;
+    navigator.wakeLock.request("screen").then(function (l) { trava = l; l.onrelease = function () { if (trava === l) trava = null; }; }).catch(function () {});
+  }
+  document.addEventListener("visibilitychange", function () { if (gravador && gravador.state === "recording") acordado(true); });
+
+  function parar() {
+    if (gravador && gravador.state !== "inactive") gravador.stop();
+    if (pararApp) pararApp();
+    if (fluxo) fluxo.getTracks().forEach(function (f) { f.stop(); });
+  }
+  $("parar").onclick = parar;
+
+  function terminar() {
+    clearInterval(relogio);
+    acordado(false);
+    if (ctx) { ctx.close().catch(function () {}); ctx = null; }
+    $("nivel").style.width = "0";
+    $("parar").classList.add("md-hide"); $("gravar").classList.remove("md-hide");
+    $("nome").disabled = false;
+    if (pararApp) pararApp();
+    var tipo = (gravador && gravador.mimeType) || "audio/webm";
+    gravador = null;
+    if (fluxo) fluxo.getTracks().forEach(function (f) { f.stop(); });
+    fluxo = null; analisador = null;
+    var arq = new File(partes, tipo.indexOf("mp4") >= 0 ? nomeArquivo.replace(/\.webm$/, ".m4a") : nomeArquivo, { type: tipo.split(";")[0] });
+    partes = [];
+    inkBaixar(arq);
+    InkBiblioteca("inkdoshub-musica").adicionar([arq]).catch(function () {});
+    estado(t("Saved {name} ({size}) in Downloads and in the Music list.", { name: arq.name, size: inkTamanho(arq.size) }));
+  }
+
+  /* ---------- Sound level (to see it is capturing) ---------- */
+  function medir(stream) {
+    try {
+      ctx = new AudioContext();
+      analisador = ctx.createAnalyser(); analisador.fftSize = 512;
+      ctx.createMediaStreamSource(stream).connect(analisador);
+      var dados = new Uint8Array(analisador.fftSize);
+      (function passo() {
+        if (!ctx) return;
+        analisador.getByteTimeDomainData(dados);
+        var pico = 0;
+        for (var i = 0; i < dados.length; i++) pico = Math.max(pico, Math.abs(dados[i] - 128));
+        $("nivel").style.width = Math.min(100, pico / 128 * 140) + "%";
+        setTimeout(passo, 150);
+      })();
+    } catch (_) {}
+  }
+
+  /* ---------- iPad screen recording: extract only the sound ---------- */
+  $("escolher-tela").onclick = function () { $("arquivo-tela").click(); };
+  $("arquivo-tela").onchange = function (e) {
+    var arquivo = e.target.files[0];
+    e.target.value = "";
+    if (!arquivo) return;
+    var est = $("estado-tela"), t0 = Date.now();
+    est.classList.remove("aviso");
+    est.textContent = t("Preparing (sound only)…");
+    $("escolher-tela").disabled = true;
+    function pronto(blob) {
+      $("escolher-tela").disabled = false; $("nivel-tela").style.width = "0";
+      var arq = new File([blob], arquivo.name.replace(/\.[^.]+$/, "") + ".m4a", { type: "audio/mp4" });
+      audios.adicionar([arq]).then(listarAudios);
+      inkBaixar(arq);
+      est.textContent = t("{name} ({size}) is ready below. The video was not stored here: if you no longer need it, delete it from Photos or Files.", { name: arq.name, size: inkTamanho(arq.size) });
+    }
+    // fast path: copies only the sound of the MP4/MOV, without the converter
+    if (!window.inkExtrairM4a) return lento();
+    inkExtrairM4a(arquivo, function (parte) {
+      $("nivel-tela").style.width = Math.round(parte * 100) + "%";
+      est.textContent = t("Extracting the sound · {percent}% · {seconds} s", { percent: Math.round(parte * 100), seconds: Math.round((Date.now() - t0) / 1000) });
+    }).then(pronto, function () {
+      est.textContent = t("Loading the converter (slow only the first time)…");
+      lento();
+    });
+    function lento() {
+    var v = document.createElement("video"), u = URL.createObjectURL(arquivo), feito = false;
+    function comecar(dur) {
+      if (feito) return; feito = true;
+      URL.revokeObjectURL(u);
+      var w = new Worker(new URL("../video/cortar/cortar-worker.js?v=3", ESTE), { type: "module" });
+      w.onerror = function () {
+        w.terminate(); $("escolher-tela").disabled = false;
+        est.classList.add("aviso"); est.textContent = t("This video has no sound, or its sound could not be read.");
+      };
+      w.onmessage = function (ev) {
+        var d = ev.data;
+        if (d.tipo === "progresso") {
+          if (dur) $("nivel-tela").style.width = Math.round(d.parte * 100) + "%";
+          est.textContent = t("Extracting the sound · {percent}% · {seconds} s", { percent: Math.round(d.parte * 100), seconds: Math.round((Date.now() - t0) / 1000) });
+        }
+        if (d.tipo === "erro") {
+          w.terminate(); $("escolher-tela").disabled = false;
+          est.classList.add("aviso");
+          est.textContent = d.codigo === "semaudio" ? t("This video has no sound, or its sound could not be read.") : d.texto;
+        }
+        if (d.tipo === "pronto") {
+          w.terminate(); pronto(d.blob);
+        }
+      };
+      w.postMessage({ arquivo: arquivo, ini: 0, fim: dur || 360000, som: true, soSom: true, altura: 0 });
+    }
+    v.preload = "metadata"; v.muted = true;
+    v.onloadedmetadata = function () { comecar(isFinite(v.duration) ? v.duration : 0); };
+    v.onerror = function () { comecar(0); };
+    setTimeout(function () { comecar(0); }, 8000);
+    v.src = u;
+    }
+  };
+
+  /* ---------- Page temporary folder: sounds extracted from screen recordings ---------- */
+  var audios = InkBiblioteca("inkdoshub-gravador-audios");
+  function botao(texto, fn) {
+    var b = document.createElement("button");
+    b.className = "ink-btn"; b.type = "button"; b.textContent = t(texto); b.onclick = fn;
+    return b;
+  }
+  function listarAudios() {
+    return audios.listar().then(function (itens) {
+      var caixa = $("lista-audios");
+      if (!caixa) return;
+      caixa.textContent = "";
+      $("vazio-audios").hidden = itens.length > 0;
+      document.documentElement.classList.toggle("md-sem-audios", !itens.length);
+      itens.sort(function (a, b) { return b.data - a.data; }).forEach(function (i) {
+        var arq = new File([i.blob], i.nome, { type: i.tipo || "audio/mp4" });
+        var linha = document.createElement("div"), nome = document.createElement("span"), info = document.createElement("small");
+        linha.className = "item"; nome.className = "nome"; nome.setAttribute("data-idioma-nao", "");
+        nome.textContent = i.nome;
+        info.textContent = inkTamanho(i.tamanho) + " · " + new Date(i.data).toLocaleString(window.InkIdioma ? InkIdioma.atual : undefined);
+        nome.appendChild(info); linha.appendChild(nome);
+        if (navigator.canShare && navigator.canShare({ files: [arq] })) {
+          linha.appendChild(botao("Share", function () { navigator.share({ files: [arq] }).catch(function () {}); }));
+        }
+        linha.appendChild(botao("Download", function () { inkBaixar(arq); }));
+        if (window.inkTranscrever) linha.appendChild(botao("Transcribe", function () { escolherModo("transcrever"); inkTranscrever(arq); }));
+        linha.appendChild(botao("Delete", function () { audios.remover(i.id).then(listarAudios); }));
+        caixa.appendChild(linha);
+      });
+    }).catch(function () {});
+  }
+  listarAudios();
+
+  addEventListener("beforeunload", function (e) { if (gravador) { e.preventDefault(); e.returnValue = ""; } });
+})();

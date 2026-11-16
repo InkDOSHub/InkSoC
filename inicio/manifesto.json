@@ -1,0 +1,22 @@
+{
+  "idiomas": {
+    "pt-BR": {
+      "bytes": 98538,
+      "versao": "494dcf246dda3cdd",
+      "arquivos": [
+        [
+          "idiomas/pt-BR.json",
+          65332,
+          "62638715bfbc7b98",
+          "62638715bfbc7b9817fd2589fbe19da0aa8a48f527e098fef4593042d0373a67"
+        ],
+        [
+          "platform/shared/localization/locales/pt-BR.js",
+          33206,
+          "7faf8c99a8a6a1a0",
+          "7faf8c99a8a6a1a013d77ac281a733e5039c058aef77cbb94c3f7fa681c2da18"
+        ]
+      ]
+    }
+  }
+}
