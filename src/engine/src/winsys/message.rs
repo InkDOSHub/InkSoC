@@ -235,7 +235,24 @@ impl Engine {
                 let (x, y) = (lp as i16 as i32, (lp >> 16) as i16 as i32);
                 Step::Ret(self.hit_test(h, x, y) as u64)
             }
-            WM_SETCURSOR | WM_GETMINMAXINFO | WM_NCACTIVATE => Step::Ret(if msg == WM_NCACTIVATE { 1 } else { 0 }),
+            WM_GETMINMAXINFO => {
+                // MINMAXINFO: reserved, max size, max position, min track, max track.
+                // DefWindowProc supplies these defaults even when an application has no
+                // custom sizing policy; leaving the structure untouched can produce
+                // zero-sized or incorrectly constrained top-level windows.
+                if lp != 0 {
+                    self.w32(lp + 8, SCREEN_W as u32);
+                    self.w32(lp + 12, (SCREEN_H - 30) as u32);
+                    self.w32(lp + 16, 0);
+                    self.w32(lp + 20, 0);
+                    self.w32(lp + 24, self.sys_metric(34) as u32);
+                    self.w32(lp + 28, self.sys_metric(35) as u32);
+                    self.w32(lp + 32, self.sys_metric(59) as u32);
+                    self.w32(lp + 36, self.sys_metric(60) as u32);
+                }
+                Step::Ret(0)
+            }
+            WM_SETCURSOR | WM_NCACTIVATE => Step::Ret(if msg == WM_NCACTIVATE { 1 } else { 0 }),
             WM_KEYDOWN | WM_KEYUP | WM_CHAR => Step::Ret(0),
             WM_SYSKEYDOWN => {
                 if wp == 0x73 && self.s.win.keys[0x12] & 0x80 != 0 {
