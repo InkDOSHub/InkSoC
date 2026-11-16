@@ -1,124 +1,103 @@
-# InkSoC — Protocolo de colaboração humano-assistida
+# InkSoC — protocolo de desenvolvimento e validação
 
-**Status:** proposta v1 para revisão (revisada para o fluxo real em 2026-11-15)  
-**Baseline:** `d923a3eae86669d807b15d131400636e8137b74d`  
-**Escopo:** documentação e contrato operacional; nenhum runtime, segredo, workflow de publicação ou configuração administrativa é alterado.
+**Status:** protocolo operacional vigente  
+**Atualizado:** 2026-11-16
 
 ## 1. Objetivo
 
-Organizar ciclos sucessivos entre GPT-6, o mantenedor, Claude Code e GitHub. O fluxo atual é **humano-assistido**: nenhum participante é acionado automaticamente por eventos do GitHub. Cada passo começa quando o mantenedor leva a entrega anterior ao próximo participante. O GitHub conserva o estado verificável (branches, commits, PRs, Actions) que serve de evidência para todos.
+Conduzir o InkSoC com entregas pequenas, verificáveis e seguras. O GitHub é a fonte de verdade do código, histórico, branches, Pull Requests e resultados automatizados. Este protocolo reflete a condução técnica direta por GPT-6; não depende de outro agente executor ou de créditos externos.
 
 ## 2. Papéis
 
-- **Mantenedor (usuário):** define prioridades, dá autorizações, decide todo merge em `main` e é quem transporta as tarefas e os resultados entre GPT-6 e Claude Code.
-- **GPT-6 (coordenador técnico):** analisa o projeto, planeja tarefas, define escopo, critérios de aceitação e riscos, e abre uma thread para encaminhar o trabalho. Depois faz a auditoria independente.
-- **Claude Code (executor):** recebe a tarefa do mantenedor e trabalha numa máquina na nuvem com o repositório clonado. Implementa somente o escopo aprovado em branch isolada, abre/atualiza PR e registra resultados.
-- **GitHub:** mantém Issues, branches, PRs, commits, Actions, artefatos e histórico.
-- **GitHub Actions:** executa os workflows existentes do projeto (build, testes, validações) e publica resultados vinculados a SHAs. Nenhum workflow atual aciona Claude ou GPT-6.
+- **Mantenedor humano:** define prioridades, autoriza o escopo geral, testa no Safari/iPhone/iPad quando necessário e decide sobre merges e publicações.
+- **GPT-6 — responsável técnico:** investiga arquitetura e código, define tarefas e critérios, implementa em branches, cria/atualiza PRs, acompanha Actions, revisa os próprios diffs com verificações adicionais e relata honestamente o que não pôde executar.
+- **GitHub Actions:** executa os workflows configurados; cada resultado vale somente para o SHA e o escopo testados.
 
-### 2.1 Como Claude Code acessa o GitHub
+GPT-6 não tem acesso implícito ao Safari, aos arquivos locais do mantenedor, ao runtime do iPhone ou a ambientes externos não conectados. Não afirmar testes locais/dispositivo que não tenham sido executados.
 
-1. **Git** (clone, fetch, push) com a conta autorizada para a sessão, somente nas branches liberadas para aquela sessão (normalmente `claude/...`, ou a branch de um PR existente quando o mantenedor autoriza explicitamente).
-2. **GitHub Connector do Claude**, conectado à conta do mantenedor, para consultar PRs, Actions e logs, abrir PRs e executar outras operações permitidas.
+## 3. Ciclo de trabalho
 
-Merge feito por esse acesso só acontece com autorização explícita do mantenedor.
+1. Confirmar HEAD de `main`, branches, PRs relacionados, estado de workflows e Graphify/contexto técnico.
+2. Formular hipótese causal separando fatos observados de inferências.
+3. Delimitar uma alteração lógica, arquivos afetados, invariantes, riscos e critérios de aceitação.
+4. Criar branch a partir do HEAD verificado de `main`; implementar sem alterar diretamente a branch principal.
+5. Executar testes e verificações disponíveis. Não enfraquecer ou remover testes para obter resultado verde.
+6. Revisar o diff, procurar regressões, validar a origem dos dados e conferir dependências/licenças.
+7. Abrir ou atualizar PR com resumo, SHA-base, evidências e limitações.
+8. Conferir Actions no SHA exato e atualizar o mantenedor.
+9. Após validação funcional no dispositivo quando aplicável e autorização específica, integrar a mudança.
+10. Registrar marcos técnicos de forma concisa e anonimizada.
 
-Nenhum agente pode aprovar o próprio trabalho como revisão independente.
+## 4. Escopo da autorização e operações protegidas
 
-## 3. Unidade de trabalho e identidade
+A autorização do mantenedor para conduzir o projeto permite investigação, edição de código/documentação em branches, execução de testes não destrutivos e criação de PRs.
 
-Cada ciclo recebe um identificador estável, por exemplo `INKSOC-2026-001`. O identificador deve aparecer na Issue, branch, PR e entrada de log.
+Exigem autorização específica adicional:
+- merge em `main` e publicação manual;
+- exclusão de dados do usuário ou de armazenamento persistente;
+- reescrita de histórico, force-push ou remoção de branches/PRs;
+- alterações em segredos, tokens, permissões, configurações administrativas, faturamento ou infraestrutura;
+- operações destrutivas ou testes que possam corromper dados reais.
 
-Cada entrega deve declarar:
-- ID da tarefa e tarefa predecessora;
-- SHA-base e SHA do resultado;
-- agente executor e agente revisor;
-- escopo permitido e áreas proibidas;
-- estado atual e próximo estado;
-- evidências e limitações.
+Nunca presumir autorização para uma dessas operações por causa de uma autorização geral de desenvolvimento.
 
-Não usar apenas nomes de branch ou texto de conversa como identidade da tarefa.
+## 5. Contrato de evidência
 
-## 4. Estados do ciclo
-
-`PROPOSED → READY → IMPLEMENTING → VALIDATING → REPORTING → AUDIT_PENDING`
-
-A partir da auditoria:
-- `REVISION_REQUIRED`: correção solicitada, retorna a `READY` com nova revisão da tarefa;
-- `ACCEPTED`: critérios técnicos atendidos, sem autorizar merge;
-- `BLOCKED`: depende de decisão, credencial, ambiente ou ação humana;
-- `CANCELLED`: encerrado explicitamente.
-
-A transição deve ser registrada no GitHub. Não iniciar implementação enquanto a tarefa não estiver em `READY`.
-
-## 5. Ciclo de execução
-
-1. GPT-6 verifica o estado atual do repositório, os PRs relacionados, os workflows e os SHAs.
-2. GPT-6 escreve a tarefa (escopo, critérios de aceitação, riscos) e abre uma thread para encaminhá-la.
-3. O mantenedor transfere a tarefa para Claude Code (manualmente; não há despacho automático).
-4. Claude Code implementa apenas o escopo aprovado, em branch isolada, na máquina na nuvem com o repositório clonado.
-5. Claude Code faz push da branch e abre/atualiza PR em draft, registrando arquivos, commits, decisões, testes e pendências.
-6. GitHub Actions executa os workflows existentes; os resultados ficam associados ao SHA exato.
-7. Claude Code atualiza o relatório e `PROJECT_LOG.md` (na branch de trabalho) com fatos verificáveis e entrega o resultado ao mantenedor.
-8. O mantenedor volta à conversa com GPT-6 levando os resultados e as evidências (links de PR, commits e Actions).
-9. GPT-6 faz auditoria independente, relendo o estado real no GitHub (commits, PRs, resultados dos workflows, aderência aos critérios). O relato de Claude não substitui essa verificação.
-10. GPT-6 registra conclusão, solicita revisão ou propõe a próxima tarefa.
-11. Merge continua dependendo de autorização humana explícita.
-
-## 6. Contrato de evidência
-
-Usar os estados sem promover automaticamente um ao outro:
-- **Identificado:** observação ainda sem causa confirmada.
+Usar os seguintes estados sem promoção automática:
+- **Identificado:** observação ou indício, sem causa confirmada.
 - **Diagnosticado:** causa sustentada por código, reprodução ou evidência.
-- **Implementado:** código alterado.
+- **Implementado:** código alterado; não implica build.
 - **Compilado:** build passou no SHA indicado.
 - **Testado:** teste nomeado foi executado.
-- **Validado:** critérios de aceitação da tarefa passaram.
-- **Confirmado funcionalmente:** comportamento observado no ambiente de destino e nos cenários declarados.
-- **Inconclusivo:** evidência insuficiente ou ambiente impeditivo.
+- **Validado:** critérios de aceitação passaram.
+- **Confirmado funcionalmente:** comportamento observado no ambiente de destino, nos cenários declarados.
+- **Inconclusivo:** faltam evidências ou o ambiente impediu a conclusão.
 
-Todo relatório de CI deve incluir workflow, run ID/URL, SHA, conclusão e jobs relevantes. Verde em um workflow não prova compatibilidade geral. Não declarar teste aprovado sem conferir o resultado do GitHub Actions no SHA exato do commit analisado.
+Todo relatório de CI deve indicar workflow, run ID/URL, SHA, conclusão e jobs relevantes. Um check verde prova apenas o que o workflow realmente executou.
 
 Classificar falhas como **CODE**, **TEST**, **INFRA**, **NETWORK**, **TIMEOUT**, **ENVIRONMENT** ou **UNKNOWN**.
 
-## 7. Notificações e acionamento
+## 6. Confiabilidade e segurança
 
-No fluxo atual não há notificação automática nem acionamento automático de agentes:
+- Preservar dados, compatibilidade e comportamento existente; alterações devem ter escopo e plano de regressão.
+- Não contornar erros de rede, memória, arquivos ou inicialização com falsos estados de sucesso.
+- Não apresentar métricas indisponíveis como zero ou valores simulados como medidas reais.
+- Tratar arquivos do usuário como dados não confiáveis; validar tamanho, formato, origem e limites de memória.
+- Proteger handoffs entre apps com identificadores não previsíveis, expiração, leitura/consumo controlados e mensagens de erro explícitas.
+- Respeitar isolamento entre origens e CSP; não abrir acesso geral a armazenamento privado entre aplicativos.
+- Fixar dependências e manter proveniência/licenças de código de terceiros.
+- Testes de estresse devem ter limites de memória, tempo e volume, e não podem preencher deliberadamente todo o armazenamento persistente do usuário.
 
-- O mantenedor acompanha os resultados pelo próprio GitHub (PRs, Actions) e pelo relatório que Claude Code entrega na thread.
-- E-mails nativos do GitHub dependem das preferências de notificação da conta e não devem ser presumidos, em especial para execuções iniciadas por bot.
-- Um link aberto pelo mantenedor não desperta GPT-6 nem Claude Code. Cada etapa começa quando o mantenedor envia uma mensagem ao participante seguinte.
+## 7. Privacidade e registros públicos
 
-Um canal de e-mail dedicado (provedor SMTP/API com credencial em Actions Secrets) é apenas uma possibilidade futura; ver `INTEGRATION_DESIGN.md`.
+O repositório é público. Portanto:
+- Não publicar transcrições de conversas, resumos pessoais, dados de saúde, localização, contatos, identificadores de conta, e-mails, tokens, credenciais, caminhos locais ou nomes privados de arquivos.
+- Contexto de sessão e logs devem conter somente fatos técnicos necessários, anonimizados e minimizados.
+- Usar dados e arquivos sintéticos em Issues, PRs, testes e screenshots.
+- Não enviar arquivos reais do usuário para serviços externos ou anexá-los ao GitHub.
+- Não afirmar que o histórico Git está anonimizado sem auditá-lo: uma correção no arquivo atual não remove versões anteriores já publicadas.
+- Se um segredo for encontrado, não reproduzi-lo no relatório; interromper o uso, avaliar exposição e orientar rotação/revogação pelo canal seguro.
 
-## 8. Integração com Claude
+## 8. Arquitetura e integração com o InkDOS Hub
 
-Estado atual (verificado em 2026-11-15):
+Antes de criar um novo visualizador/editor, verificar as soluções existentes no ecossistema InkDOS Hub. Reutilizar contratos e componentes quando forem compatíveis, preservando licenças, isolamento e experiência em Safari.
 
-- Não existe Claude Code GitHub Action instalada no InkSoC.
-- Nenhum workflow em `.github/workflows` aciona Claude.
-- Um comentário `@claude` em PR ou Issue **não** inicia nenhuma execução.
-- Os workflows existentes servem a build, testes e validações do projeto, não ao despacho de tarefas.
+A integração de arquivos deve distinguir:
+- seleção/abertura;
+- leitura e visualização;
+- edição;
+- salvamento/exportação;
+- sincronização segura com o drive C: virtual.
 
-Claude Code é acionado somente pelo mantenedor, que transfere a tarefa para uma sessão na nuvem (seção 2.1).
+A existência de um launcher ou handoff em outro aplicativo não comprova que o InkSoC possa acessar diretamente seus dados. Definir uma ponte explícita, com permissões e ciclo de vida documentados.
 
-**Possibilidade futura (não implementada):** a Claude Code GitHub Action permitiria acionar Claude a partir de PRs/Issues. A adoção exigiria chave de API da Anthropic como Secret do repositório, custos próprios e revisão das permissões de execução, em PR separado e com autorização do mantenedor. Antes disso, o protocolo não presume que nenhum evento do GitHub acione Claude.
+## 9. Critério de conclusão
 
-## 9. Proteções e limites
+Uma tarefa termina quando:
+- o diff corresponde ao escopo;
+- testes e Actions estão vinculados ao SHA exato;
+- limitações e riscos foram declarados;
+- validação funcional foi obtida quando necessária, ou marcada como pendente;
+- a próxima ação está clara.
 
-- Nunca editar `main` diretamente.
-- Toda implementação em branch isolada, entregue por Pull Request; branch e PR separados para cada mudança lógica.
-- Nunca fazer merge sem autorização explícita do mantenedor.
-- Não ampliar o escopo autorizado.
-- Não alterar runtime, dependências, licenças ou workflows de publicação neste protocolo.
-- Não reduzir/remover testes para obter CI verde.
-- Não iniciar outra execução para a mesma tarefa enquanto houver uma execução ativa ou resultado sem auditoria.
-- Limitar tentativas automáticas de correção; após o limite, marcar `BLOCKED`.
-- Não expor tokens, segredos, conteúdo privado ou dados de terceiros em logs.
-- Toda automação deve usar permissões mínimas e não pode publicar artefatos de PR em `main`.
-
-## 10. Critério de conclusão
-
-Uma rodada termina quando o relatório de Claude, os resultados de Actions e a auditoria GPT-6 estão associados ao mesmo ID de tarefa e aos SHAs correspondentes, e a próxima ação está registrada como `READY`, `BLOCKED`, `ACCEPTED` ou `CANCELLED`.
-
-A aceitação técnica não implica integração. A decisão final de merge pertence ao mantenedor.
+Aceitação técnica não substitui a autorização humana para merge/publicação.
