@@ -124,14 +124,6 @@
       "expect": ["BusyBox v"],
       "reject": ["out of memory", "Stopped:"]
     },
-    "busybox32": {
-      "url": "https://frippery.org/files/busybox/busybox.exe",
-      "file": "busybox.exe",
-      "query": "?file=1",
-      "steps": [["until", "BusyBox v", 600000], ["shot", "out"]],
-      "expect": ["BusyBox v"],
-      "reject": ["out of memory", "Stopped:"]
-    },
     "jq": {
       "url": "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe",
       "file": "jq.exe",
@@ -188,14 +180,6 @@
       "expect": [],
       "reject": ["out of memory", "Stopped:", "Finished \\(exit code", "\\nExit code"]
     },
-    "hxd-delphi-inno": {
-      "url": "https://mh-nexus.de/downloads/HxDSetup.zip",
-      "file": "HxDSetup.zip",
-      "query": "?file=1",
-      "steps": [["wait", 90000], ["shot", "window"], ["wait", 30000], ["shot", "later"]],
-      "expect": [],
-      "reject": ["out of memory", "Stopped:", "Finished \\(exit code", "\\nExit code"]
-    },
     "rufus": {
       "url": "https://github.com/pbatard/rufus/releases/download/v4.6/rufus-4.6.exe",
       "file": "rufus.exe",
@@ -241,6 +225,22 @@
       "file": "winrar.exe",
       "query": "?file=1&args=/S",
       "steps": [["wait", 60000], ["shot", "progress"], ["until", "Finished \\(exit code|\\nExit code", 1800000], ["shot", "installed"], ["run", "C:\\Program Files\\WinRAR\\WinRAR.exe"], ["wait", 90000], ["shot", "app"]],
+      "expect": ["Finished \\(exit code 0\\)"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "nasm32": {
+      "url": "https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win32/nasm-2.16.03-win32.zip",
+      "file": "nasm.zip",
+      "query": "?file=1",
+      "steps": [["wait", 60000], ["run", "C:\\nasm-2.16.03\\nasm.exe", "-v"], ["until", "NASM version", 600000], ["shot", "out"]],
+      "expect": ["NASM version 2\\.16"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "innosetup-delphi": {
+      "url": "https://github.com/jrsoftware/issrc/releases/download/is-6_4_3/innosetup-6.4.3.exe",
+      "file": "innosetup.exe",
+      "query": "?file=1&args=/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
+      "steps": [["wait", 60000], ["shot", "progress"], ["until", "Finished \\(exit code|\\nExit code", 1800000], ["shot", "installed"], ["run", "C:\\Program Files (x86)\\Inno Setup 6\\Compil32.exe"], ["wait", 90000], ["shot", "app"]],
       "expect": ["Finished \\(exit code 0\\)"],
       "reject": ["out of memory", "Stopped:"]
     }

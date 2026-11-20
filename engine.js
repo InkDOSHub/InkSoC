@@ -239,7 +239,7 @@ function run(files, exe, args, label, home, opts = {}) {
     else if (d.type === 'done') done(p, d);
   };
   w.postMessage({ type: 'exec', files, exe, cmd: (/\s/.test(exe) ? '"' + exe + '"' : exe) + (args ? ' ' + args : ''), drive: true, home, poolMb: poolMb(), targetMb: 8192,
-    jit: prefs.jit, cores: opts.typing ? 1 : coresFor(), typing: !!opts.typing, strong: params.get('strong') !== '0', opt: params.get('opt') !== '0', winedebug: +params.get('winedebug') || 0, winetrace: params.get('winetrace') || '' },
+    jit: prefs.jit, cores: opts.typing ? 1 : coresFor(), typing: !!opts.typing, strong: params.get('strong') !== '0', opt: params.get('opt') !== '0', winedebug: +params.get('winedebug') || 0, maxout: +params.get('maxout') || 0, winetrace: params.get('winetrace') || '' },
   files ? files.map((f) => f.data).filter(Boolean) : []);
   return p;
 }

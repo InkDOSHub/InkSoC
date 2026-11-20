@@ -60,7 +60,7 @@ const results = [];
 const SUM = /(\d+) tests? executed \((\d+) marked as todo, (?:\d+ as flaky, )?(\d+) failures?\), (\d+) skipped/;
 for (const u of units) {
   const s = Date.now();
-  await page.goto(base + '/?run=' + encodeURIComponent('C:\\InkSoC\\Downloads\\' + exe) + '&args=' + encodeURIComponent(u));
+  await page.goto(base + '/?run=' + encodeURIComponent('C:\\InkSoC\\Downloads\\' + exe) + '&args=' + encodeURIComponent(u) + '&maxout=64');
   const r = await finish(+limit * 1000);
   const m = r.text.match(SUM);
   const res = { unit: u, end: r.end, seconds: Math.round((Date.now() - s) / 1000) };

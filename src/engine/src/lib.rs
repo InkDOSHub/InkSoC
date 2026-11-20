@@ -140,6 +140,7 @@ pub struct Shared {
     pub win_ki: u64,
     pub recent: [(u32, u64); 16], // last native calls (thunk, return address), for error reports
     pub recent_n: usize,
+    pub stubbed: std::collections::HashSet<String>, // system calls answered "not implemented" (logged once)
     pub wine_exports: HashMap<String, std::collections::HashSet<String>>,
     pub ldr_entries: HashMap<u64, u64>,
     pub loadlib: Vec<(u64, u64)>, // (module handle, caller rsp) while a DllMain runs
@@ -289,7 +290,7 @@ pub extern "C" fn init(pool_mb: u32, target_mb: u32) {
             files: Default::default(), modules: Vec::new(),
             thunks: Vec::new(), thunk_ids: HashMap::new(),
             heap: heap::Heap::default(), tls_used: 0, no_init: false, thunk_fb: HashMap::new(), routes: Vec::new(), wine_fb: HashMap::new(), env_block: 0, tls_tmpl: Vec::new(),
-            init_queue: Vec::new(), resume: Vec::new(), user_shared: false, win: Default::default(), gdi: Default::default(), gl: Default::default(), audio: Default::default(), net: Default::default(), unix_dispatcher: 0, next_luid: 0, win_ki: 0, recent: [(0, 0); 16], recent_n: 0, wine_exports: HashMap::new(), ldr_entries: HashMap::new(), loadlib: Vec::new(),
+            init_queue: Vec::new(), resume: Vec::new(), user_shared: false, win: Default::default(), gdi: Default::default(), gl: Default::default(), audio: Default::default(), net: Default::default(), unix_dispatcher: 0, next_luid: 0, win_ki: 0, recent: [(0, 0); 16], recent_n: 0, stubbed: Default::default(), wine_exports: HashMap::new(), ldr_entries: HashMap::new(), loadlib: Vec::new(),
             stack_top: 0, exe_entry: 0, exe_base: 0, cmdline: (0, 0), startup_ansi: HashMap::new(), unknown_calls: 0, crt: Default::default(), fs: Default::default(),
             sched: Default::default(), cores: 1, insns: 0, jit_on: true, lx: None, names: HashMap::new(),
             wpid: 0, procs: HashMap::new(), pinfo: HashMap::new(), std: [3, 1, 2], con_in: Vec::new(), con_live: false, pad_on: false, pad_packet: 0, pad: [0; 12], dll_dirs: Vec::new(), wow64: false, wow64_ntdll: 0, wow64_ctx: 0, images: HashMap::new(), image_files: HashMap::new(), root_off: 0, image_slots: HashMap::new(), atoms: Vec::new(),
@@ -1140,6 +1141,14 @@ impl Engine {
                             let pending: Vec<(u64, u64)> = self.s.init_queue.drain(before..).collect();
                             self.run_inits(pending, a, None);
                         } else { self.cpu.rip = a }
+                    }
+                    // a system call the engine does not answer fails as it does in Wine
+                    // (STATUS_NOT_IMPLEMENTED) instead of stopping the program
+                    None if dll == "ntdll.dll" && (name.starts_with("Nt") || name.starts_with("Zw")) => {
+                        if self.s.stubbed.insert(name.to_string()) {
+                            console(&format!("[engine] stub: {}!{} returns STATUS_NOT_IMPLEMENTED\n", dll, name));
+                        }
+                        self.do_ret(0xC000_0002);
                     }
                     None => self.set_error(format!("not implemented yet: {}!{}", dll, name)),
                 }

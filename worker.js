@@ -125,13 +125,13 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
     host_console: (p, n) => {
       // a program stuck printing (e.g. asking a question nobody can answer) would fill the page and crash the tab
       outBytes += n;
-      if (outBytes > (self.wineDebug ? 1 << 30 : 1 << 20)) { tooMuch = true; return; }
+      if (outBytes > (self.wineDebug ? 1 << 30 : (self.maxOut || 1) << 20)) { tooMuch = true; return; }
       post('log', { text: new TextDecoder().decode(new Uint8Array(mem.buffer, p >>> 0, n).slice()) });
     },
     host_now_ms: () => performance.now(),
     host_console_text: (t) => {
       outBytes += t.length;
-      if (outBytes > (self.wineDebug ? 1 << 30 : 1 << 20)) { tooMuch = true; return; }
+      if (outBytes > (self.wineDebug ? 1 << 30 : (self.maxOut || 1) << 20)) { tooMuch = true; return; }
       post('log', { text: t });
     },
     host_epoch_ms: () => Date.now(),
@@ -474,7 +474,7 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
   }
   if (spill) { spill.close(); spill = null; }
   if (opfsRoot) await opfsRoot.removeEntry(spillName).catch(() => {});
-  const error = swapCut ? `stopped by the swap brake: this run wrote ${SWAP_CAP_GB} GB to swap (the program needs more memory than this device gives it)` : tooMuch ? 'the program printed more than 1 MB (stuck in a loop? if it asks a question, answer it with a switch such as -y)' : st === 2 ? msg() : '';
+  const error = swapCut ? `stopped by the swap brake: this run wrote ${SWAP_CAP_GB} GB to swap (the program needs more memory than this device gives it)` : tooMuch ? `the program printed more than ${self.maxOut || 1} MB (stuck in a loop? if it asks a question, answer it with a switch such as -y)` : st === 2 ? msg() : '';
   post('done', { ok: !tooMuch && !swapCut && st === 1 && x.stat(6) === 0, error, exitCode: x.stat(6), out });
 }
 
@@ -640,6 +640,7 @@ onmessage = (ev) => {
   if (d.type === 'stop') { stopAsked = true; return; }
   if (d.winedebug) self.wineDebug = d.winedebug;
   if (d.winetrace) self.wineTrace = d.winetrace;
+  if (d.maxout) self.maxOut = d.maxout; // ?maxout=MB: more console output before the stop (test programs)
   if (d.type === 'win') { if (winX) winX.win_input(d.k, d.x, d.y, d.d); return; }
   if (d.type === 'pad') { if (winX && winX.win_pad) winX.win_pad(d.on, d.b, d.l, d.r); return; }
   if (d.type === 'stdin') { if (typeIn) typeIn(d.text); return; }
