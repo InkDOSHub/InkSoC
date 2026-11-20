@@ -351,6 +351,16 @@ function follow() {
   if (Math.abs(next.x - view.x) + Math.abs(next.y - view.y) + Math.abs(next.w - view.w) + Math.abs(next.h - view.h) < 16) return;
   view = next;
   fit();
+  sizeParent();
+}
+// ask InkOS to fit its window to the programs' windows (it ignores this once the user resizes)
+let sentSize = '';
+function sizeParent() {
+  if (!parentOrigin || (view.w === W && view.h === H)) return;
+  const key = view.w + 'x' + view.h;
+  if (key === sentSize) return;
+  sentSize = key;
+  try { window.parent.postMessage({ v: 1, type: 'inkos-size', width: view.w, height: view.h }, parentOrigin); } catch (e) { /* closed */ }
 }
 
 /* ---------- mouse, touch and keyboard: the topmost program with a window under the pointer ---------- */
