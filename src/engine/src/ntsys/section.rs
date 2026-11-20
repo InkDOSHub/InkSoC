@@ -26,10 +26,8 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 let Some(Handle::File { name, .. }) = e.s.fs.handles.get(&file) else { return Some(INVALID_HANDLE) };
                 let name = name.clone();
                 let len = e.s.files.size(&name).unwrap_or(0);
-                if want > len {
-                    if let Some(d) = e.s.files.get_mut(&name) {
-                        d.resize(want as usize, 0);
-                    }
+                if want > len && e.s.files.contains_key(&name) {
+                    e.s.files.set_len(&name, want);
                 }
                 let size = want.max(len);
                 if size == 0 {

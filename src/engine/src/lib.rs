@@ -1050,7 +1050,7 @@ impl Engine {
     /// not its kind), so the next one gets the call. The first call of each thunk learns
     /// which modules have no case for its name at all; later calls skip those.
     fn native_chain(&mut self, idx: usize, name: &str) -> Option<u64> {
-        if unsafe { WINE_DEBUG } == 2 { call_census(name, self.s.wpid); }
+        if unsafe { WINE_DEBUG } == 2 { call_census(self, name); }
         const MODULES: [fn(&mut Engine, &str) -> Option<u64>; 6] = [sched::call, files::call, kernel32::call, winapi::call, ntsys::call, unixlib::call];
         const LEARNED: u8 = 0x80;
         let route = self.s.routes.get(idx).copied().unwrap_or(0);
@@ -1158,7 +1158,8 @@ mod host_stubs {
 
 // ?winedebug=2: every 5 s, the native calls made since, most frequent first (what a stuck
 // program is doing). Debug only.
-fn call_census(name: &str, pid: u32) {
+fn call_census(e: &Engine, name: &str) {
+    let pid = e.s.wpid;
     use std::cell::RefCell;
     thread_local! { static C: RefCell<(f64, std::collections::HashMap<String, u64>)> = RefCell::new((0.0, Default::default())); }
     C.with(|c| {
@@ -1171,6 +1172,8 @@ fn call_census(name: &str, pid: u32) {
             v.sort_by(|a, b| b.1.cmp(&a.1));
             let top: Vec<String> = v.iter().take(12).map(|(n, k)| format!("{} {}", n, k)).collect();
             console(&format!("[calls] {}\n", top.join(", ")));
+            let (total, big, n) = e.s.files.mem_stats();
+            console(&format!("[mem] engine heap {} MB, files in memory {} MB, biggest {} ({} MB)\n", heap_used() as u64 >> 20, total >> 20, big, n >> 20));
         }
     });
 }

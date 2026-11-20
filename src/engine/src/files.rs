@@ -939,8 +939,8 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         }
         "SetEndOfFile" => {
             let Some((k, pos)) = e.file_mut(a0) else { return Some(0) };
-            if let Some(d) = e.s.files.get_mut(&k) {
-                d.resize(pos as usize, 0);
+            if e.s.files.contains_key(&k) {
+                e.s.files.set_len(&k, pos);
             }
             1
         }

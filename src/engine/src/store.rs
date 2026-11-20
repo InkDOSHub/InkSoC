@@ -133,6 +133,59 @@ impl Store {
         self.lazy().insert(k.to_string(), (SPILL, base, size.max(end)));
         true
     }
+    /// (bytes of files in memory, the biggest one) for the debug census.
+    pub fn mem_stats(&self) -> (u64, String, u64) {
+        let mut total = 0u64;
+        let mut big = (String::new(), 0u64);
+        for (k, v) in self.data().iter() {
+            total += v.len() as u64;
+            if v.len() as u64 > big.1 {
+                big = (k.clone(), v.len() as u64);
+            }
+        }
+        (total, big.0, big.1)
+    }
+    /// Sets the file's length (SetEndOfFile, a section bigger than its file). A big length
+    /// is set where the file lives on the spill file, never as one buffer in memory (an
+    /// installer that sizes a 300 MB file before writing it).
+    pub fn set_len(&mut self, k: &str, n: u64) {
+        if let Some(&(SPILL, base, size)) = self.lazy().get(k) {
+            if let Some(&cap) = self.room().get(k) {
+                if n <= cap {
+                    // shrinking keeps the bytes past the end; growing must read as zeros
+                    if n > size && !self.spill_write(base + size, &vec![0u8; (n - size).min(PIECE as u64) as usize]) {
+                        return;
+                    }
+                    if n > size + PIECE as u64 {
+                        let mut at = size + PIECE as u64;
+                        let z = vec![0u8; PIECE];
+                        while at < n {
+                            let m = (n - at).min(PIECE as u64) as usize;
+                            if !self.spill_write(base + at, &z[..m]) {
+                                return;
+                            }
+                            at += m as u64;
+                        }
+                    }
+                    self.lazy().insert(k.to_string(), (SPILL, base, n));
+                    return;
+                }
+                let _ = self.write_at(k, n - 1, &[0]);
+                return;
+            }
+        }
+        if n > BIG {
+            let cur = self.size(k).unwrap_or(0);
+            if n > cur {
+                let _ = self.entry_or_default(k.to_string());
+                if self.write_at(k, n - 1, &[0]) {
+                    return;
+                }
+            }
+        }
+        let d = self.entry_or_default(k.to_string());
+        d.resize(n as usize, 0);
+    }
     fn read_spill(&self, base: u64, size: u64) -> Vec<u8> {
         let mut v = vec![0u8; size as usize];
         let mut at = 0usize;
