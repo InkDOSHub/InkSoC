@@ -223,7 +223,7 @@ function run(files, exe, args, label, home, opts = {}) {
   progs.push(p);
   p.out = document.createElement('pre');
   conEl.append(p.out);
-  const w = p.w = new Worker('worker.js?v=90');
+  const w = p.w = new Worker('worker.js?v=91');
   if (opts.typing) typingLine(p);
   raise(p);
   w.onerror = (e) => { logError(label, 'engine worker failed: ' + (e.message || 'unknown error')); appendOut(p.out, '\nThe engine stopped: ' + (e.message || 'unknown error') + '\n'); };
