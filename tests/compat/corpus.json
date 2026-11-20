@@ -1,5 +1,5 @@
 {
-  "_doc": "Real programs the engine must keep running. Each case: an optional download (url, file name), the page query, and steps. Steps: [\"wait\", ms], [\"key\", name], [\"click\", x, y] (page pixels at 1100x800), [\"type\", text], [\"until\", regex, ms] (the console output matches), [\"run\", windowsPath] (opens an installed program in the same browser profile), [\"shot\", name]. After the steps, every \"expect\" regex must match the console output and no \"reject\" regex may.",
+  "_doc": "Real programs the engine must keep running. Each case: an optional download (url: one or more space-separated mirrors, file name), the page query, and steps. Steps: [\"wait\", ms], [\"key\", name], [\"click\", x, y] (page pixels at 1100x800), [\"type\", text], [\"until\", regex, ms] (the console output matches), [\"run\", windowsPath] (opens an installed program in the same browser profile), [\"shot\", name]. After the steps, every \"expect\" regex must match the console output and no \"reject\" regex may.",
   "cases": {
     "cmd": {
       "query": "",
@@ -31,7 +31,7 @@
       "reject": ["out of memory", "Stopped:"]
     },
     "libreoffice": {
-      "url": "https://downloadarchive.documentfoundation.org/libreoffice/old/26.8.3.1/win/x86_64/LibreOffice_26.8.3.1_Win_x86-64.msi",
+      "url": "https://ftp.osuosl.org/pub/tdf/libreoffice/stable/26.8.3/win/x86_64/LibreOffice_26.8.3_Win_x86-64.msi https://mirror.netcologne.de/tdf/libreoffice/stable/26.8.3/win/x86_64/LibreOffice_26.8.3_Win_x86-64.msi https://download.documentfoundation.org/libreoffice/stable/26.8.3/win/x86_64/LibreOffice_26.8.3_Win_x86-64.msi https://downloadarchive.documentfoundation.org/libreoffice/old/26.8.3.1/win/x86_64/LibreOffice_26.8.3.1_Win_x86-64.msi",
       "file": "LibreOffice.msi",
       "query": "?file=1&args=/qb&winedebug=2",
       "steps": [["wait", 600000], ["shot", "progress"], ["until", "Finished \\(exit code", 4800000], ["shot", "installed"], ["run", "C:\\Program Files\\LibreOffice\\program\\soffice.exe"], ["wait", 600000], ["shot", "soffice"]],

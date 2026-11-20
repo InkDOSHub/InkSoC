@@ -88,9 +88,9 @@ jobs:
           mkdir -p dl
           node -e '
             const c = require("./tests/compat/corpus.json").cases[process.env.CASE];
-            if (c.url) console.log(c.url + " " + c.file);' | while read -r url file; do
-            # mirrors are picked at random per request and some are broken: try a few times
-            for i in 1 2 3 4 5 6; do curl -fsSL --retry 3 -o "dl/$file" "$url" && break; sleep 10; done
+            if (c.url) console.log(c.file + " " + c.url);' | while read -r file urls; do
+            # mirrors: the first that downloads (some have broken certificates for the runners)
+            for url in $urls $urls; do curl -fsSL --retry 2 -o "dl/$file" "$url" && break; echo "failed: $url"; sleep 5; done
             ls -l "dl/$file"
           done
       - name: Run
