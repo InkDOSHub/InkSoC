@@ -237,7 +237,7 @@
       "reject": ["out of memory", "Stopped:"]
     },
     "innosetup-delphi": {
-      "url": "https://files.jrsoftware.org/is/6/innosetup-6.7.4.exe",
+      "url": "https://github.com/jrsoftware/issrc/releases/download/is-6_4_3/innosetup-6.4.3.exe",
       "file": "innosetup.exe",
       "query": "?file=1&args=/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
       "steps": [["wait", 60000], ["shot", "progress"], ["until", "Finished \\(exit code|\\nExit code", 1800000], ["shot", "installed"], ["run", "C:\\Program Files (x86)\\Inno Setup 6\\Compil32.exe"], ["wait", 90000], ["shot", "app"]],
