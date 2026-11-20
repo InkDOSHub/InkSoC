@@ -72,9 +72,14 @@ pub enum W {
     },
     /// ReadConsole: until the page sends a typed line (then the call runs again)
     ConIn,
+    /// SendMessage to another thread's window: until that thread has run the procedure
+    Reply {
+        id: u64,
+        owner: u32,
+    },
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum St {
     Ready,
     Running,
@@ -89,7 +94,7 @@ pub struct Thread {
     cpu: Box<Cpu>,
     eh: eh::Eh,
     pub st: St,
-    wait: Option<W>,
+    pub(crate) wait: Option<W>,
     deadline: f64,        // ms (host clock); infinity = no timeout
     pending: Option<u64>, // return value of the native call it was parked in
     pub exit: u32,
@@ -110,6 +115,7 @@ pub struct Sched {
     pub switches: u64,
     pub addr_seq: std::collections::HashMap<u64, u64>,
     pub keyed: std::collections::HashMap<u64, u32>,
+    pub last_report: f64,
 }
 
 impl Sched {
@@ -371,7 +377,26 @@ impl Engine {
                     None
                 }
             }
-            W::Msg { out, hwnd, first, last } => self.peek_tid(me, *out, *hwnd, *first, *last, true).map(|more| more as u64),
+            W::Msg { out, hwnd, first, last } => {
+                // a message another thread sent: GetMessage returns (with WM_NULL) so the
+                // thread calls it again, and that call runs the window procedure
+                if self.s.win.queues.get(&me).map_or(false, |q| !q.sent.is_empty()) {
+                    let m = crate::winsys::Msg { hwnd: 0, msg: 0, wp: 0, lp: 0, time: crate::now_ms() as u32, x: 0, y: 0 };
+                    self.write_msg(*out, &m);
+                    return Some(1);
+                }
+                self.peek_tid(me, *out, *hwnd, *first, *last, true).map(|more| more as u64)
+            }
+            W::Reply { id, owner } => {
+                if let Some(r) = self.s.win.replies.remove(id) {
+                    return Some(r);
+                }
+                // the thread that owns the window is gone: nobody will answer
+                if self.s.sched.th.iter().find(|t| t.id == *owner).map_or(true, |t| t.st == St::Done) {
+                    return Some(0);
+                }
+                None
+            }
             W::MsgOrObjs { hs } => {
                 if let Some(i) = hs.iter().position(|&h| self.signaled(h, me)) {
                     self.acquire(hs[i], me);
@@ -427,6 +452,9 @@ impl Engine {
         let st = self.alloc(size)?;
         let teb = self.alloc(if self.s.wow64 { 0x4000 } else { 0x2000 })?;
         let id = MAIN_TID + 4 * self.s.sched.th.len() as u32;
+        if unsafe { crate::WINE_DEBUG } > 1 {
+            crate::console(&format!("[thread] new thread {} start {:#x} param {:#x} (by thread {})\n", id, start, param, self.cur_tid()));
+        }
         let w = |e: &mut Engine, a: u64, v: u64| {
             e.w64(a, v);
         };
@@ -679,7 +707,7 @@ impl Engine {
                     }
                     soonest = soonest.min(dl);
                     // a window thread: page input can come at any time, timers are due later
-                    if matches!(w, W::Msg { .. } | W::MsgOrObjs { .. } | W::ConIn) {
+                    if matches!(w, W::Msg { .. } | W::MsgOrObjs { .. } | W::ConIn | W::Reply { .. }) {
                         soonest = soonest.min((t_now + 30.0).min(self.next_timer(id)));
                     }
                     // a waitable timer in the wait: wake up when it is due
@@ -709,29 +737,41 @@ impl Engine {
         soonest = soonest.min(self.sock_deadline());
         if soonest.is_finite() || busy {
             self.idle_ms = if soonest.is_finite() { (soonest - t_now).max(0.0).min(50.0) } else { 50.0 };
-        } else if !self.s.exited {
-            // what each thread waits on, so the report shows the cycle
-            let mut why = String::new();
-            for t in self.s.sched.th.iter().filter(|t| t.st != St::Done) {
-                let w = match &t.wait {
-                    None => "-".to_string(),
-                    Some(W::Objs { hs, all }) => format!("objects {:x?}{}", hs, if *all { " (all)" } else { "" }),
-                    Some(W::MsgOrObjs { hs }) => format!("message or objects {:x?}", hs),
-                    Some(W::Cs(a)) => format!("critical section {:#x}", a),
-                    Some(W::SrwEx(a)) | Some(W::SrwSh(a)) => format!("SRW lock {:#x}", a),
-                    Some(W::Addr { addr, .. }) => format!("address {:#x}", addr),
-                    Some(W::Keyed(k)) => format!("keyed event {:#x}", k),
-                    Some(W::Msg { .. }) => "a window message".to_string(),
-                    Some(W::NpWait(n)) => format!("pipe {}", n),
-                    Some(W::NPipe { h, .. }) => format!("pipe handle {:#x}", h),
-                    Some(W::Port { h, .. }) => format!("completion port {:#x}", h),
-                    Some(_) => "other".to_string(),
-                };
-                why += &format!("\n  thread {} (rip {:#x}): {}", t.id, t.cpu.rip, w);
+            if unsafe { crate::WINE_DEBUG } == 2 && t_now - self.s.sched.last_report > 5000.0 {
+                self.s.sched.last_report = t_now;
+                let why = self.wait_report();
+                crate::console(&format!("[threads]{}\n", why));
             }
+        } else if !self.s.exited {
+            let why = self.wait_report();
             self.set_error(format!("all threads are waiting for each other (deadlock){}", why));
         }
         false
+    }
+
+    /// What each live thread waits on.
+    fn wait_report(&self) -> String {
+        // what each thread waits on, so the report shows the cycle
+        let mut why = String::new();
+        for t in self.s.sched.th.iter().filter(|t| t.st != St::Done) {
+            let w = match &t.wait {
+                None => "-".to_string(),
+                Some(W::Objs { hs, all }) => format!("objects {:x?}{}", hs, if *all { " (all)" } else { "" }),
+                Some(W::MsgOrObjs { hs }) => format!("message or objects {:x?}", hs),
+                Some(W::Cs(a)) => format!("critical section {:#x}", a),
+                Some(W::SrwEx(a)) | Some(W::SrwSh(a)) => format!("SRW lock {:#x}", a),
+                Some(W::Addr { addr, .. }) => format!("address {:#x}", addr),
+                Some(W::Keyed(k)) => format!("keyed event {:#x}", k),
+                Some(W::Msg { .. }) => "a window message".to_string(),
+                Some(W::Reply { owner, .. }) => format!("a SendMessage answer from thread {}", owner),
+                Some(W::NpWait(n)) => format!("pipe {}", n),
+                Some(W::NPipe { h, .. }) => format!("pipe handle {:#x}", h),
+                Some(W::Port { h, .. }) => format!("completion port {:#x}", h),
+                Some(_) => "other".to_string(),
+            };
+            why += &format!("\n  thread {} pid {} {:?} (rip {:#x}): {}", t.id, t.wpid, t.st, t.cpu.rip, w);
+        }
+        why
     }
 
     fn switch_to(&mut self, i: usize) -> bool {

@@ -169,6 +169,9 @@ pub struct Msg {
 pub struct Queue {
     pub posted: VecDeque<Msg>,
     pub input: VecDeque<Msg>,
+    /// messages other threads sent to this thread's windows, with the id their sender
+    /// waits on for the result (0: SendNotifyMessage, nobody waits)
+    pub sent: VecDeque<(Msg, u64)>,
     pub quit: Option<i32>,
     /// a message was sent to one of this thread's windows (handled by the sender itself):
     /// the thread's message waits return a few times, so it looks again at what changed
@@ -258,6 +261,9 @@ pub struct Win {
     next_hwnd: u64,
     next_atom: u16,
     pub queues: HashMap<u32, Queue>,
+    /// results of cross-thread SendMessage calls, by id, until the sender picks them up
+    pub replies: HashMap<u64, u64>,
+    pub reply_seq: u64,
     pub timers: Vec<Timer>,
     frames: Vec<Frame>,
     /// WoW64: (lparam, bytes) of the packed structure to copy back after the callback
