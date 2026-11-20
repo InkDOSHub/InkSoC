@@ -153,7 +153,16 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             // (section, class, info*, length, return length*)
             let (cls, out, ret) = (e.arg(1), e.arg(2), e.arg(4));
             let (img, size) = match e.s.fs.handles.get(&a0) {
-                Some(Handle::ImageSection { file }) => (e.s.files.get_copy(file), 0),
+                // the header is enough (a 100 MB DLL is not read in for it); the size is the file's
+                Some(Handle::ImageSection { file }) => {
+                    let f = file.clone();
+                    let mut h = e.s.files.head(&f, 0x1000);
+                    let lfanew = h.as_ref().filter(|h| h.len() >= 0x40).map_or(0, |h| u32::from_le_bytes([h[0x3C], h[0x3D], h[0x3E], h[0x3F]]) as u64);
+                    if lfanew + 0x200 > 0x1000 {
+                        h = e.s.files.head(&f, lfanew + 0x400);
+                    }
+                    (h, e.s.files.size(&f).unwrap_or(0))
+                }
                 Some(Handle::Section { size, .. }) => (None, *size),
                 _ => return Some(INVALID_HANDLE),
             };
@@ -187,7 +196,7 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                     e.w16(out + 0x2E, i.dll_characteristics);
                     e.w16(out + 0x30, i.machine);
                     e.w8(out + 0x32, 1);
-                    e.w32(out + 0x38, b.len() as u32);
+                    e.w32(out + 0x38, size as u32);
                     if ret != 0 {
                         e.w64(ret, 0x40);
                     }

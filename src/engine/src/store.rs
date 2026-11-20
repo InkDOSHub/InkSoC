@@ -244,6 +244,21 @@ impl Store {
         let s = (pos as usize).min(d.len());
         Some(d[s..(s + n as usize).min(d.len())].to_vec())
     }
+    /// The first n bytes (a PE header), read where the file is: a file still on disk stays there.
+    pub fn head(&self, k: &str, n: u64) -> Option<Vec<u8>> {
+        if let Some(&(id, base, size)) = self.lazy().get(k) {
+            if self.room().contains_key(k) {
+                return self.read_at(k, 0, n);
+            }
+            let n = n.min(size) as usize;
+            let mut v = vec![0u8; n];
+            let got = unsafe { host_drive_read(id, base as f64, v.as_mut_ptr(), n as u32) } as usize;
+            v.truncate(got);
+            return Some(v);
+        }
+        let d = self.data().get(k)?;
+        Some(d[..(n as usize).min(d.len())].to_vec())
+    }
     /// dst becomes a copy of src without reading it, when src is still on disk.
     pub fn alias(&mut self, dst: String, src: &str) -> bool {
         // both now share the bytes: neither may be written in place any more
@@ -274,11 +289,16 @@ impl Store {
     /// only on disk goes back there afterwards instead of staying in memory twice.
     pub fn get_copy(&mut self, k: &str) -> Option<Vec<u8>> {
         let was_on_disk = self.lazy().contains_key(k);
-        let v = self.get(k).cloned();
         if was_on_disk {
-            self.forget(k);
+            // read in only for this: hand the bytes over (no second copy) and keep the file on disk
+            self.fill(k);
+            if let Some(v) = self.clean().remove(k) {
+                let d = self.data().remove(k).map(|b| *b);
+                self.lazy().insert(k.to_string(), v);
+                return d;
+            }
         }
-        v
+        self.get(k).cloned()
     }
     /// Drops the bytes of a file read in and unchanged since (they are still on disk).
     fn forget(&mut self, k: &str) -> bool {

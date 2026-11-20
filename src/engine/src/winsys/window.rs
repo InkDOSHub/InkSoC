@@ -327,9 +327,23 @@ impl Engine {
         }
         w.erase |= erase;
         let kids = w.children.clone();
+        let (clip_kids, org) = (w.style & 0x0200_0000 != 0, (w.crect.l, w.crect.t));
         if r == all {
             for c in kids {
                 self.invalidate(c, None, erase);
+            }
+        } else if !clip_kids && !r.empty() {
+            // without WS_CLIPCHILDREN the parent paints over its children: the ones in the
+            // rectangle paint again after it (an installer's status text set over and over)
+            for c in kids {
+                let Some((cr, vis)) = self.wnd(c).map(|k| (k.crect, k.style & WS_VISIBLE != 0)) else { continue };
+                if !vis {
+                    continue;
+                }
+                let pr = r.off(org.0, org.1).inter(&cr);
+                if !pr.empty() {
+                    self.invalidate(c, Some(pr.off(-cr.l, -cr.t)), erase);
+                }
             }
         }
         self.s.win.dirty = true;

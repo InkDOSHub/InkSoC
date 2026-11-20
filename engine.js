@@ -435,13 +435,16 @@ async function driveFile(path) {
   return (await dir.getFileHandle(baseName(path))).getFile();
 }
 
-function runPath(path, label) {
-  return run([], path, '', label || baseName(path).replace(/\.exe$/i, ''), folderOf(path));
+function runPath(path, label, args) {
+  return run([], path, args || '', label || baseName(path).replace(/\.exe$/i, ''), folderOf(path));
 }
+// ?args=...: extra command-line arguments for the file opened with ?file=1 or ?run= (an
+// installer's silent switch: /S for NSIS, /qb for Windows Installer), used by the tests
+const openArgs = params.get('args') || '';
 // a Windows Installer package: Windows' own msiexec installs it
 async function installMsi(path) {
   const data = await fetch('bin/wine/wine-msiexec.exe?v=1').then((r) => r.arrayBuffer());
-  run([{ name: 'msiexec.exe', data }], 'msiexec.exe', '/i "' + path + '"', baseName(path).replace(/\.msi$/i, ''), folderOf(path));
+  run([{ name: 'msiexec.exe', data }], 'msiexec.exe', '/i "' + path + '"' + (openArgs ? ' ' + openArgs : ''), baseName(path).replace(/\.msi$/i, ''), folderOf(path));
 }
 // unpacks a .zip to C:\<folder> in a worker, then starts its program when it has just one
 function unzipToDrive(file) {
@@ -481,7 +484,7 @@ async function lnkTarget(file) {
 }
 // what opening a file of drive C: does
 async function openPath(path, file) {
-  if (/\.exe$/i.test(path)) return runPath(path);
+  if (/\.exe$/i.test(path)) return runPath(path, '', openArgs);
   if (/\.msi$/i.test(path)) return installMsi(path);
   if (/\.zip$/i.test(path)) return unzipToDrive(file || await driveFile(path));
   if (/\.lnk$/i.test(path)) {

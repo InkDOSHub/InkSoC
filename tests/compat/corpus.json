@@ -1,0 +1,42 @@
+{
+  "_doc": "Real programs the engine must keep running. Each case: an optional download (url, file name), the page query, and steps. Steps: [\"wait\", ms], [\"key\", name], [\"click\", x, y] (page pixels at 1100x800), [\"type\", text], [\"until\", regex, ms] (the console output matches), [\"run\", windowsPath] (opens an installed program in the same browser profile), [\"shot\", name]. After the steps, every \"expect\" regex must match the console output and no \"reject\" regex may.",
+  "cases": {
+    "cmd": {
+      "query": "",
+      "steps": [["until", "C:\\\\InkSoC>", 120000], ["type", "ver"], ["wait", 3000], ["type", "echo HELLO-%USERPROFILE%"], ["wait", 5000], ["shot", "cmd"]],
+      "expect": ["Microsoft Windows", "HELLO-C:"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "winemine": {
+      "local": "bin/winemine.exe",
+      "query": "?file=1",
+      "steps": [["wait", 40000], ["click", 550, 400], ["wait", 5000], ["shot", "winemine"]],
+      "expect": [],
+      "reject": ["out of memory", "Stopped:", "Finished \\(exit code [1-9]"]
+    },
+    "7zip": {
+      "url": "https://www.7-zip.org/a/7z2408-x64.exe",
+      "file": "7z2408-x64.exe",
+      "query": "?file=1",
+      "steps": [["wait", 45000], ["shot", "setup"], ["key", "Enter"], ["wait", 90000], ["shot", "installed"], ["key", "Enter"], ["until", "Finished \\(exit code", 180000], ["shot", "end"]],
+      "expect": ["Finished \\(exit code 0\\)"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "steam-setup": {
+      "url": "https://cdn.fastly.steamstatic.com/client/installer/SteamSetup.exe",
+      "file": "SteamSetup.exe",
+      "query": "?file=1&winedebug=2",
+      "steps": [["wait", 60000], ["shot", "welcome"], ["click", 667, 571], ["wait", 15000], ["click", 274, 310], ["wait", 5000], ["shot", "language"], ["click", 758, 732], ["wait", 15000], ["shot", "folder"], ["click", 758, 732], ["until", "process \\d+ exits with", 900000], ["wait", 20000], ["shot", "finish"], ["click", 430, 364], ["wait", 3000], ["click", 758, 732], ["until", "Finished \\(exit code", 300000], ["shot", "end"]],
+      "expect": ["Finished \\(exit code 0\\)"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "libreoffice": {
+      "url": "https://download.documentfoundation.org/libreoffice/stable/26.8.3/win/x86_64/LibreOffice_26.8.3_Win_x86-64.msi",
+      "file": "LibreOffice.msi",
+      "query": "?file=1&args=/qb",
+      "steps": [["wait", 600000], ["shot", "progress"], ["until", "Finished \\(exit code", 4800000], ["shot", "installed"], ["run", "C:\\Program Files\\LibreOffice\\program\\soffice.exe"], ["wait", 600000], ["shot", "soffice"]],
+      "expect": ["Finished \\(exit code 0\\)"],
+      "reject": ["out of memory", "Stopped:"]
+    }
+  }
+}
