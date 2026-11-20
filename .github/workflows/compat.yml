@@ -89,7 +89,8 @@ jobs:
           node -e '
             const c = require("./tests/compat/corpus.json").cases[process.env.CASE];
             if (c.url) console.log(c.url + " " + c.file);' | while read -r url file; do
-            curl -fsSL --retry 3 -o "dl/$file" "$url"
+            # mirrors are picked at random per request and some are broken: try a few times
+            for i in 1 2 3 4 5 6; do curl -fsSL --retry 3 -o "dl/$file" "$url" && break; sleep 10; done
             ls -l "dl/$file"
           done
       - name: Run
