@@ -154,7 +154,7 @@ impl Engine {
         c.regs[4] = f.rsp;
         let st = (f.cont)(self, lres);
         let v = self.step(st);
-        if v != NO_RETURN {
+        if v != NO_RETURN && v != crate::sched::BLOCK {
             self.do_ret(v);
         }
     }

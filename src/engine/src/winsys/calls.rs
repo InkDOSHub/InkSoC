@@ -490,6 +490,25 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
                     // the sender runs the procedure; the thread that owns the window, if it waits
                     // for messages, gets a look too (what it waits on may have changed)
                     let owner = e.wnd(h).map_or(0, |w| w.tid);
+                    // another thread of this process waits for messages: it runs the procedure
+                    // itself (windows the procedure creates belong to it), the sender waits
+                    if (kind == 0x2b1 || kind == 0x2b7) && !ansi && owner != e.cur_tid() && e.waits_for_msgs(owner) {
+                        if info != 0 {
+                            e.w64(info + 8, 0); // params.hwnd = 0: user32 calls no procedure
+                        }
+                        if unsafe { crate::WINE_DEBUG } > 1 {
+                            crate::console(&format!("[send] tid {} -> tid {} msg {:x} hwnd {:x}\n", e.cur_tid(), owner, msg, h));
+                        }
+                        let m = Msg { hwnd: h, msg, wp, lp, time: now_ms() as u32, x: 0, y: 0 };
+                        if kind == 0x2b7 {
+                            e.s.win.queues.entry(owner).or_default().sent.push_back((m, 0));
+                            return Some(1);
+                        }
+                        e.s.win.reply_seq += 1;
+                        let id = e.s.win.reply_seq;
+                        e.s.win.queues.entry(owner).or_default().sent.push_back((m, id));
+                        return Some(e.wait_on(crate::sched::W::Reply { id, owner }, u64::MAX));
+                    }
                     if owner != e.cur_tid() {
                         let q = e.s.win.queues.entry(owner).or_default();
                         q.nudge = 3;
@@ -567,17 +586,13 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         }
         "NtUserPeekMessage" => {
             let (h, first, last, flags) = (ar[1], ar[2] as u32, ar[3] as u32, ar[4] as u32);
-            match e.peek(a0, h, first, last, flags & 1 != 0) {
-                Some(_) => 1,
-                None => 0,
-            }
+            let s = get_or_peek(e, a0, h, first, last, flags & 1 != 0, false);
+            return Some(e.step(s));
         }
         "NtUserGetMessage" => {
             let (h, first, last) = (ar[1], ar[2] as u32, ar[3] as u32);
-            match e.peek(a0, h, first, last, true) {
-                Some(more) => more as u64,
-                None => return Some(e.wait_on(crate::sched::W::Msg { out: a0, hwnd: h, first, last }, u64::MAX)),
-            }
+            let s = get_or_peek(e, a0, h, first, last, true, true);
+            return Some(e.step(s));
         }
         "NtUserMsgWaitForMultipleObjectsEx" => {
             // (count, handles, timeout, mask, flags): wake on input as well
@@ -603,6 +618,9 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             let mut s = 0u64;
             if !q.posted.is_empty() {
                 s |= 8;
+            }
+            if !q.sent.is_empty() {
+                s |= 0x40; // QS_SENDMESSAGE
             }
             if !q.input.is_empty() {
                 s |= 7;
@@ -1284,4 +1302,23 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         }
     };
     Some(r)
+}
+
+/// GetMessage / PeekMessage: messages other threads sent come first (their window
+/// procedure runs here, the result goes back to the waiting sender), then the queue.
+fn get_or_peek(e: &mut Engine, out: u64, h: u64, first: u32, last: u32, remove: bool, get: bool) -> Step {
+    let tid = e.cur_tid();
+    if let Some((m, id)) = e.s.win.queues.get_mut(&tid).and_then(|q| q.sent.pop_front()) {
+        return e.send(m.hwnd, m.msg, m.wp, m.lp, move |e, r| {
+            if id != 0 {
+                e.s.win.replies.insert(id, r);
+            }
+            get_or_peek(e, out, h, first, last, remove, get)
+        });
+    }
+    match e.peek(out, h, first, last, remove) {
+        Some(more) => Step::Ret(if get { more as u64 } else { 1 }),
+        None if get => Step::Ret(e.wait_on(crate::sched::W::Msg { out, hwnd: h, first, last }, u64::MAX)),
+        None => Step::Ret(0),
+    }
 }

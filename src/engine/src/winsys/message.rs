@@ -58,8 +58,24 @@ impl Engine {
         }
     }
 
+    /// The thread (of the current process) can take a sent message: it runs, or it is
+    /// parked in a message wait (not in a wait for objects, which would never end).
+    pub(crate) fn waits_for_msgs(&self, tid: u32) -> bool {
+        use crate::sched::{St, W};
+        let wp = self.s.wpid;
+        self.s.sched.th.iter().any(|t| {
+            t.id == tid
+                && t.wpid == wp
+                && match t.st {
+                    St::Ready | St::Running => true,
+                    St::Wait => matches!(t.wait, Some(W::Msg { .. }) | Some(W::MsgOrObjs { .. })),
+                    _ => false,
+                }
+        })
+    }
+
     pub(crate) fn has_msgs(&mut self, tid: u32) -> bool {
-        self.s.win.queues.get(&tid).map_or(false, |q| !q.posted.is_empty() || !q.input.is_empty() || q.quit.is_some())
+        self.s.win.queues.get(&tid).map_or(false, |q| !q.posted.is_empty() || !q.input.is_empty() || !q.sent.is_empty() || q.quit.is_some())
             || self.paint_due(tid)
             || self.next_timer(tid) <= now_ms()
     }
@@ -154,7 +170,7 @@ impl Engine {
         None
     }
 
-    pub(super) fn write_msg(&mut self, out: u64, m: &Msg) {
+    pub(crate) fn write_msg(&mut self, out: u64, m: &Msg) {
         self.w64(out, m.hwnd);
         self.w32(out + 8, m.msg);
         self.w64(out + 16, m.wp);
