@@ -101,6 +101,9 @@ impl Engine {
                             q.input.remove(i);
                         }
                     }
+                    if remove && m.msg != WM_MOUSEMOVE && unsafe { crate::WINE_DEBUG } > 1 {
+                        crate::console(&format!("[msg] tid {} gets {} {:x} hwnd {:x} wp {:x} lp {:x}\n", tid, if kind == 0 { "posted" } else { "input" }, m.msg, m.hwnd, m.wp, m.lp));
+                    }
                     self.write_msg(out, &m);
                     return Some(m.msg != WM_QUIT);
                 }

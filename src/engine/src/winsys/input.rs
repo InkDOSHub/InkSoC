@@ -68,9 +68,14 @@ impl Engine {
                 let (w_class, w_crect, w_tid, w_style) = (w.class, w.crect, w.tid, w.style);
                 let _ = w;
                 if w_style & WS_DISABLED != 0 && self.s.win.capture == 0 {
+                    if kind == 2 && unsafe { crate::WINE_DEBUG } > 1 { crate::console(&format!("[input] hwnd {:x} disabled, click dropped\n", target)); }
                     return;
                 }
                 let ht = if self.s.win.capture != 0 { 1 } else { self.hit_test(target, x, y) };
+                if kind != 1 && unsafe { crate::WINE_DEBUG } > 1 {
+                    crate::console(&format!("[input] {} btn {} at {},{} -> hwnd {:x} class {} style {:x} tid {} ht {} capture {:x}\n",
+                        if kind == 2 { "down" } else { "up" }, btn, x, y, target, self.s.win.classes[w_class].name, w_style, w_tid, ht, self.s.win.capture));
+                }
                 let mk = (self.s.win.buttons & 1)
                     | ((self.s.win.buttons & 4) >> 1)
                     | ((self.s.win.buttons & 2) << 3)
