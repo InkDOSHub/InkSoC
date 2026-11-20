@@ -6,6 +6,7 @@
    - ?file=1                     wait for a file from InkOS (assets/inkos-bridge.js turns the
                                  postMessage into an "inkos:file" event): .exe runs, .msi
                                  installs, .zip unpacks, .lnk follows its target
+   - ?list=1                     only send InkOS the installed programs (inksoc-programs)
    - nothing                     Command Prompt (cmd.exe)
    Each program runs in its own engine worker (worker.js); a second file sent to the same
    window runs next to the first one, stacked on the same screen. */
@@ -59,6 +60,68 @@ function setTitle(text) {
   if (parentOrigin) try { window.parent.postMessage({ v: 1, type: 'inkos-title', title: text || 'InkSoC' }, parentOrigin); } catch (e) { /* closed */ }
 }
 
+/* ---------- installed programs ----------
+   The shortcuts installers leave in the Start Menu and Desktop folders, plus the .exe files in
+   the folders of Program Files (and C:\<app> from a .zip). InkOS gets the list (inksoc-programs)
+   and shows it in its Apps and in the CMD/EXE menu; opening one is ?run=<path>. */
+const skipExe = /^(unins|uninst|setup|install|update|crash)/i;
+const skipLink = /(uninstall|readme|help|website|homepage|license|manual)/i;
+const systemDir = /^(windows|programdata|users|inksoc|program files( \(x86\))?)$/i;
+async function listPrograms() {
+  let root;
+  try { root = await (await navigator.storage.getDirectory()).getDirectoryHandle('inksoc-c'); } catch (e) { return []; }
+  const exes = [], links = [];
+  const walk = async (dir, path, depth) => {
+    for await (const [name, h] of dir.entries()) {
+      const p = path + '\\' + name;
+      if (h.kind === 'directory') { if (name !== '$Recycle.Bin' && depth < 6) await walk(h, p, depth + 1); continue; }
+      const win = p.replace(/^C/, 'C:');
+      const top = p.split('\\')[1] || '';
+      if (/\.lnk$/i.test(name) && /\\(start menu|desktop)\\/i.test(win) && !skipLink.test(name)) links.push({ path: win, file: await h.getFile() });
+      const inPF = /^program files/i.test(top);
+      const sub = /\\(program|bin)$/i.test(path);
+      const ok = inPF ? depth === 3 || (depth === 4 && sub) : depth === 2 && !systemDir.test(top);
+      if (ok && /\.exe$/i.test(name) && !skipExe.test(name)) exes.push(win);
+    }
+  };
+  try { await walk(await root.getDirectoryHandle('C'), 'C', 1); } catch (e) { return []; }
+  // a shortcut names its program better than the .exe file does
+  const byTarget = new Map();
+  for (const l of links) {
+    const target = await lnkTarget(l.file);
+    if (target && !skipExe.test(baseName(target))) byTarget.set(target.toLowerCase(), { name: baseName(l.path).replace(/\.lnk$/i, ''), path: target });
+  }
+  for (const path of exes) if (!byTarget.has(path.toLowerCase())) byTarget.set(path.toLowerCase(), { name: baseName(path).replace(/\.exe$/i, ''), path });
+  return [...byTarget.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })).slice(0, 200);
+}
+let knownPrograms = null;
+async function postPrograms() {
+  const list = await listPrograms();
+  if (parentOrigin) try { window.parent.postMessage({ v: 1, type: 'inksoc-programs', programs: list }, parentOrigin); } catch (e) { /* closed */ }
+  const before = knownPrograms;
+  knownPrograms = list;
+  return before ? list.filter((p) => !before.some((q) => q.path.toLowerCase() === p.path.toLowerCase())) : [];
+}
+// after an installer: a button for each new program, in the console
+function offerPrograms(p, list) {
+  if (!list.length) return;
+  const box = document.createElement('div');
+  box.className = 'progs';
+  const t = document.createElement('span');
+  t.textContent = 'Installed (also in InkOS Apps): ';
+  box.append(t);
+  for (const it of list) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = it.name;
+    b.title = it.path;
+    b.onclick = () => runPath(it.path, it.name);
+    box.append(b);
+  }
+  p.out.after(box);
+  p.extra = box;
+}
+
 /* ---------- status line (copying, unpacking, errors) ---------- */
 let noteTimer = 0;
 function note(t) {
@@ -100,6 +163,7 @@ function show() {
   const front = progs.slice().sort((a, b) => b.z - a.z)[0];
   for (const p of progs) {
     p.out.hidden = p !== front;
+    if (p.extra) p.extra.hidden = p !== front;
     if (p.line) p.line.hidden = p !== front || !p.w;
   }
   const gui = front && front.cv && front.conAway;
@@ -199,6 +263,7 @@ function done(p, d) {
   if (p.cv) { p.cv.remove(); p.cv = null; }
   p.conAway = false;
   // a program with windows that printed nothing and ended well leaves nothing to show
+  postPrograms().then((fresh) => offerPrograms(p, fresh)).catch(() => {});
   if (quiet && d.ok && progs.length > 1) { close(p); return; }
   show();
 }
@@ -209,6 +274,7 @@ function close(p) {
   if (p.cv) p.cv.remove();
   p.out.remove();
   if (p.line) p.line.remove();
+  if (p.extra) p.extra.remove();
   progs.splice(progs.indexOf(p), 1);
   if (focus === p) focus = null;
   show();
@@ -455,6 +521,9 @@ fit();
 show();
 (async () => {
   for (const f of [HOME + '\\Desktop', HOME + '\\Documents', HOME + '\\Downloads', 'C:\\Program Files', 'C:\\Program Files (x86)']) try { await driveDir(f, true); } catch (e) { /* no OPFS here */ }
+  // ?list=1: InkOS asks only for the installed programs (a hidden frame); nothing runs
+  if (params.has('list')) { await postPrograms().catch(() => {}); return; }
+  postPrograms().catch(() => {});
   const path = params.get('run');
   if (path && /^[a-z]:\\/i.test(path)) { openPath(path).catch((err) => { note(baseName(path) + ': ' + (err && err.message || err)); startConsole(); }); return; }
   if (params.has('file')) {
