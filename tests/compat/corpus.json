@@ -34,7 +34,7 @@
       "url": "https://ftp.osuosl.org/pub/tdf/libreoffice/stable/26.8.3/win/x86_64/LibreOffice_26.8.3_Win_x86-64.msi https://mirror.netcologne.de/tdf/libreoffice/stable/26.8.3/win/x86_64/LibreOffice_26.8.3_Win_x86-64.msi https://download.documentfoundation.org/libreoffice/stable/26.8.3/win/x86_64/LibreOffice_26.8.3_Win_x86-64.msi https://downloadarchive.documentfoundation.org/libreoffice/old/26.8.3.1/win/x86_64/LibreOffice_26.8.3.1_Win_x86-64.msi",
       "file": "LibreOffice.msi",
       "query": "?file=1&args=/qb&winedebug=2",
-      "steps": [["wait", 600000], ["shot", "progress"], ["until", "Finished \\(exit code", 4800000], ["shot", "installed"], ["run", "C:\\Program Files\\LibreOffice\\program\\soffice.exe"], ["wait", 600000], ["shot", "soffice"]],
+      "steps": [["wait", 300000], ["shot", "progress"], ["until", "Finished \\(exit code", 4800000], ["shot", "installed"], ["run", "C:\\Program Files\\LibreOffice\\program\\soffice.exe"], ["wait", 600000], ["shot", "soffice"]],
       "expect": ["Finished \\(exit code 0\\)"],
       "reject": ["out of memory", "Stopped:"]
     }

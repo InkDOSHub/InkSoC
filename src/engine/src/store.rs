@@ -63,6 +63,10 @@ pub struct Store {
     small_kept: u64,
     /// files written straight into the spill file: room reserved there for them to grow
     room: UnsafeCell<HashMap<String, u64>>,
+    /// debug census: spill writes that failed, and big files a write left in memory (and why)
+    pub spill_fails: std::cell::Cell<u64>,
+    pub big_refused: std::cell::Cell<u64>,
+    pub big_clean: std::cell::Cell<u64>,
 }
 
 // all use is under the engine lock (one core at a time)
@@ -90,8 +94,17 @@ impl Store {
         let on_spill = matches!(self.lazy().get(k), Some(&(SPILL, _, _))) && self.room().contains_key(k);
         if !on_spill {
             // only a file in memory that is becoming big moves to the spill file
-            let Some(d) = self.data().get(k) else { return false };
-            if end.max(d.len() as u64) <= BIG || self.clean().contains_key(k) {
+            let Some(d) = self.data().get(k) else {
+                if end > BIG {
+                    self.big_refused.set(self.big_refused.get() + 1);
+                }
+                return false;
+            };
+            if end.max(d.len() as u64) <= BIG {
+                return false;
+            }
+            if self.clean().contains_key(k) {
+                self.big_clean.set(self.big_clean.get() + 1);
                 return false;
             }
             let n = d.len() as u64;
@@ -134,6 +147,10 @@ impl Store {
         true
     }
     /// (bytes of files in memory, the biggest one) for the debug census.
+    pub fn spilled(&self) -> (u64, u64) {
+        let v: Vec<u64> = self.lazy().values().filter(|x| x.0 == SPILL).map(|x| x.2).collect();
+        (v.len() as u64, v.iter().sum())
+    }
     pub fn mem_stats(&self) -> (u64, String, u64) {
         let mut total = 0u64;
         let mut big = (String::new(), 0u64);
@@ -205,6 +222,7 @@ impl Store {
             let n = (b.len() - done).min(PIECE);
             let got = unsafe { host_drive_write(SPILL, (at + done as u64) as f64, b.as_ptr().add(done), n as u32) } as usize;
             if got != n {
+                self.spill_fails.set(self.spill_fails.get() + 1);
                 return false;
             }
             done += n;
@@ -238,6 +256,7 @@ impl Store {
         let n = d.len() as u64;
         let got = unsafe { host_drive_write(SPILL, self.spill_at as f64, d.as_ptr(), n as u32) } as u64;
         if got != n || n >= 1 << 32 {
+            self.spill_fails.set(self.spill_fails.get() + 1);
             return;
         } // no spill file here: it stays in memory
         self.data().remove(k);
