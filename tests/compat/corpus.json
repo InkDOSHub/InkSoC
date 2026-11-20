@@ -31,7 +31,7 @@
       "reject": ["out of memory", "Stopped:"]
     },
     "libreoffice": {
-      "url": "https://download.documentfoundation.org/libreoffice/stable/26.8.3/win/x86_64/LibreOffice_26.8.3_Win_x86-64.msi",
+      "url": "https://downloadarchive.documentfoundation.org/libreoffice/old/26.8.3.1/win/x86_64/LibreOffice_26.8.3.1_Win_x86-64.msi",
       "file": "LibreOffice.msi",
       "query": "?file=1&args=/qb",
       "steps": [["wait", 600000], ["shot", "progress"], ["until", "Finished \\(exit code", 4800000], ["shot", "installed"], ["run", "C:\\Program Files\\LibreOffice\\program\\soffice.exe"], ["wait", 600000], ["shot", "soffice"]],
