@@ -11,12 +11,6 @@ on:
         description: 'DLLs to test, space separated (empty: tests/winetest/dlls.txt)'
         required: false
         default: ''
-  pull_request:
-    branches: [main]
-    paths:
-      - 'tests/winetest/**'
-      - 'tests/compat/corpus.json'
-      - '.github/workflows/weekly.yml'
 permissions:
   contents: read
 concurrency:
