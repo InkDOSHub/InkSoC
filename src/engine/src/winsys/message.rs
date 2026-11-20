@@ -227,11 +227,22 @@ impl Engine {
             }
             WM_GETTEXTLENGTH => Step::Ret(self.wnd(h).map_or(0, |w| if ansi { w.text.len() } else { w.text.encode_utf16().count() }) as u64),
             WM_PAINT => {
-                if let Some(w) = self.wnd_mut(h) {
-                    w.update = Rect::default();
-                    w.erase = false;
+                // BeginPaint + EndPaint: the window's background is erased when it was asked
+                // for (a wizard page that paints nothing else would keep the last page's pixels)
+                let Some(w) = self.wnd_mut(h) else { return Step::Ret(0) };
+                let (erase, upd, cw, ch) = (w.erase, w.update, w.crect.w(), w.crect.h());
+                w.update = Rect::default();
+                w.erase = false;
+                if !erase {
+                    return Step::Ret(0);
                 }
-                Step::Ret(0)
+                let upd = if upd.empty() { Rect::new(0, 0, cw, ch) } else { upd };
+                let hdc = self.get_dc(h, false);
+                self.dc_clip_to(hdc, upd);
+                self.send(h, WM_ERASEBKGND, hdc, 0, move |e, _| {
+                    e.release_dc(hdc);
+                    Step::Ret(0)
+                })
             }
             WM_ERASEBKGND => {
                 let hdc = wp;
@@ -242,6 +253,22 @@ impl Engine {
                 let (cw, ch) = self.wnd(h).map_or((0, 0), |w| (w.crect.w(), w.crect.h()));
                 self.fill_rect_brush(hdc, Rect::new(0, 0, cw, ch), brush);
                 Step::Ret(1)
+            }
+            0x132..=0x138 => {
+                // WM_CTLCOLOR*: the classic colors (dialogs erase with this brush; without one
+                // a wizard page would keep the last page's pixels)
+                let hdc = wp;
+                let (bg, txt) = match msg {
+                    0x133 | 0x134 => (5, 8),  // edit, list box: COLOR_WINDOW
+                    0x137 => (0, 8),          // scroll bar: COLOR_SCROLLBAR
+                    _ => (15, 8),             // message box, button, dialog, static: COLOR_3DFACE
+                };
+                if let Some(attr) = self.dc(hdc).map(|d| d.attr) {
+                    let (b, t) = (Self::sys_color(bg), Self::sys_color(txt));
+                    self.w32(attr + 12, b); // background color
+                    self.w32(attr + 24, t); // text color
+                }
+                Step::Ret(self.sys_brush(bg))
             }
             WM_CLOSE => self.destroy_window(h, Box::new(|_, _| Step::Ret(0))),
             WM_SYSCOMMAND => {

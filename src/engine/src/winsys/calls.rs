@@ -753,9 +753,7 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             e.w32(ps + 8, 0);
             e.wr_rect(ps + 12, upd);
             if erase {
-                let s = e.send(h, WM_ERASEBKGND, hdc, 0, move |e, r| {
-                    if r == 0 { /* not erased */ }
-                    let _ = e;
+                let s = e.send(h, WM_ERASEBKGND, hdc, 0, move |_, _| {
                     Step::Ret(hdc)
                 });
                 // the default procedure fills with the class brush
