@@ -125,13 +125,13 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
     host_console: (p, n) => {
       // a program stuck printing (e.g. asking a question nobody can answer) would fill the page and crash the tab
       outBytes += n;
-      if (outBytes > 1 << 20) { tooMuch = true; return; }
+      if (outBytes > (self.wineDebug ? 1 << 30 : 1 << 20)) { tooMuch = true; return; }
       post('log', { text: new TextDecoder().decode(new Uint8Array(mem.buffer, p >>> 0, n).slice()) });
     },
     host_now_ms: () => performance.now(),
     host_console_text: (t) => {
       outBytes += t.length;
-      if (outBytes > 1 << 20) { tooMuch = true; return; }
+      if (outBytes > (self.wineDebug ? 1 << 30 : 1 << 20)) { tooMuch = true; return; }
       post('log', { text: t });
     },
     host_epoch_ms: () => Date.now(),

@@ -120,6 +120,10 @@ impl Engine {
     /// Ends the running process: the main one stops the engine, a child only its threads.
     pub fn exit_process(&mut self, code: u32) {
         let id = self.s.wpid;
+        if unsafe { crate::WINE_DEBUG } > 1 {
+            let alive: Vec<String> = self.s.pinfo.iter().filter(|(&p, i)| p != id && i.exit.is_none()).map(|(p, i)| format!("{} {}", p, i.name)).collect();
+            crate::console(&format!("[inksoc] process {} exits with {}; still running: {:?}\n", id, code, alive));
+        }
         // the first process ends the run, unless it started programs that still run
         // (an updater that relaunches itself): then the run ends with the last of them
         if id == 0 && !self.children_alive() || id != 0 && self.s.main_done && self.s.pinfo.iter().all(|(&p, i)| p == id || i.exit.is_some()) {
