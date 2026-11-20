@@ -545,5 +545,10 @@ show();
   startConsole();
 })();
 
-// a symbolic icon from icons/sym, drawn in the text colour (pad.js uses it for its menu control)
-function sym(name, cls) { return '<i class="sym' + (cls ? ' ' + cls : '') + '" style="--s:url(icons/sym/' + name + '-symbolic.svg)"></i>'; }
+// a one-colour icon drawn in the text colour (pad.js uses it for its menu control); our own
+// shapes, inline, so the page ships no icon theme
+const SYMS = { 'open-menu': '<rect x="2" y="3" width="12" height="2" rx="1"/><rect x="2" y="7" width="12" height="2" rx="1"/><rect x="2" y="11" width="12" height="2" rx="1"/>' };
+function sym(name, cls) {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">' + (SYMS[name] || '') + '</svg>';
+  return '<i class="sym' + (cls ? ' ' + cls : '') + '" style="--s:url(&quot;data:image/svg+xml,' + encodeURIComponent(svg) + '&quot;)"></i>';
+}

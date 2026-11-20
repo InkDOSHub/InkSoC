@@ -4,7 +4,7 @@
 
 <p align="center"><b><a href="https://inkos-5k7.pages.dev/?open=cmdexe">Open in InkOS</a></b> · part of <a href="https://github.com/InkDOSHub/inkdoshub.github.io">InkDOS Hub</a> · MIT license (Wine: LGPL)</p>
 
-<p align="center"><img src=".github/prints/InkSoC-iphone.png" width="28%" alt="InkSoC desktop on iPhone"> <img src=".github/prints/InkSoC-ipad.png" width="68%" alt="InkSoC desktop on a larger screen"></p>
+<p align="center"><img src=".github/prints/InkSoC-iphone.png" width="26%" alt="WineMine in an InkOS window on iPhone"> <img src=".github/prints/InkSoC-ipad.png" width="70%" alt="Command Prompt and WineMine in InkOS windows"></p>
 
 # InkSoC
 
@@ -12,8 +12,14 @@ Our own engine to run Windows `.exe` files in the browser, WebKit first (iPhone/
 A Rust engine compiled to WebAssembly runs the x86-64 (and 32-bit, WoW64) code and plays
 the part of the kernel that Wine runs on: Wine's DLLs (in `bin/`) are the rest of Windows.
 
+It has no desktop of its own: [InkOS](https://github.com/InkDOSHub/InkOS) is the desktop.
+In InkOS, **CMD/EXE** opens Command Prompt, an `.exe`, `.msi` or `.lnk` from the Finder runs in
+a window of its own that fits the program's window, and installed programs show in Apps under
+"Programas Windows".
+
 Addresses: https://hub.inkdos.workers.dev/InkSoC/ (multi-core) and https://inkdoshub.github.io/InkSoC/.
-Until 2026-11-14 it lived in the Hub repository as `apps/inksoc/`.
+Opened on its own, the page starts Command Prompt at once. Until 2026-11-14 it lived in the Hub
+repository as `apps/inksoc/`.
 
 ## Repository layout
 
@@ -25,14 +31,14 @@ Until 2026-11-14 it lived in the Hub repository as `apps/inksoc/`.
 | `gl.js`, `gl-funcs.js` | OpenGL on WebGL 2 (`gl-funcs.js` is generated: do not edit) |
 | `pad.js`, `prefs.js`, `unzip.js` | On-screen gamepad (the controller button on touch screens), saved settings, .zip install onto drive C: |
 | `inksoc.wasm`, `inksoc-mt.wasm`, `wine.wasm` | Built engine (single and multi-core) and Wine's msvcrt |
-| `bin/` | Wine DLLs (`wine/` 64-bit, `wine32/` 32-bit), `system32/` tools such as `cmd.exe`, 7-Zip, BusyBox |
-| `test.exe`, `stage*.exe`, `testdll.dll` | Small test programs (sources in `src/test*`); run them from Command Prompt |
-| `src/engine/` | The engine (Rust). Map of the code: `src/engine/src/graphify-out/` |
+| `bin/` | Wine DLLs (`wine/` 64-bit, `wine32/` 32-bit), `system32/` tools such as `cmd.exe`, 7-Zip, WineMine (`winemine.exe`, a quick test) |
+| `src/engine/` | The engine (Rust). Map of the code: `docs/graph/SUMMARY.md` |
 | `src/wine/` | Build of Wine's msvcrt for the engine |
-| `compat/` | Compatibility runner: real programs from `list.json`, results in `results.json` |
-| `tests/apps/` | Runs a real installer or game on GitHub Actions (`request.json`, `run.py`) |
-| `tests/arm/` | ARM speed benchmark run on GitHub Actions |
-| `linux.html` | Redirect: the Linux terminal is now [InkShell](https://github.com/InkDOSHub/InkShell) |
+| `docs/PROTOCOL.md` | The messages between this page and InkOS |
+| `.github/workflows/engine.yml` | Builds both engines on every pull request and publishes them from `main` |
+
+The Linux terminal is [InkShell](https://github.com/InkDOSHub/InkShell): it keeps its own copy of
+this engine with a patch (`linux.rs` is shared).
 
 ## Engine (`src/engine/src`)
 
@@ -56,7 +62,7 @@ More detail on a few parts:
   Registers live in wasm locals, flags are lazy (a cmp + jcc becomes one wasm
   compare), a jump back to the block start is a wasm loop, and memory uses the
   same software TLB inline. Instructions it does not translate run through the
-  interpreter one at a time. The "JIT" box on the page turns it off.
+  interpreter one at a time. `setPref('jit', false)` in the page's console turns it off.
 - `src/wine/`: Wine's msvcrt (string functions, printf, ctype; Wine 10.0, LGPL)
   compiled to `wine.wasm`. The C files are compiled as x86-64 Windows code (so
   structs and `va_list` match the program exactly), retargeted to wasm64, and every
@@ -75,20 +81,33 @@ More detail on a few parts:
 ```
 cd src/engine && cargo build --release --target wasm32-unknown-unknown && cp target/wasm32-unknown-unknown/release/inksoc.wasm ../../
 src/wine/build.sh   # needs clang/llc/wasm-ld 18, binaryen, git (fetches Wine 10.0)
-cd src/test64 && x86_64-w64-mingw32-gcc -O2 -D__USE_MINGW_ANSI_STDIO=0 -nostartfiles -fno-builtin -fno-stack-protector -mno-stack-arg-probe -fno-asynchronous-unwind-tables -e start -Wl,--no-insert-timestamp -o ../../stage2.exe stage2.c -lmingw32 -lmsvcrt -lkernel32
-cd ../test && x86_64-w64-mingw32-gcc -O2 -nostdlib -ffreestanding -fno-builtin -fno-stack-protector -mgeneral-regs-only -mno-stack-arg-probe -fno-asynchronous-unwind-tables -e start -Wl,--no-insert-timestamp -o ../../test.exe test.c -lkernel32 -lntdll
+sh src/engine/build-mt.sh   # multi-core engine: nightly Rust with rust-src
 ```
+
+On `main`, `.github/workflows/engine.yml` builds both engines and commits them; a pull request
+only checks that they build.
 
 Own programs: build with `-D__USE_MINGW_ANSI_STDIO=0` so printf comes from msvcrt.dll
 (mingw's own printf uses x87 instructions, not supported yet).
 
-`worker.js` patches `test_mb` at 0x140002000 (check with `x86_64-w64-mingw32-nm test.exe`).
+## Debugging
+
+- `?winedebug=1`: Wine's errors; `2`: warnings too, plus process starts and exits and, every
+  5 s, the engine calls made since (what a stuck program is doing); `3` with
+  `&winetrace=channel,…`: Wine's TRACE lines of those channels. All of it goes to the page's
+  console text.
 
 ## Tests
 
-Tests run on GitHub Actions, not on a local machine: `inksoc-apps.yml` (real programs,
-`tests/apps/request.json`) and `inksoc-arm-bench.yml`. The Diagnostics window left with the desktop
-(2026-11-20); the engine page is checked by InkOS's end-to-end tests.
+The engine page is checked by InkOS's end-to-end tests (`tests/e2e/` in InkOS), which run
+`cmd.exe` and WineMine in InkOS windows.
+
+## Known limits
+
+- An NSIS installer (Steam's) can stop responding on its last page, so its files are not saved
+  (drive C: is written when the program ends).
+- Wizard pages can leave pixels of the previous page behind.
+- Programs built on Chromium (CEF), such as the Steam client, are out of reach.
 
 ## Part of InkDOS Hub
 

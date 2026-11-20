@@ -1,15 +1,11 @@
-/* InkSoC preferences: what the Settings window changes, kept in this browser (localStorage).
-   Loaded first, so the theme, clock and desktop look right from the first frame. */
+/* InkSoC preferences, kept in this browser (localStorage). The engine page has no settings
+   window of its own: these are the values saved by earlier versions, or set from the console
+   with setPref(). Loaded first, so the theme is right from the first frame. */
 'use strict';
 
 const PREF_KEY = 'inksoc-prefs';
 const PREF_DEFAULTS = {
   theme: 'auto', // auto, light, dark
-  icons: true, // desktop icons shown
-  iconSize: 'medium', // small, medium, large
-  clock: true,
-  clock24: false,
-  seconds: false,
   sound: true,
   padOpacity: 1,
   cores: 0, // 0 = automatic
@@ -40,12 +36,8 @@ function applyPrefs() {
   const root = document.documentElement;
   if (prefs.theme === 'auto') root.removeAttribute('data-theme');
   else root.dataset.theme = prefs.theme;
-  root.dataset.icons = prefs.icons ? prefs.iconSize : 'none';
   root.dataset.smooth = prefs.smooth ? '1' : '0';
   const pad = document.getElementById('pad');
   if (pad) pad.style.opacity = prefs.padOpacity;
-  const clock = document.getElementById('clock');
-  if (clock) clock.hidden = !prefs.clock;
-  if (typeof tick === 'function') tick();
 }
 applyPrefs();
