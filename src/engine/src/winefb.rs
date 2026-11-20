@@ -239,7 +239,7 @@ impl Engine {
             return Some(i);
         }
         let bytes = self.s.files.get_copy(file)?;
-        let i = pe::load_image(self, file, &bytes, false).ok()?;
+        let i = pe::load_image_owned(self, file, bytes, false).ok()?;
         // the core modules share the engine's state: their own DllMain must not run
         if ["wine-ntdll.dll", "wine-kernelbase.dll", "wine-kernel32.dll"].contains(&file) {
             let b = self.s.modules[i].base;

@@ -1,0 +1,10 @@
+kernel32
+ntdll
+user32
+gdi32
+advapi32
+msvcrt
+ucrtbase
+shell32
+comctl32
+ole32

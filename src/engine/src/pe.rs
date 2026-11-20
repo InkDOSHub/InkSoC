@@ -48,7 +48,7 @@ pub fn load_by_name(e: &mut Engine, name: &str) -> Result<usize, String> {
     // API-set DLLs that programs ship (forwarders without relocations): ours stand in for them
     let api_set = n.starts_with("api-ms-win-") || n.starts_with("ext-ms-");
     if let Some(bytes) = e.s.files.get_copy(&n).filter(|_| !api_set) {
-        return load_image(e, &n, &bytes, false);
+        return load_image_owned(e, &n, bytes, false);
     }
     // a DLL in a folder (LoadLibrary with a path)
     if name.contains(['\\', '/']) {
@@ -56,14 +56,14 @@ pub fn load_by_name(e: &mut Engine, name: &str) -> Result<usize, String> {
             if let Some(bytes) = e.s.files.get_copy(&k) {
                 // its folder is searched for the DLLs it needs (LOAD_WITH_ALTERED_SEARCH_PATH)
                 if let Some(i) = k.rfind('\\') { let d = k[..i].to_string(); if !e.s.dll_dirs.contains(&d) { e.s.dll_dirs.push(d); } }
-                return load_image(e, &n, &bytes, false);
+                return load_image_owned(e, &n, bytes, false);
             }
         }
     }
     if !api_set {
         let dirs = e.s.dll_dirs.clone();
         for d in dirs.iter().rev() {
-            if let Some(bytes) = e.s.files.get_copy(&format!("{}\\{}", d, n)) { return load_image(e, &n, &bytes, false); }
+            if let Some(bytes) = e.s.files.get_copy(&format!("{}\\{}", d, n)) { return load_image_owned(e, &n, bytes, false); }
         }
     }
     // a DLL the engine does not implement at all: Wine's, as program code
@@ -71,7 +71,7 @@ pub fn load_by_name(e: &mut Engine, name: &str) -> Result<usize, String> {
         if let Some(bytes) = e.s.files.get_copy(&format!("wine-{}", n)) {
             // window-system DLLs: their DllMain needs the graphics kernel, which console programs never use
             let gui = ["shell32.dll", "ole32.dll", "combase.dll", "imm32.dll", "winmm.dll", "setupapi.dll", "shcore.dll"].contains(&n.as_str());
-            let r = load_image(e, &n, &bytes, false)?;
+            let r = load_image_owned(e, &n, bytes, false)?;
             // only the window DLL itself skips DllMain: the DLLs it pulled in still start normally
             if gui { let b = e.s.modules[r].base; e.s.init_queue.retain(|&(_, base)| base != b); }
             return Ok(r);
@@ -123,7 +123,29 @@ pub fn proc_address(e: &mut Engine, idx: usize, func: &str) -> Option<u64> {
     Some(a)
 }
 
+/// What the rest of the loading needs once the file's bytes are in memory.
+struct Mapped {
+    base: u64,
+    delta: u64,
+    image_size: u64,
+    entry_rva: u64,
+    dirs: [(u64, u64); 16],
+}
+
 pub fn load_image(e: &mut Engine, name: &str, b: &[u8], is_exe: bool) -> Result<usize, String> {
+    let m = map_module(e, name, b, is_exe)?;
+    link_module(e, name, m, is_exe)
+}
+
+/// load_image for bytes the caller no longer needs: they are freed before the DLL's imports
+/// load (a chain of imports would otherwise hold every file of the chain in memory at once).
+pub fn load_image_owned(e: &mut Engine, name: &str, b: Vec<u8>, is_exe: bool) -> Result<usize, String> {
+    let m = map_module(e, name, &b, is_exe)?;
+    drop(b);
+    link_module(e, name, m, is_exe)
+}
+
+fn map_module(e: &mut Engine, name: &str, b: &[u8], is_exe: bool) -> Result<Mapped, String> {
     if u16_at(b, 0)? != 0x5A4D { return Err(format!("{}: not an MZ file", name)); }
     let pe = u32_at(b, 0x3C)? as usize;
     if u32_at(b, pe)? != 0x4550 { return Err(format!("{}: not a PE file", name)); }
@@ -170,6 +192,16 @@ pub fn load_image(e: &mut Engine, name: &str, b: &[u8], is_exe: bool) -> Result<
             e.mmu.write_bytes(base + va, &b[raw_ptr..end]).map_err(map_err)?;
         }
     }
+    let mut dirs = [(0u64, 0u64); 16];
+    for (i, d) in dirs.iter_mut().enumerate() {
+        *d = dir(i).unwrap_or((0, 0));
+    }
+    Ok(Mapped { base, delta, image_size, entry_rva, dirs })
+}
+
+fn link_module(e: &mut Engine, name: &str, m: Mapped, is_exe: bool) -> Result<usize, String> {
+    let Mapped { base, delta, image_size, entry_rva, dirs } = m;
+    let dir = |i: usize| -> Result<(u64, u64), String> { Ok(dirs[i]) };
     let rd32 = |e: &mut Engine, a: u64| e.mmu.read32(a).map_err(|_| format!("{}: bad table", name));
     let rd64 = |e: &mut Engine, a: u64| e.mmu.read64(a).map_err(|_| format!("{}: bad table", name));
 

@@ -1,0 +1,121 @@
+# Compatibility corpus: builds the engine, then runs real Windows programs and installers
+# (tests/compat/corpus.json) in headless Chromium, one job per program. Screenshots,
+# console output and a result table come back as artifacts and the job summary.
+name: compat
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/engine/**'
+      - '*.js'
+      - 'index.html'
+      - 'bin/**'
+      - 'tests/compat/**'
+      - '.github/workflows/compat.yml'
+  workflow_dispatch:
+    inputs:
+      case:
+        description: 'One case of tests/compat/corpus.json (empty: all)'
+        required: false
+        default: ''
+  # the weekly run (weekly.yml) runs the whole corpus
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: compat-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    outputs:
+      cases: ${{ steps.cases.outputs.cases }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install WASM target and toolchains
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup toolchain install nightly --profile minimal -c rust-src -t wasm32-unknown-unknown
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            src/engine/target
+            src/engine/target-mt
+          key: engine-${{ hashFiles('src/engine/Cargo.lock') }}
+      - name: Build both engines
+        run: |
+          cd src/engine
+          cargo build --release --target wasm32-unknown-unknown
+          cp target/wasm32-unknown-unknown/release/inksoc.wasm ../../
+          cd ../.. && sh src/engine/build-mt.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compat-engine
+          path: |
+            inksoc.wasm
+            inksoc-mt.wasm
+          retention-days: 1
+      - id: cases
+        env:
+          ONE: ${{ github.event.inputs.case }}
+          # a pull request runs the quick "gate" subset; the weekly run and a manual run, all
+          GATE: ${{ github.event_name == 'pull_request' && github.workflow == 'compat' }}
+        run: |
+          if [ -n "$ONE" ]; then echo "cases=[\"$ONE\"]" >> "$GITHUB_OUTPUT"
+          elif [ "$GATE" = "true" ]; then echo "cases=$(node -e 'console.log(JSON.stringify(require("./tests/compat/corpus.json").gate))')" >> "$GITHUB_OUTPUT"
+          else echo "cases=$(node -e 'console.log(JSON.stringify(Object.keys(require("./tests/compat/corpus.json").cases)))')" >> "$GITHUB_OUTPUT"; fi
+
+  run:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        case: ${{ fromJSON(needs.build.outputs.cases) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: compat-engine
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright@1.49.1
+          npx playwright install --with-deps chromium
+      - name: Download the program
+        env:
+          CASE: ${{ matrix.case }}
+        run: |
+          mkdir -p dl
+          node -e '
+            const c = require("./tests/compat/corpus.json").cases[process.env.CASE];
+            if (c.url) console.log(c.file + " " + c.url);' | while read -r file urls; do
+            # mirrors: the first that downloads (some have broken certificates for the runners)
+            for url in $urls $urls; do curl -fsSL --retry 2 -o "dl/$file" "$url" && break; echo "failed: $url"; sleep 5; done
+            ls -l "dl/$file"
+          done
+      - name: Run
+        run: node tests/compat/run.mjs "${{ matrix.case }}" dl
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-${{ matrix.case }}
+          path: tests/compat/out/
+          retention-days: 7
+
+  summary:
+    if: always()
+    needs: run
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: compat-*
+          path: results
+          merge-multiple: true
+      - run: node tests/compat/summary.mjs results >> "$GITHUB_STEP_SUMMARY"

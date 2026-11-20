@@ -294,12 +294,13 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                     }
                 }
                 20 | 19 => {
-                    // end of file / allocation
-                    let n = e.r64(buf) as usize;
+                    // end of file; an allocation size only cuts a longer file (it reserves room,
+                    // the file does not grow)
+                    let n = e.r64(buf);
                     if let Some(Handle::File { name, .. }) = e.s.fs.handles.get(&a0) {
                         let k = name.clone();
-                        if let Some(d) = e.s.files.get_mut(&k) {
-                            d.resize(n, 0);
+                        if e.s.files.contains_key(&k) && (class == 20 || n < e.s.files.size(&k).unwrap_or(0)) {
+                            e.s.files.set_len(&k, n);
                         }
                         e.s.fs.written.insert(k);
                     }

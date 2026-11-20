@@ -1,0 +1,133 @@
+# Weekly compatibility run (Fridays 05:00 São Paulo): Wine's own conformance tests for the
+# core DLLs run in the engine (tests/winetest), then the program corpus (tests/compat).
+# Results come back as the job summary and artifacts.
+name: weekly
+on:
+  schedule:
+    - cron: '0 8 * * 5'
+  workflow_dispatch:
+    inputs:
+      dlls:
+        description: 'DLLs to test, space separated (empty: tests/winetest/dlls.txt)'
+        required: false
+        default: ''
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tests/winetest/**'
+      - 'tests/compat/corpus.json'
+      - '.github/workflows/weekly.yml'
+permissions:
+  contents: read
+concurrency:
+  group: weekly-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+env:
+  WINE_VERSION: '11.0'
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    outputs:
+      dlls: ${{ steps.dlls.outputs.dlls }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install WASM target and toolchains
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup toolchain install nightly --profile minimal -c rust-src -t wasm32-unknown-unknown
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            src/engine/target
+            src/engine/target-mt
+          key: engine-${{ hashFiles('src/engine/Cargo.lock') }}
+      - name: Build both engines
+        run: |
+          cd src/engine
+          cargo build --release --target wasm32-unknown-unknown
+          cp target/wasm32-unknown-unknown/release/inksoc.wasm ../../
+          cd ../.. && sh src/engine/build-mt.sh
+      - id: dlls
+        env:
+          ONE: ${{ github.event.inputs.dlls }}
+        run: |
+          list="${ONE:-$(cat tests/winetest/dlls.txt)}"
+          echo "dlls=$(echo $list | node -e 'console.log(JSON.stringify(require("fs").readFileSync(0,"utf8").trim().split(/\s+/)))')" >> "$GITHUB_OUTPUT"
+      # Wine's test programs, built from the same release as the DLLs the engine ships
+      - uses: actions/cache@v4
+        id: wt
+        with:
+          path: wt-bin
+          key: winetest-${{ env.WINE_VERSION }}-${{ hashFiles('tests/winetest/dlls.txt') }}-v2
+      - name: Build Wine's test programs
+        if: steps.wt.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gcc-mingw-w64-x86-64 flex bison
+          curl -fsSL "https://dl.winehq.org/wine/source/${WINE_VERSION}/wine-${WINE_VERSION}.tar.xz" | tar xJ
+          mkdir -p wt-bin
+          cd "wine-${WINE_VERSION}"
+          ./configure -q --enable-win64 --without-x --without-freetype --without-wayland --without-vulkan --without-opengl > /dev/null
+          for d in $(cat ../tests/winetest/dlls.txt); do
+            # the stripped test program (makedep: <dir>/tests/x86_64-windows/<dll>_test-stripped.exe)
+            t="dlls/$d/tests/x86_64-windows/${d}_test-stripped.exe"
+            if make -j"$(nproc)" "$t" > "../wt-bin/build-$d.log" 2>&1; then cp "$t" "../wt-bin/${d}_test.exe"
+            else echo "build of $d tests failed"; tail -30 "../wt-bin/build-$d.log"; fi
+          done
+          ls -l ../wt-bin
+          ls ../wt-bin/*_test.exe > /dev/null  # nothing built: fail, and cache nothing
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weekly-engine
+          path: |
+            inksoc.wasm
+            inksoc-mt.wasm
+            wt-bin/
+          retention-days: 2
+
+  winetest:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        dll: ${{ fromJSON(needs.build.outputs.dlls) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: weekly-engine
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright@1.49.1
+          npx playwright install --with-deps chromium
+      - name: Run
+        run: node tests/winetest/run.mjs wt-bin "${{ matrix.dll }}" 150
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winetest-${{ matrix.dll }}
+          path: tests/winetest/out/
+          retention-days: 30
+
+  summary:
+    if: always()
+    needs: winetest
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: winetest-*
+          path: results
+          merge-multiple: true
+      - run: node tests/winetest/summary.mjs results >> "$GITHUB_STEP_SUMMARY"
+
+  # the whole program corpus (tests/compat), next to the conformance tests
+  compat:
+    uses: ./.github/workflows/compat.yml

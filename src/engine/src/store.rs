@@ -28,6 +28,11 @@ unsafe fn host_drive_write(_id: u32, _off: f64, _ptr: *const u8, _len: u32) -> u
 
 /// The host's spill file: closed program files too big to keep in memory.
 pub const SPILL: u32 = 0x7FFF_FFF0;
+/// Room on the spill file for a file growing to n bytes: n plus a quarter, at least 64 MB
+/// more. Doubling wasted hundreds of MB of the browser's storage on a 376 MB package.
+fn grow(n: u64) -> u64 {
+    n + (n / 4).max(64 << 20)
+}
 /// closed files from this size go to the spill file
 const SPILL_MIN: usize = 64 << 10;
 /// small closed files kept in memory, in all, before they go to the spill file too
@@ -63,6 +68,10 @@ pub struct Store {
     small_kept: u64,
     /// files written straight into the spill file: room reserved there for them to grow
     room: UnsafeCell<HashMap<String, u64>>,
+    /// debug census: spill writes that failed, and big files a write left in memory (and why)
+    pub spill_fails: std::cell::Cell<u64>,
+    pub big_refused: std::cell::Cell<u64>,
+    pub big_clean: std::cell::Cell<u64>,
 }
 
 // all use is under the engine lock (one core at a time)
@@ -90,12 +99,28 @@ impl Store {
         let on_spill = matches!(self.lazy().get(k), Some(&(SPILL, _, _))) && self.room().contains_key(k);
         if !on_spill {
             // only a file in memory that is becoming big moves to the spill file
-            let Some(d) = self.data().get(k) else { return false };
-            if end.max(d.len() as u64) <= BIG || self.clean().contains_key(k) {
+            let Some(d) = self.data().get(k) else {
+                // a big file still on disk (a drive file, or one spilled when closed) is
+                // copied to a place with room on the spill file, never read in whole
+                if let Some(&(id, base, size)) = self.lazy().get(k) {
+                    if end.max(size) > BIG && self.move_to_spill(k, id, base, size, end) {
+                        return self.write_at(k, pos, v);
+                    }
+                }
+                if end > BIG {
+                    self.big_refused.set(self.big_refused.get() + 1);
+                }
+                return false;
+            };
+            if end.max(d.len() as u64) <= BIG {
+                return false;
+            }
+            if self.clean().contains_key(k) {
+                self.big_clean.set(self.big_clean.get() + 1);
                 return false;
             }
             let n = d.len() as u64;
-            let cap = (2 * end).max(64 << 20);
+            let cap = grow(end);
             let base = self.spill_at;
             if n > 0 && !self.spill_write(base, d) {
                 return false;
@@ -111,7 +136,7 @@ impl Store {
             base
         } else {
             // out of room: move the file to a bigger place at the end of the spill file
-            let cap = (2 * end).max(cap * 2);
+            let cap = grow(end).max(cap + (64 << 20));
             let to = self.spill_at;
             let mut buf = vec![0u8; PIECE];
             let mut at = 0u64;
@@ -133,6 +158,87 @@ impl Store {
         self.lazy().insert(k.to_string(), (SPILL, base, size.max(end)));
         true
     }
+    /// Copies a file on disk, in pieces, to a new place on the spill file with room to grow.
+    fn move_to_spill(&mut self, k: &str, id: u32, base: u64, size: u64, end: u64) -> bool {
+        let cap = grow(end.max(size));
+        let to = self.spill_at;
+        let mut buf = vec![0u8; PIECE];
+        let mut at = 0u64;
+        while at < size {
+            let n = (size - at).min(PIECE as u64) as usize;
+            let got = unsafe { host_drive_read(id, (base + at) as f64, buf.as_mut_ptr(), n as u32) } as usize;
+            if got == 0 || !self.spill_write(to + at, &buf[..got]) {
+                return false;
+            }
+            at += got as u64;
+        }
+        self.spill_at += cap;
+        self.clean().remove(k);
+        self.lazy().insert(k.to_string(), (SPILL, to, size));
+        self.room().insert(k.to_string(), cap);
+        true
+    }
+    /// End of the spill file: every place handed out so far, holes included (debug census).
+    pub fn spill_end(&self) -> u64 {
+        self.spill_at
+    }
+    /// (bytes of files in memory, the biggest one) for the debug census.
+    pub fn spilled(&self) -> (u64, u64) {
+        let v: Vec<u64> = self.lazy().values().filter(|x| x.0 == SPILL).map(|x| x.2).collect();
+        (v.len() as u64, v.iter().sum())
+    }
+    pub fn mem_stats(&self) -> (u64, String, u64) {
+        let mut total = 0u64;
+        let mut big = (String::new(), 0u64);
+        for (k, v) in self.data().iter() {
+            total += v.len() as u64;
+            if v.len() as u64 > big.1 {
+                big = (k.clone(), v.len() as u64);
+            }
+        }
+        (total, big.0, big.1)
+    }
+    /// Sets the file's length (SetEndOfFile, a section bigger than its file). A big length
+    /// is set where the file lives on the spill file, never as one buffer in memory (an
+    /// installer that sizes a 300 MB file before writing it).
+    pub fn set_len(&mut self, k: &str, n: u64) {
+        if let Some(&(SPILL, base, size)) = self.lazy().get(k) {
+            if let Some(&cap) = self.room().get(k) {
+                if n <= cap {
+                    // shrinking keeps the bytes past the end; growing must read as zeros
+                    if n > size && !self.spill_write(base + size, &vec![0u8; (n - size).min(PIECE as u64) as usize]) {
+                        return;
+                    }
+                    if n > size + PIECE as u64 {
+                        let mut at = size + PIECE as u64;
+                        let z = vec![0u8; PIECE];
+                        while at < n {
+                            let m = (n - at).min(PIECE as u64) as usize;
+                            if !self.spill_write(base + at, &z[..m]) {
+                                return;
+                            }
+                            at += m as u64;
+                        }
+                    }
+                    self.lazy().insert(k.to_string(), (SPILL, base, n));
+                    return;
+                }
+                let _ = self.write_at(k, n - 1, &[0]);
+                return;
+            }
+        }
+        if n > BIG {
+            let cur = self.size(k).unwrap_or(0);
+            if n > cur {
+                let _ = self.entry_or_default(k.to_string());
+                if self.write_at(k, n - 1, &[0]) {
+                    return;
+                }
+            }
+        }
+        let d = self.entry_or_default(k.to_string());
+        d.resize(n as usize, 0);
+    }
     fn read_spill(&self, base: u64, size: u64) -> Vec<u8> {
         let mut v = vec![0u8; size as usize];
         let mut at = 0usize;
@@ -152,6 +258,7 @@ impl Store {
             let n = (b.len() - done).min(PIECE);
             let got = unsafe { host_drive_write(SPILL, (at + done as u64) as f64, b.as_ptr().add(done), n as u32) } as usize;
             if got != n {
+                self.spill_fails.set(self.spill_fails.get() + 1);
                 return false;
             }
             done += n;
@@ -185,6 +292,7 @@ impl Store {
         let n = d.len() as u64;
         let got = unsafe { host_drive_write(SPILL, self.spill_at as f64, d.as_ptr(), n as u32) } as u64;
         if got != n || n >= 1 << 32 {
+            self.spill_fails.set(self.spill_fails.get() + 1);
             return;
         } // no spill file here: it stays in memory
         self.data().remove(k);
@@ -244,6 +352,21 @@ impl Store {
         let s = (pos as usize).min(d.len());
         Some(d[s..(s + n as usize).min(d.len())].to_vec())
     }
+    /// The first n bytes (a PE header), read where the file is: a file still on disk stays there.
+    pub fn head(&self, k: &str, n: u64) -> Option<Vec<u8>> {
+        if let Some(&(id, base, size)) = self.lazy().get(k) {
+            if self.room().contains_key(k) {
+                return self.read_at(k, 0, n);
+            }
+            let n = n.min(size) as usize;
+            let mut v = vec![0u8; n];
+            let got = unsafe { host_drive_read(id, base as f64, v.as_mut_ptr(), n as u32) } as usize;
+            v.truncate(got);
+            return Some(v);
+        }
+        let d = self.data().get(k)?;
+        Some(d[..(n as usize).min(d.len())].to_vec())
+    }
     /// dst becomes a copy of src without reading it, when src is still on disk.
     pub fn alias(&mut self, dst: String, src: &str) -> bool {
         // both now share the bytes: neither may be written in place any more
@@ -274,11 +397,16 @@ impl Store {
     /// only on disk goes back there afterwards instead of staying in memory twice.
     pub fn get_copy(&mut self, k: &str) -> Option<Vec<u8>> {
         let was_on_disk = self.lazy().contains_key(k);
-        let v = self.get(k).cloned();
         if was_on_disk {
-            self.forget(k);
+            // read in only for this: hand the bytes over (no second copy) and keep the file on disk
+            self.fill(k);
+            if let Some(v) = self.clean().remove(k) {
+                let d = self.data().remove(k).map(|b| *b);
+                self.lazy().insert(k.to_string(), v);
+                return d;
+            }
         }
-        v
+        self.get(k).cloned()
     }
     /// Drops the bytes of a file read in and unchanged since (they are still on disk).
     fn forget(&mut self, k: &str) -> bool {
