@@ -13,7 +13,7 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 // SEC_IMAGE: must be a PE file
                 let Some(Handle::File { name, .. }) = e.s.fs.handles.get(&file) else { return Some(INVALID_HANDLE) };
                 let name = name.clone();
-                let ok = e.s.files.size(&name).unwrap_or(0) > 0x40 && e.s.files.read_at(&name, 0, 2).map_or(false, |d| d == b"MZ");
+                let ok = e.s.files.size(&name).unwrap_or(0) > 0x40 && e.s.files.head(&name, 2).map_or(false, |d| d == b"MZ");
                 if !ok {
                     return Some(INVALID_IMAGE_FORMAT);
                 } // STATUS_INVALID_IMAGE_FORMAT
@@ -91,8 +91,18 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             let addr = match &file {
                 Some(f) => {
                     let Some(a) = e.alloc((len + 0xFFF) & !0xFFF) else { return Some(NO_MEMORY) };
-                    let data = e.s.files.read_at(f, off, len).unwrap_or_default();
-                    let _ = e.mmu.write_bytes(a, &data);
+                    // in 1 MB pieces: a view of a whole 400 MB package must not need a second
+                    // copy of it in the engine's own memory
+                    let mut at = 0u64;
+                    while at < len {
+                        let n = (len - at).min(1 << 20);
+                        let data = e.s.files.read_at(f, off + at, n).unwrap_or_default();
+                        if data.is_empty() {
+                            break;
+                        }
+                        let _ = e.mmu.write_bytes(a + at, &data);
+                        at += data.len() as u64;
+                    }
                     e.s.fs.views.insert(a, (f.clone(), off, len));
                     a
                 }
@@ -120,16 +130,28 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 return Some(OK);
             }
             if let Some((f, off, len)) = e.s.fs.views.remove(&a) {
-                let mut v = vec![0u8; len as usize];
-                if e.mmu.read_bytes(a, &mut v).is_ok() {
-                    if let Some(d) = e.s.files.get_mut(&f) {
-                        let end = ((off + len) as usize).min(d.len());
-                        let o = (off as usize).min(end);
-                        if d[o..end] != v[..end - o] {
-                            d[o..end].copy_from_slice(&v[..end - o]);
-                            e.s.fs.written.insert(f);
-                        }
+                // compared in 1 MB pieces: a read-only view of a 400 MB package costs no copy
+                let size = e.s.files.size(&f).unwrap_or(0);
+                let mut at = 0u64;
+                while at < len && off + at < size {
+                    let n = (len - at).min(1 << 20).min(size - off - at);
+                    let mut v = vec![0u8; n as usize];
+                    if e.mmu.read_bytes(a + at, &mut v).is_err() {
+                        break;
                     }
+                    let old = e.s.files.read_at(&f, off + at, n).unwrap_or_default();
+                    if old != v {
+                        let pos = off + at;
+                        if !e.s.files.write_at(&f, pos, &v) {
+                            if let Some(d) = e.s.files.get_mut(&f) {
+                                let end = ((pos + n) as usize).min(d.len());
+                                let o = (pos as usize).min(end);
+                                d[o..end].copy_from_slice(&v[..end - o]);
+                            }
+                        }
+                        e.s.fs.written.insert(f.clone());
+                    }
+                    at += n;
                 }
                 e.mmu.release_region(a);
             }
