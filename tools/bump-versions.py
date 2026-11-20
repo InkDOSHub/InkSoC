@@ -11,6 +11,5 @@ def bump(path, names):
 
 
 bump("worker.js", ["inksoc.wasm", "inksoc-mt.wasm"])
-bump("desktop.js", ["worker.js"])
-bump("tools.js", ["worker.js"])
-bump("index.html", ["desktop.js"])
+bump("engine.js", ["worker.js"])
+bump("index.html", ["engine.js"])

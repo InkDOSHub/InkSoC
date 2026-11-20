@@ -4,63 +4,29 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/inkdoshub-icone-32.png?v=8">
-<title>InkSoC · InkDOS Hub</title>
+<title>InkSoC</title>
+<!-- The InkSoC engine page: no desktop of its own. InkOS opens it in a window
+     (the InkOS window is the program's window); engine.js says what it runs. -->
 <style>
-  :root{--bg:#fff;--fg:#111;--muted:#666;--border:#ddd;--accent:#7c3aed;--soft:#ede9fe;--softfg:#5b21b6;--bar:rgba(255,255,255,.92);--menu:#fff;--hover:#f3f0ff;--desk:#3a6ea5}
-  @media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#111;--fg:#eee;--muted:#999;--border:#333;--soft:#2e1065;--softfg:#ddd6fe;--bar:rgba(28,28,30,.92);--menu:#1c1c1e;--hover:#2e1065}}
-  :root[data-theme=dark]{--bg:#111;--fg:#eee;--muted:#999;--border:#333;--soft:#2e1065;--softfg:#ddd6fe;--bar:rgba(28,28,30,.92);--menu:#1c1c1e;--hover:#2e1065}
+  :root{--accent:#7c3aed}
   *{box-sizing:border-box}
   html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--fg);font:14px -apple-system,system-ui,sans-serif;overflow:hidden}
-  .top{position:fixed;top:0;left:0;right:0;height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;background:var(--bg);border-bottom:1px solid var(--border);z-index:10}
-  .top b{font-weight:600}.top a{color:var(--accent);text-decoration:none}
-  .top .r{width:90px;text-align:right}
-  #desk{position:fixed;top:44px;bottom:48px;left:0;right:0;background:var(--desk);overflow:hidden;touch-action:none}
-  #desk canvas{position:absolute;left:0;top:0;pointer-events:none;image-rendering:auto}
-  .con[hidden]{display:none}
-  .con{position:absolute;width:min(520px,calc(100% - 24px));height:min(320px,calc(100% - 24px));background:#0c0c0c;color:#c0c0c0;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.35);overflow:hidden;display:flex;flex-direction:column}
-  .con .t{background:#2b2b2b;color:#ccc;padding:6px 10px;font:12px system-ui;display:flex;gap:8px;align-items:center;cursor:move;user-select:none;-webkit-user-select:none;touch-action:none}
-  .con .t span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .con .t button{background:none;border:0;color:#ccc;font:13px system-ui;cursor:pointer;padding:0 4px}
-  .con pre{margin:0;padding:6px 8px;white-space:pre-wrap;word-break:break-all;font:13px/1.25 Consolas,Menlo,ui-monospace,monospace;color:#c0c0c0;background:#0c0c0c;overflow:auto;flex:1}
-  .con pre a{color:#c4b5fd}
-  .con .ok{color:#4ade80}.con .bad{color:#f87171}
-  .con table{font:11px system-ui;color:#aaa;border-collapse:collapse;margin:0 10px 8px}.con td{padding:1px 6px 1px 0}
-  .bar{position:fixed;bottom:0;left:0;right:0;height:48px;background:var(--bar);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;padding:0 10px;z-index:10}
-  .bar button{font:inherit;border-radius:9px;padding:7px 12px;cursor:pointer;color:inherit;white-space:nowrap}
-  #start{background:var(--accent);color:#fff;font-weight:600;border:0;padding:7px 18px;box-shadow:0 1px 3px rgba(0,0,0,.25)}
-  #start:active{transform:translateY(1px);box-shadow:none}
-  #tasks{display:flex;gap:6px;overflow-x:auto;flex:1;min-width:0}
-  .task{background:var(--bg);border:1px solid var(--border)}
-  .task.on{border-color:var(--accent)}
-  #speed{color:var(--muted);font-size:13px;white-space:nowrap}
-  #info{width:28px;height:28px;border-radius:50%;border:1px solid var(--muted);background:none;color:var(--muted);padding:0;flex:none}
-  .pop{position:fixed;left:10px;bottom:56px;width:270px;background:var(--menu);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.3);padding:6px;z-index:20}
-  .pop[hidden]{display:none}
-  .pop .it{display:block;width:100%;text-align:left;padding:9px 12px;border-radius:8px;border:0;background:none;font:inherit;color:inherit;cursor:pointer;text-decoration:none}
-  .pop .it:hover{background:var(--hover)}
-  .pop hr{border:0;border-top:1px solid var(--border);margin:4px 0}
-  .pop .set{display:flex;gap:10px;align-items:center;padding:6px 12px;color:var(--muted);font-size:13px}
-  .pop input[type=text],.pop select{font:inherit;padding:5px 8px;border-radius:7px;border:1px solid var(--border);background:var(--bg);color:inherit}
-  .pop input[type=text]{width:100%}
-  #more{font:20px system-ui;background:none;border:0;color:var(--fg);cursor:pointer;padding:4px 6px}
-  #infop{left:auto;right:10px;top:50px;bottom:auto;width:min(360px,calc(100% - 20px));padding:12px 14px;font-size:13px;line-height:1.45;color:var(--fg)}
-  #infop p{margin:0 0 8px}
-  .tabs{display:flex;gap:4px;margin-bottom:10px;background:var(--hover);border-radius:8px;padding:3px}
-  .tabs button{flex:1;font:inherit;border:0;border-radius:6px;padding:6px;background:none;color:inherit;cursor:pointer}
-  .tabs button.on{background:var(--menu);box-shadow:0 1px 2px rgba(0,0,0,.15);font-weight:600}
-  .sw{display:flex;gap:8px;align-items:center;font-weight:600;margin-bottom:8px}
-  .con .edge{position:absolute;z-index:5;touch-action:none}
-  .con .edge.n,.con .edge.s{left:10px;right:10px;height:8px;cursor:ns-resize}.con .edge.n{height:5px}.con .edge.n{top:0}.con .edge.s{bottom:0}
-  .con .edge.e,.con .edge.w{top:14px;bottom:14px;width:8px;cursor:ew-resize}.con .edge.e{right:0}.con .edge.w{left:0}
-  .con .edge.ne,.con .edge.nw{width:10px;height:6px}.con .edge.se,.con .edge.sw{width:18px;height:18px}
-  .con .edge.nw{left:0;top:0;cursor:nwse-resize}.con .edge.se{right:0;bottom:0;cursor:nwse-resize}
-  .con .edge.ne{right:0;top:0;cursor:nesw-resize}.con .edge.sw{left:0;bottom:0;cursor:nesw-resize}
-  #off{position:fixed;inset:0;z-index:50;background:#000;color:#ddd;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font:16px system-ui}
-  #off[hidden]{display:none}
-  #off button{margin-top:14px;font:15px system-ui;padding:8px 20px;border-radius:9px;border:0;background:var(--accent);color:#fff;cursor:pointer}
-  /* on-screen game controls (touch screens): arrows on the left, action keys on the right */
-  #pad{position:fixed;left:0;right:0;bottom:56px;height:0;z-index:15;pointer-events:none}
+  body{margin:0;background:#0c0c0c;color:#c0c0c0;font:14px -apple-system,system-ui,sans-serif;overflow:hidden;touch-action:manipulation}
+  #screen{position:fixed;inset:0;overflow:hidden;touch-action:none;background:#0c0c0c}
+  #screen.gui{background:#000}
+  #screen canvas{position:absolute;left:0;top:0;image-rendering:auto}
+  html[data-smooth="0"] #screen canvas{image-rendering:pixelated}
+  #con{position:fixed;inset:0;z-index:5;overflow:auto;display:flex;flex-direction:column;background:#0c0c0c}
+  #con[hidden],#con [hidden]{display:none}
+  #con pre{margin:0;padding:8px 10px 2px;white-space:pre-wrap;word-break:break-all;font:13px/1.25 Consolas,Menlo,ui-monospace,monospace;color:#c0c0c0;user-select:text;-webkit-user-select:text}
+  #con pre a{color:#c4b5fd}
+  #con .ok{color:#4ade80}#con .bad{color:#f87171}
+  .cline{border:0;background:#0c0c0c;color:#c0c0c0;font:13px/1.25 Consolas,Menlo,ui-monospace,monospace;padding:2px 10px 10px;outline:none;caret-color:#c0c0c0;width:100%}
+  #note{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);z-index:20;max-width:calc(100% - 20px);background:rgba(28,28,30,.92);color:#eee;border-radius:9px;padding:6px 12px;font:13px system-ui;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #note[hidden]{display:none}
+  #padbtn{position:fixed;right:8px;top:8px;z-index:16;width:36px;height:36px;border-radius:50%;border:1.5px solid rgba(255,255,255,.45);background:rgba(20,20,24,.45);color:#fff;font:18px system-ui;cursor:pointer}
+  #padbtn[hidden]{display:none}
+  #pad{position:fixed;left:0;right:0;bottom:8px;height:0;z-index:15;pointer-events:none}
   #pad[hidden]{display:none}
   #pad .gp{position:absolute;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;border:1.5px solid rgba(255,255,255,.45);background:rgba(20,20,24,.32);color:#fff;font:600 18px -apple-system,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)}
   #pad .gp.down{background:rgba(124,58,237,.55)}
@@ -78,146 +44,17 @@
   #pad .gpbar{position:absolute;left:50%;transform:translateX(-50%);bottom:8px;pointer-events:auto;display:flex;gap:6px;align-items:center;background:rgba(20,20,24,.5);border-radius:10px;padding:4px 6px;color:#fff;font:12px system-ui}
   #pad .gpbar button{font:12px system-ui;border:0;border-radius:7px;padding:4px 10px;background:rgba(255,255,255,.2);color:#fff;cursor:pointer}
   #pad .gpbar input{width:90px}
-  /* Files and Console (tools.js) */
-  .con .fbar{display:flex;gap:8px;align-items:center;padding:6px 10px;background:#1b1b1b;font:12px system-ui;color:#bbb}
-  .con .fbar span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:Menlo,ui-monospace,monospace}
-  .con .fbar button,.con .fbar label{background:#2b2b2b;border:0;color:#ddd;border-radius:6px;padding:3px 10px;cursor:pointer;font:13px system-ui}
-  .con .fbar button:disabled{opacity:.4}
-  .con .flist{flex:1;overflow:auto;padding:4px 0}
-  .con .frow{display:flex;align-items:center;gap:6px;padding:5px 10px;font:13px system-ui}
-  .con .frow:hover{background:#1f1f1f}
-  .con .frow .n{flex:1;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .con .frow .z{color:#888;font-size:11px}
-  .con .frow button{background:none;border:0;color:#bbb;cursor:pointer;font:12px system-ui;padding:2px 4px}
-  .con .empty{color:#777;padding:12px;font:13px system-ui}
-  .con .cline{border:0;background:#0c0c0c;color:#c0c0c0;font:13px/1.25 Consolas,Menlo,ui-monospace,monospace;padding:2px 8px 8px;outline:none;caret-color:#c0c0c0}
-  /* shell: desktop icons, Start menu, File Explorer (a light window), System Monitor */
-  #icons{position:absolute;left:8px;top:8px;bottom:8px;display:flex;flex-direction:column;flex-wrap:wrap;align-content:flex-start;gap:6px;pointer-events:none;z-index:0}
-  .ico{width:84px;padding:6px 2px;border-radius:6px;text-align:center;color:#fff;font:12px -apple-system,system-ui,sans-serif;text-shadow:0 1px 2px rgba(0,0,0,.7);overflow-wrap:anywhere;user-select:none;-webkit-user-select:none}
-  .ico .ic{display:block;width:44px;height:44px;margin:0 auto 4px}
-  .ic{width:20px;height:20px;vertical-align:-5px;margin-right:7px}
-  .ico.sel{background:rgba(255,255,255,.25)}
-  #desk.drop{outline:3px dashed rgba(255,255,255,.7);outline-offset:-8px}
-  #menu{width:300px;max-height:calc(100% - 70px);overflow:auto}
-  #menu #find{width:100%;font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:inherit;margin-bottom:4px}
-  .pop .mh{color:var(--muted);font-size:12px;padding:8px 12px 2px}
-  .pop .none{color:var(--muted);font-size:13px;padding:4px 12px 8px}
-  #setp{width:320px}
-  #walls{display:flex;flex-wrap:wrap;gap:8px;padding:2px 12px 8px}
-  #walls [data-wall]{width:44px;height:30px;border-radius:7px;border:2px solid transparent;cursor:pointer;padding:0;box-shadow:0 0 0 1px var(--border)}
-  #walls [data-wall].on{border-color:var(--accent)}
-  #walls label{display:flex;align-items:center;justify-content:center;background:var(--hover);color:var(--muted);font-size:18px}
-  #status{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
-  #clock{color:var(--muted);font-size:13px;white-space:nowrap}
-  .con.win{background:#fff;color:#111;width:min(720px,calc(100% - 24px));height:min(460px,calc(100% - 24px))}
-  .con.win .t{background:#eef1f5;color:#111}.con.win .t button{color:#333}
-  .con.win .fbar{background:#fff;color:#333;border-bottom:1px solid #e3e3e3}
-  .con.win .fbar button,.con.win .fbar label{background:#f1f1f1;color:#222}
-  .con.win .fbar input{flex:1;min-width:0;font:13px system-ui;padding:4px 8px;border:1px solid #ddd;border-radius:6px;background:#f7f7f7;color:#111}
-  .con.win .body{flex:1;display:flex;min-height:0}
-  .con.win .side{width:150px;flex:none;border-right:1px solid #e3e3e3;overflow:auto;padding:6px 0;font:13px system-ui}
-  .con.win .side div{padding:5px 10px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .con.win .side div:hover,.con.win .frow:hover{background:#eef4ff}
-  .con.win .side div.on{background:#dde8fb}
-  .con.win .frow{color:#111;user-select:none;-webkit-user-select:none}
-  .con.win .frow.sel{background:#cfe0fa}
-  .con.win .frow button{color:#555}
-  .con.win .frow .z{color:#777}
-  .con.win .empty{color:#888}
-  .con.win.drop .flist{outline:2px dashed #6b8fd6;outline-offset:-4px}
   .sym{display:inline-block;width:16px;height:16px;flex:none;background:currentColor;-webkit-mask:var(--s) center/contain no-repeat;mask:var(--s) center/contain no-repeat;vertical-align:-3px}
-  .sym.good{color:#2e9d4f}.sym.bad{color:#e5484d}.sym.warn{color:#e08a00}.sym.wait{color:#999}
-  .top .ttl{display:flex;align-items:center;gap:6px}
-  #more .sym{width:20px;height:20px}
-  .con .t button{display:flex;align-items:center;justify-content:center;min-width:36px;min-height:30px;padding:6px 8px;border-radius:6px;touch-action:manipulation}.con .t button .sym{pointer-events:none}.con .t button:hover{background:rgba(127,127,127,.25)}
-  .con .t button .sym{width:16px;height:16px}
-  #menu #find{padding-left:32px;background:var(--bg) url(icons/sym/system-search-symbolic.svg) 10px center/16px no-repeat}
-  .con.diag .mtabs{display:flex;gap:2px;padding:6px 10px 0;border-bottom:1px solid #e3e3e3;background:#fafafa}
-  .con.diag .mtabs button{border:0;background:none;font:13px system-ui;padding:7px 14px;color:#555;border-bottom:2px solid transparent;cursor:pointer}
-  .con.diag .mtabs button.on{color:#111;font-weight:600;border-bottom-color:var(--accent)}
-  .con.diag .ptable{width:100%;border-collapse:collapse;font:13px system-ui;margin-top:6px}
-  .con.diag .ptable th{text-align:left;font-weight:600;color:#666;font-size:12px;padding:6px 6px;border-bottom:1px solid #e3e3e3}
-  .con.diag .ptable td{padding:6px;border-bottom:1px solid #f0f0f0;white-space:nowrap}
-  .con.diag .ptable td:first-child{display:flex;align-items:center;gap:6px;white-space:normal}
-  .con.diag .ptable td .ic{width:18px;height:18px}
-  .con.diag .endt{border:0;background:none;color:#e5484d;cursor:pointer;padding:3px}
-  .con.diag .meter{padding:10px 0;border-bottom:1px solid #eee}
-  .con.diag .meter .ml{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
-  .con.diag .meter .ml span{font-weight:600}.con.diag .meter .ml small{color:#777;text-align:right}
-  .con.diag .meter .mb{height:6px;border-radius:3px;background:#ececf0;margin-top:6px;overflow:hidden}
-  .con.diag .meter .mb i{display:block;height:100%;background:var(--accent);border-radius:3px}
-  .con.diag .chk b .sym{width:16px;height:16px}
-  .con.diag .row button,.con.diag .again{display:inline-flex;align-items:center;gap:6px}
-  .con.diag .row button .sym,.con.diag .again .sym{width:12px;height:12px}
-  .con.diag details{margin-top:14px}.con.diag summary{cursor:pointer;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#7c3aed;font-weight:600}
-  .fbar button .sym{width:16px;height:16px}
-  #walls [data-wall=photo] .sym{width:22px;height:22px}
-  .con.diag .hint{margin:0 0 4px;color:#777;font-size:12px}
-  .con.diag pre.log{margin:8px 0 0;padding:8px;background:#0c0c0c;color:#c0c0c0;border-radius:6px;font:12px/1.35 Consolas,Menlo,ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;max-height:none;min-height:120px;user-select:text;-webkit-user-select:text}
-  .con.diag pre.log .bad{color:#f87171}
-  .con.diag pre.res{margin:4px 0 8px;padding:8px 10px;max-height:220px;overflow:auto;background:#f4f4f6;border-radius:8px;font:12px ui-monospace,Menlo,monospace;white-space:pre-wrap}
-  .con.diag .again,.con.diag .row button{padding:5px 14px;border-radius:8px;border:1px solid #ccc;background:#f4f4f4;font:13px system-ui;cursor:pointer}
-  .con.diag .again{margin:8px 0}
-  .con.diag .gpuview{width:100%;max-width:512px;aspect-ratio:16/9;border-radius:8px;background:#000}
-  .con.diag .chk{display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #eee}
-  .con.diag .chk b{width:18px;flex:none}.con.diag .chk small{color:#666;display:block}
-  html[data-icons=none] #icons{display:none}
-  html[data-icons=small] .ico{width:70px;font-size:11px}html[data-icons=small] .ico .ic{width:32px;height:32px}
-  html[data-icons=large] .ico{width:100px;font-size:13px}html[data-icons=large] .ico .ic{width:60px;height:60px}
-  html[data-smooth="0"] #desk canvas{image-rendering:pixelated}
-  /* context menu (right click, or touch and hold) */
-  .ctx{position:fixed;z-index:40;min-width:190px;background:var(--menu);color:var(--fg);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.3);padding:5px;font:14px -apple-system,system-ui,sans-serif}
-  .ctx button{display:flex;align-items:center;width:100%;text-align:left;border:0;background:none;color:inherit;font:inherit;padding:8px 10px;border-radius:7px;cursor:pointer}
-  .ctx button:hover{background:var(--hover)}
-  .ctx button:disabled{opacity:.4}
-  .ctx hr{border:0;border-top:1px solid var(--border);margin:4px 0}
-  .con.win .frow .n input{font:13px system-ui;padding:1px 4px;width:70%}
-  .con.win .tbtn{margin-left:auto}
-  /* Settings window */
-  .con.sets .flist{padding:4px 14px 14px;font:13px system-ui;color:#222}
-  .con.sets h4{margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#7c3aed}
-  .con.sets .row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #eee}
-  .con.sets .row>span{flex:1}
-  .con.sets .row small{display:block;color:#777}
-  .con.sets select,.con.sets button{font:13px system-ui;padding:4px 8px;border-radius:7px;border:1px solid #ccc;background:#f6f6f6;color:#111;cursor:pointer}
-  .con.sets #walls{padding:4px 0}
-  @media (max-width:520px){.con.win .side{display:none}#status{display:none}}
 </style>
 </head>
 <body>
-<div class="top"><a href="/">&lt; InkDOS Hub</a><b class="ttl"><img class="ic" src="icons/computer.svg" alt="">InkSoC</b><span class="r"><button id="more" title="Menu"><i class="sym" style="--s:url(icons/sym/open-menu-symbolic.svg)"></i></button></span></div>
-<div id="desk"><div id="icons"></div></div>
-<div class="pop" id="menu" hidden>
-  <input type="search" id="find" placeholder="Search programs" autocomplete="off" spellcheck="false">
-  <div class="mh">Installed programs</div>
-  <div id="installed"></div>
-  <div class="mh">Windows</div>
-  <button class="it" data-tool="files"><img class="ic" src="icons/system-file-manager.svg" alt="">File Explorer</button>
-  <button class="it" data-tool="console"><img class="ic" src="icons/utilities-terminal.svg" alt="">Command Prompt</button>
-  <button class="it" data-tool="diag"><img class="ic" src="icons/utilities-system-monitor.svg" alt="">System Monitor</button>
-  <button class="it" data-tool="settings"><img class="ic" src="icons/preferences-system.svg" alt="">Settings</button>
-  <hr>
-  <button class="it" id="shutdown"><img class="ic" src="icons/system-shutdown.svg" alt="">Shut down</button>
-</div>
-<div class="pop" id="infop" hidden>
-  <div class="tabs"><button class="on" data-tab="about">Info</button><button data-tab="controls">Controls</button></div>
-  <div data-pane="controls" hidden>
-    <label class="sw"><input type="checkbox" id="padon"> On-screen controls</label>
-    <p>A full controller over the program's screen: two sticks, D-pad, A B X Y, L1 R1 L2 R2, Select and Start. Games that support controllers see an Xbox controller; games that only read the keyboard get arrows, Z X A S, Q W E R, Enter and Esc. "Edit" moves controls and changes their size. A controller connected to this device (Bluetooth or USB) works too, even with these hidden.</p>
-  </div>
-  <div data-pane="about">
-  <p><b>InkSoC</b> runs Windows programs (.exe, 64-bit and 32-bit) in this tab with its own engine: no Wine install, no Linux, nothing sent to a server.</p>
-  <p>Drive C: lives in this browser's private storage and stays after a reload. To bring a program in, drop its file on the desktop or use "Copy here…" in File Explorer; it lands in Downloads, and a double tap opens it there (.exe runs, .msi installs, .zip unpacks). Installed programs appear in Start.</p>
-  <p>Each running program gets a button in the bar: tap it to bring it to the front or hide it. Windows move by their title bar and change size by their bottom-right corner; the maximize button fills the screen. Several cores need the hub.inkdos.workers.dev address.</p>
-  </div>
-</div>
-<div id="off" hidden><p>InkSoC is shut down.<br><small>Every program stopped and drive C: is saved.</small></p><button onclick="location.reload()">Turn on</button></div>
+<div id="screen"></div>
+<div id="con"></div>
+<div id="note" hidden></div>
+<button id="padbtn" type="button" title="On-screen controls" aria-label="On-screen controls" hidden>&#x1F3AE;</button>
 <div id="pad" hidden></div>
-</div>
-<div class="bar"><button id="start">Start</button><div id="tasks"></div><span id="status"></span><span id="clock"></span></div>
-<script src="prefs.js?v=2"></script>
-<script src="desktop.js?v=69"></script>
-<script src="pad.js?v=2"></script>
-<script src="wall.js?v=3"></script>
+<script src="prefs.js?v=3"></script>
+<script src="engine.js?v=1"></script>
+<script src="pad.js?v=3"></script>
 </body>
 </html>

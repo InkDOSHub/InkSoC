@@ -119,7 +119,7 @@ function touch(c, el, x, y, down) {
     for (const d in dirs) { setBit(d, dirs[d]); setKey(d, dirs[d]); }
     el.dataset.dir = Object.keys(dirs).filter((d) => dirs[d]).join(' ');
   } else if (c.id === 'menu') {
-    if (down) { $('more').click(); $('infop').querySelector('[data-tab="controls"]').click(); }
+    if (down) { padEl.hidden = true; sendPad(); } // the menu control hides the pad (the controller button brings it back)
     return;
   } else {
     el.classList.toggle('down', down);
