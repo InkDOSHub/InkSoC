@@ -59,7 +59,7 @@ try {
     else if (op === 'shot') await shot(a);
     else if (op === 'run') {
       earlier = await con();
-      await page.goto(base + '/?run=' + encodeURIComponent(a) + (c.query.includes('winedebug') ? '&winedebug=2' : ''));
+      await page.goto(base + '/?run=' + encodeURIComponent(a) + (b ? '&args=' + encodeURIComponent(b) : '') + (c.query.includes('winedebug') ? '&winedebug=2' : ''));
     } else if (op === 'until') {
       const re = new RegExp(a), end = Date.now() + b;
       while (!re.test(await con())) {

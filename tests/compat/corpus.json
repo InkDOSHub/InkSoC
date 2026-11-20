@@ -1,5 +1,5 @@
 {
-  "_doc": "Real programs the engine must keep running. Each case: an optional download (url: one or more space-separated mirrors, file name), the page query, and steps. Steps: [\"wait\", ms], [\"key\", name], [\"click\", x, y] (page pixels at 1100x800), [\"type\", text], [\"until\", regex, ms] (the console output matches), [\"run\", windowsPath] (opens an installed program in the same browser profile), [\"shot\", name]. After the steps, every \"expect\" regex must match the console output and no \"reject\" regex may.",
+  "_doc": "Real programs the engine must keep running. Each case: an optional download (url: one or more space-separated mirrors, file name), the page query, and steps. Steps: [\"wait\", ms], [\"key\", name], [\"click\", x, y] (page pixels at 1100x800), [\"type\", text], [\"until\", regex, ms] (the console output matches), [\"run\", windowsPath, args] (opens an installed program in the same browser profile), [\"shot\", name]. After the steps, every \"expect\" regex must match the console output and no \"reject\" regex may. \"gate\": the quick subset run on every pull request; the whole corpus runs weekly and on demand.",
   "cases": {
     "cmd": {
       "query": "",
@@ -12,7 +12,11 @@
       "query": "?file=1",
       "steps": [["wait", 40000], ["click", 550, 400], ["wait", 5000], ["shot", "winemine"]],
       "expect": [],
-      "reject": ["out of memory", "Stopped:", "Finished \\(exit code [1-9]"]
+      "reject": [
+        "out of memory",
+        "Stopped:",
+        "Finished \\(exit code [1-9]"
+      ]
     },
     "7zip": {
       "url": "https://www.7-zip.org/a/7z2408-x64.exe",
@@ -37,6 +41,209 @@
       "steps": [["wait", 300000], ["shot", "progress"], ["until", "Finished \\(exit code", 4800000], ["shot", "installed"], ["run", "C:\\Program Files\\LibreOffice\\program\\soffice.exe"], ["wait", 600000], ["shot", "soffice"]],
       "expect": ["Finished \\(exit code 0\\)"],
       "reject": ["out of memory", "Stopped:"]
+    },
+    "python": {
+      "url": "https://www.python.org/ftp/python/3.12.7/python-3.12.7-embed-amd64.zip",
+      "file": "python-embed.zip",
+      "query": "?file=1",
+      "steps": [["wait", 90000], [ "run", "C:\\python-embed\\python.exe", "-c \"import json,zlib,hashlib,sqlite3;print('PY', hashlib.sha256(zlib.compress(b'x'*10**6)).hexdigest()[:8], json.dumps([6*7]))\"" ], [ "until", "PY [0-9a-f]{8} \\[42\\]", 600000 ], ["shot", "out"]],
+      "expect": [
+        "PY [0-9a-f]{8} \\[42\\]"
+      ],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "python-bench": {
+      "url": "https://www.python.org/ftp/python/3.12.7/python-3.12.7-embed-amd64.zip",
+      "file": "python-embed.zip",
+      "query": "?file=1",
+      "steps": [["wait", 90000], ["run", "C:\\python-embed\\python.exe", "-c \"import time;t=time.time();s=sum(i*i for i in range(2*10**6));print('BENCH',s,round(time.time()-t,2))\""], ["until", "BENCH 2666664666667000000 ", 600000], ["shot", "out"]],
+      "expect": ["BENCH 2666664666667000000 "],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "node": {
+      "url": "https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip",
+      "file": "node.zip",
+      "query": "?file=1",
+      "steps": [["wait", 120000], [ "run", "C:\\node-v20.18.0-win-x64\\node.exe", "-e \"console.log('NODE', [1,2,3].map(x=>x*14).join(','))\"" ], ["until", "NODE 14,28,42", 600000], ["shot", "out"]],
+      "expect": ["NODE 14,28,42"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "sqlite": {
+      "url": "https://www.sqlite.org/2024/sqlite-tools-win-x64-3460100.zip",
+      "file": "sqlite-tools.zip",
+      "query": "?file=1",
+      "steps": [["wait", 90000], ["run", "C:\\sqlite-tools\\sqlite3.exe", ":memory: \"select 'SQL', 6*7;\""], ["until", "SQL\\|42", 600000], ["shot", "out"]],
+      "expect": ["SQL\\|42"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "ripgrep": {
+      "url": "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-pc-windows-msvc.zip",
+      "file": "ripgrep.zip",
+      "query": "?file=1",
+      "steps": [["wait", 90000], ["run", "C:\\ripgrep-14.1.1-x86_64-pc-windows-msvc\\rg.exe", "--version"], ["until", "ripgrep 14\\.1\\.1", 600000], ["shot", "out"]],
+      "expect": ["ripgrep 14\\.1\\.1"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "rclone-go": {
+      "url": "https://downloads.rclone.org/v1.68.1/rclone-v1.68.1-windows-amd64.zip",
+      "file": "rclone.zip",
+      "query": "?file=1",
+      "steps": [["wait", 90000], ["run", "C:\\rclone-v1.68.1-windows-amd64\\rclone.exe", "version"], ["until", "rclone v1\\.68\\.1", 600000], ["shot", "out"]],
+      "expect": ["rclone v1\\.68\\.1"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "7zr-bench": {
+      "url": "https://www.7-zip.org/a/7zr.exe",
+      "file": "7zr.exe",
+      "query": "?file=1",
+      "steps": [["wait", 40000], ["run", "C:\\InkSoC\\Downloads\\7zr.exe", "b -mmt1 -md20"], ["until", "Tot:", 600000], ["shot", "out"]],
+      "expect": ["Tot:"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "coreinfo": {
+      "url": "https://download.sysinternals.com/files/Coreinfo.zip",
+      "file": "Coreinfo.zip",
+      "query": "?file=1",
+      "steps": [["wait", 90000], ["run", "C:\\Coreinfo\\Coreinfo64.exe", "-accepteula -f"], ["until", "SSE2", 600000], ["shot", "out"]],
+      "expect": ["SSE2"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "plink": {
+      "url": "https://the.earth.li/~sgtatham/putty/0.81/w64/plink.exe",
+      "file": "plink.exe",
+      "query": "?file=1",
+      "steps": [["until", "Plink: command-line connection utility", 600000], ["shot", "out"]],
+      "expect": ["Plink: command-line connection utility"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "busybox64": {
+      "url": "https://frippery.org/files/busybox/busybox64.exe",
+      "file": "busybox64.exe",
+      "query": "?file=1",
+      "steps": [["until", "BusyBox v", 600000], ["shot", "out"]],
+      "expect": ["BusyBox v"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "busybox32": {
+      "url": "https://frippery.org/files/busybox/busybox.exe",
+      "file": "busybox.exe",
+      "query": "?file=1",
+      "steps": [["until", "BusyBox v", 600000], ["shot", "out"]],
+      "expect": ["BusyBox v"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "jq": {
+      "url": "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe",
+      "file": "jq.exe",
+      "query": "?file=1",
+      "steps": [["until", "Usage:", 600000], ["shot", "out"]],
+      "expect": ["Usage:"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "putty64": {
+      "url": "https://the.earth.li/~sgtatham/putty/0.81/w64/putty.exe",
+      "file": "putty.exe",
+      "query": "?file=1",
+      "steps": [["wait", 90000], ["shot", "window"], ["wait", 30000], ["shot", "later"]],
+      "expect": [],
+      "reject": ["out of memory", "Stopped:", "Finished \\(exit code", "\\nExit code"]
+    },
+    "putty32": {
+      "url": "https://the.earth.li/~sgtatham/putty/0.81/w32/putty.exe",
+      "file": "putty32.exe",
+      "query": "?file=1",
+      "steps": [["wait", 90000], ["shot", "window"], ["wait", 30000], ["shot", "later"]],
+      "expect": [],
+      "reject": ["out of memory", "Stopped:", "Finished \\(exit code", "\\nExit code"]
+    },
+    "sumatra": {
+      "url": "https://www.sumatrapdfreader.org/dl/rel/3.5.2/SumatraPDF-3.5.2-64.zip",
+      "file": "SumatraPDF.zip",
+      "query": "?file=1",
+      "steps": [["wait", 90000], ["shot", "window"], ["wait", 30000], ["shot", "later"]],
+      "expect": [],
+      "reject": ["out of memory", "Stopped:", "Finished \\(exit code", "\\nExit code"]
+    },
+    "everything": {
+      "url": "https://www.voidtools.com/Everything-1.4.1.1026.x64.zip",
+      "file": "Everything.zip",
+      "query": "?file=1",
+      "steps": [["wait", 90000], ["shot", "window"], ["wait", 30000], ["shot", "later"]],
+      "expect": [],
+      "reject": ["out of memory", "Stopped:", "Finished \\(exit code", "\\nExit code"]
+    },
+    "npp32-portable": {
+      "url": "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.7.1/npp.8.7.1.portable.zip",
+      "file": "npp-portable.zip",
+      "query": "?file=1",
+      "steps": [["wait", 120000], ["shot", "window"], ["wait", 30000], ["shot", "later"]],
+      "expect": [],
+      "reject": ["out of memory", "Stopped:", "Finished \\(exit code", "\\nExit code"]
+    },
+    "audacity-wx": {
+      "url": "https://github.com/audacity/audacity/releases/download/Audacity-3.6.4/audacity-win-3.6.4-64bit.zip",
+      "file": "audacity.zip",
+      "query": "?file=1",
+      "steps": [["wait", 180000], ["shot", "window"], ["wait", 30000], ["shot", "later"]],
+      "expect": [],
+      "reject": ["out of memory", "Stopped:", "Finished \\(exit code", "\\nExit code"]
+    },
+    "hxd-delphi-inno": {
+      "url": "https://mh-nexus.de/downloads/HxDSetup.zip",
+      "file": "HxDSetup.zip",
+      "query": "?file=1",
+      "steps": [["wait", 90000], ["shot", "window"], ["wait", 30000], ["shot", "later"]],
+      "expect": [],
+      "reject": ["out of memory", "Stopped:", "Finished \\(exit code", "\\nExit code"]
+    },
+    "rufus": {
+      "url": "https://github.com/pbatard/rufus/releases/download/v4.6/rufus-4.6.exe",
+      "file": "rufus.exe",
+      "query": "?file=1",
+      "steps": [["wait", 90000], ["shot", "window"], ["wait", 30000], ["shot", "later"]],
+      "expect": [],
+      "reject": ["out of memory", "Stopped:", "Finished \\(exit code", "\\nExit code"]
+    },
+    "7zip32": {
+      "url": "https://www.7-zip.org/a/7z2408.exe",
+      "file": "7z2408.exe",
+      "query": "?file=1&args=/S",
+      "steps": [["wait", 60000], ["shot", "progress"], ["until", "Finished \\(exit code|\\nExit code", 1800000], ["shot", "installed"], ["run", "C:\\Program Files (x86)\\7-Zip\\7zFM.exe"], ["wait", 90000], ["shot", "app"]],
+      "expect": ["Finished \\(exit code 0\\)"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "npp-nsis": {
+      "url": "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.7.1/npp.8.7.1.Installer.x64.exe",
+      "file": "npp-installer.exe",
+      "query": "?file=1&args=/S",
+      "steps": [["wait", 60000], ["shot", "progress"], ["until", "Finished \\(exit code|\\nExit code", 1800000], ["shot", "installed"], ["run", "C:\\Program Files\\Notepad++\\notepad++.exe"], ["wait", 90000], ["shot", "app"]],
+      "expect": ["Finished \\(exit code 0\\)"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "winmerge-inno-mfc": {
+      "url": "https://github.com/WinMerge/winmerge/releases/download/v2.16.44/WinMerge-2.16.44-x64-Setup.exe",
+      "file": "winmerge-setup.exe",
+      "query": "?file=1&args=/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
+      "steps": [["wait", 60000], ["shot", "progress"], ["until", "Finished \\(exit code|\\nExit code", 1800000], ["shot", "installed"], ["run", "C:\\Program Files\\WinMerge\\WinMergeU.exe"], ["wait", 90000], ["shot", "app"]],
+      "expect": ["Finished \\(exit code 0\\)"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "keepassxc-qt-msi": {
+      "url": "https://github.com/keepassxreboot/keepassxc/releases/download/2.7.9/KeePassXC-2.7.9-Win64.msi",
+      "file": "KeePassXC.msi",
+      "query": "?file=1&args=/qn",
+      "steps": [["wait", 60000], ["shot", "progress"], ["until", "Finished \\(exit code|\\nExit code", 1800000], ["shot", "installed"], ["run", "C:\\Program Files\\KeePassXC\\KeePassXC.exe"], ["wait", 90000], ["shot", "app"]],
+      "expect": ["Finished \\(exit code 0\\)"],
+      "reject": ["out of memory", "Stopped:"]
+    },
+    "winrar": {
+      "url": "https://www.rarlab.com/rar/winrar-x64-701.exe",
+      "file": "winrar.exe",
+      "query": "?file=1&args=/S",
+      "steps": [["wait", 60000], ["shot", "progress"], ["until", "Finished \\(exit code|\\nExit code", 1800000], ["shot", "installed"], ["run", "C:\\Program Files\\WinRAR\\WinRAR.exe"], ["wait", 90000], ["shot", "app"]],
+      "expect": ["Finished \\(exit code 0\\)"],
+      "reject": ["out of memory", "Stopped:"]
     }
-  }
+  },
+  "gate": ["cmd", "winemine", "7zip", "python", "putty64"]
 }

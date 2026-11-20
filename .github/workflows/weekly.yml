@@ -15,6 +15,7 @@ on:
     branches: [main]
     paths:
       - 'tests/winetest/**'
+      - 'tests/compat/corpus.json'
       - '.github/workflows/weekly.yml'
 permissions:
   contents: read
@@ -125,3 +126,7 @@ jobs:
           path: results
           merge-multiple: true
       - run: node tests/winetest/summary.mjs results >> "$GITHUB_STEP_SUMMARY"
+
+  # the whole program corpus (tests/compat), next to the conformance tests
+  compat:
+    uses: ./.github/workflows/compat.yml
