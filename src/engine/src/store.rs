@@ -95,6 +95,13 @@ impl Store {
         if !on_spill {
             // only a file in memory that is becoming big moves to the spill file
             let Some(d) = self.data().get(k) else {
+                // a big file still on disk (a drive file, or one spilled when closed) is
+                // copied to a place with room on the spill file, never read in whole
+                if let Some(&(id, base, size)) = self.lazy().get(k) {
+                    if end.max(size) > BIG && self.move_to_spill(k, id, base, size, end) {
+                        return self.write_at(k, pos, v);
+                    }
+                }
                 if end > BIG {
                     self.big_refused.set(self.big_refused.get() + 1);
                 }
@@ -144,6 +151,26 @@ impl Store {
             return false;
         }
         self.lazy().insert(k.to_string(), (SPILL, base, size.max(end)));
+        true
+    }
+    /// Copies a file on disk, in pieces, to a new place on the spill file with room to grow.
+    fn move_to_spill(&mut self, k: &str, id: u32, base: u64, size: u64, end: u64) -> bool {
+        let cap = (2 * end.max(size)).max(64 << 20);
+        let to = self.spill_at;
+        let mut buf = vec![0u8; PIECE];
+        let mut at = 0u64;
+        while at < size {
+            let n = (size - at).min(PIECE as u64) as usize;
+            let got = unsafe { host_drive_read(id, (base + at) as f64, buf.as_mut_ptr(), n as u32) } as usize;
+            if got == 0 || !self.spill_write(to + at, &buf[..got]) {
+                return false;
+            }
+            at += got as u64;
+        }
+        self.spill_at += cap;
+        self.clean().remove(k);
+        self.lazy().insert(k.to_string(), (SPILL, to, size));
+        self.room().insert(k.to_string(), cap);
         true
     }
     /// (bytes of files in memory, the biggest one) for the debug census.
