@@ -59,7 +59,7 @@ jobs:
         id: wt
         with:
           path: wt-bin
-          key: winetest-${{ env.WINE_VERSION }}-${{ hashFiles('tests/winetest/dlls.txt') }}-v1
+          key: winetest-${{ env.WINE_VERSION }}-${{ hashFiles('tests/winetest/dlls.txt') }}-v2
       - name: Build Wine's test programs
         if: steps.wt.outputs.cache-hit != 'true'
         run: |
@@ -70,12 +70,13 @@ jobs:
           cd "wine-${WINE_VERSION}"
           ./configure -q --enable-win64 --without-x --without-freetype --without-wayland --without-vulkan --without-opengl > /dev/null
           for d in $(cat ../tests/winetest/dlls.txt); do
-            make -j"$(nproc)" "dlls/$d/tests" > "../wt-bin/build-$d.log" 2>&1 \
-              || make -j"$(nproc)" "dlls/$d/tests/x86_64-windows/${d}_test.exe" >> "../wt-bin/build-$d.log" 2>&1 \
-              || { echo "build of $d tests failed"; tail -20 "../wt-bin/build-$d.log"; }
+            # the stripped test program (makedep: <dir>/tests/x86_64-windows/<dll>_test-stripped.exe)
+            t="dlls/$d/tests/x86_64-windows/${d}_test-stripped.exe"
+            if make -j"$(nproc)" "$t" > "../wt-bin/build-$d.log" 2>&1; then cp "$t" "../wt-bin/${d}_test.exe"
+            else echo "build of $d tests failed"; tail -30 "../wt-bin/build-$d.log"; fi
           done
-          find . -name '*_test.exe' -exec cp {} ../wt-bin/ \;
           ls -l ../wt-bin
+          ls ../wt-bin/*_test.exe > /dev/null  # nothing built: fail, and cache nothing
       - uses: actions/upload-artifact@v4
         with:
           name: weekly-engine
