@@ -695,3 +695,19 @@ if (navigator.storage && navigator.storage.persist) navigator.storage.persist().
 })();
 
 fit();
+
+// A file sent from the InkOS Finder (assets/inkos-bridge.js of the Hub turns
+// the postMessage into this event): copy it to Downloads, then open it the way
+// a double tap does (.exe runs, .msi installs, .zip unpacks, .lnk follows).
+window.addEventListener('inkos:file', (e) => {
+  const file = e.detail;
+  if (!(file instanceof File)) return;
+  e.preventDefault();
+  (async () => {
+    const dir = HOME + '\\Downloads';
+    await copyIn([file], dir);
+    const name = file.name.replace(/ \(\d+\)(?=\.[^.]+$)/, '');
+    if (/\.(exe|msi|zip|lnk)$/i.test(name)) await openPath(dir + '\\' + name, file);
+    else tool('files', dir);
+  })().catch((err) => note(file.name + ': ' + (err && err.message || err)));
+});
