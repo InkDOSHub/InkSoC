@@ -418,7 +418,18 @@ fn create_user_process(e: &mut Engine) -> u64 {
         v
     };
     let std = [e.r64(params + 0x20), e.r64(params + 0x28), e.r64(params + 0x30)];
-    let image = crate::pe::norm(&image);
+    let raw = image;
+    let image = crate::pe::norm(&raw);
+    // a program at a full path (one an installer has just written, like
+    // C:\Program Files\Steam\steamservice.exe): found by its path, run by its name, as the
+    // first program is; the path wins over an older file of the same name
+    if let Some(k) = crate::files::key_of(&raw).filter(|k| *k != image && e.s.files.contains_key(k)) {
+        if !e.s.files.alias(image.clone(), &k) {
+            if let Some(b) = e.s.files.get(&k).cloned() { e.s.files.insert(image.clone(), b); }
+        }
+        // and its folder is searched for its DLLs
+        if let Some(i) = k.rfind('\\') { let d = k[..i].to_string(); if !e.s.dll_dirs.contains(&d) { e.s.dll_dirs.push(d); } }
+    }
     let Some(bytes) = e.s.files.get(&image).cloned() else {
         if unsafe { crate::WINE_DEBUG } > 0 { crate::console(&format!("[inksoc] CreateProcess: {} not found\n", image)); }
         return 0xC000_0034; // OBJECT_NAME_NOT_FOUND
