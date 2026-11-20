@@ -1,8 +1,8 @@
 <p align="center"><img src=".github/icon.svg" width="96" alt="InkSoC icon"></p>
 
-<p align="center"><b>Run Windows programs in the browser, on iPad, iPhone and PC: our own x86-64 engine (JIT, WebAssembly) with Wine.</b></p>
+<p align="center"><b>The engine that runs Windows programs in InkOS, on iPad, iPhone and PC: our own x86-64 engine (JIT, WebAssembly) with Wine.</b></p>
 
-<p align="center"><b><a href="https://hub.inkdos.workers.dev/InkSoC/">Open InkSoC</a></b> · part of <a href="https://github.com/InkDOSHub/inkdoshub.github.io">InkDOS Hub</a> · MIT license (Wine: LGPL)</p>
+<p align="center"><b><a href="https://inkos-5k7.pages.dev/?open=cmdexe">Open in InkOS</a></b> · part of <a href="https://github.com/InkDOSHub/inkdoshub.github.io">InkDOS Hub</a> · MIT license (Wine: LGPL)</p>
 
 <p align="center"><img src=".github/prints/InkSoC-iphone.png" width="28%" alt="InkSoC desktop on iPhone"> <img src=".github/prints/InkSoC-ipad.png" width="68%" alt="InkSoC desktop on a larger screen"></p>
 
@@ -19,15 +19,14 @@ Until 2026-11-14 it lived in the Hub repository as `apps/inksoc/`.
 
 | Path | What |
 |---|---|
-| `index.html`, `desktop.js` | The desktop: Start menu, windows, file explorer of drive C: |
+| `index.html`, `engine.js` | The engine page: no desktop of its own. InkOS shows it in a window; the program's screen fills it (zoomed to its windows), a console program shows as text. `?run=C:\path.exe` runs a program on drive C:, `?file=1` waits for a file from InkOS, nothing opens Command Prompt (cmd.exe) |
 | `worker.js` | Core 0: loads the engine, runs the program, owns the screen and files |
 | `core.js`, `sharedmem.js`, `swapio.js` | Extra cores on shared memory, and the swap file worker |
 | `gl.js`, `gl-funcs.js` | OpenGL on WebGL 2 (`gl-funcs.js` is generated: do not edit) |
-| `tools.js` | The Diagnostics window: checks, benchmarks, memory calibration |
-| `pad.js`, `prefs.js`, `wall.js`, `unzip.js` | On-screen gamepad, settings, wallpaper, .zip install onto drive C: |
+| `pad.js`, `prefs.js`, `unzip.js` | On-screen gamepad (the controller button on touch screens), saved settings, .zip install onto drive C: |
 | `inksoc.wasm`, `inksoc-mt.wasm`, `wine.wasm` | Built engine (single and multi-core) and Wine's msvcrt |
 | `bin/` | Wine DLLs (`wine/` 64-bit, `wine32/` 32-bit), `system32/` tools such as `cmd.exe`, 7-Zip, BusyBox |
-| `test.exe`, `stage*.exe`, `testdll.dll` | Small test programs used by the Diagnostics checks (sources in `src/test*`) |
+| `test.exe`, `stage*.exe`, `testdll.dll` | Small test programs (sources in `src/test*`); run them from Command Prompt |
 | `src/engine/` | The engine (Rust). Map of the code: `src/engine/src/graphify-out/` |
 | `src/wine/` | Build of Wine's msvcrt for the engine |
 | `compat/` | Compatibility runner: real programs from `list.json`, results in `results.json` |
@@ -88,8 +87,8 @@ Own programs: build with `-D__USE_MINGW_ANSI_STDIO=0` so printf comes from msvcr
 ## Tests
 
 Tests run on GitHub Actions, not on a local machine: `inksoc-apps.yml` (real programs,
-`tests/apps/request.json`) and `inksoc-arm-bench.yml`. In the browser, the Diagnostics window runs the
-built-in checks.
+`tests/apps/request.json`) and `inksoc-arm-bench.yml`. The Diagnostics window left with the desktop
+(2026-11-20); the engine page is checked by InkOS's end-to-end tests.
 
 ## Part of InkDOS Hub
 

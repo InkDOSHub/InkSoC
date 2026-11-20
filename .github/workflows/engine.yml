@@ -74,6 +74,6 @@ jobs:
           python3 tools/bump-versions.py
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          git add inksoc.wasm inksoc-mt.wasm worker.js desktop.js tools.js index.html
+          git add inksoc.wasm inksoc-mt.wasm worker.js engine.js index.html
           git commit -m "Build engine for ${GITHUB_SHA::7}"
           for i in 1 2 3; do git pull --rebase -q && git push -q && break; sleep 5; done
