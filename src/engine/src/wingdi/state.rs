@@ -201,7 +201,7 @@ impl Engine {
         self.s.gdi.free.push(i);
     }
 
-    pub(super) fn dc(&self, h: u64) -> Option<&Dc> {
+    pub(crate) fn dc(&self, h: u64) -> Option<&Dc> {
         match self.s.gdi.objs.get(&idx(h)) {
             Some(Obj::Dc(d)) => Some(d),
             _ => None,
