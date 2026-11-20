@@ -170,6 +170,7 @@ impl Engine {
         self.park();
         let wow = crate::wow64::is_pe32(&bytes);
         self.s.next_alloc = if wow { crate::wow64::LOW_ALLOC } else { 0x0000_0200_0000_0000 };
+        self.s.wow64 = wow; // before the process parameters: a 32-bit program sees the 32-bit folders
         self.s.next_dll = 0x0000_7FF0_0000_0000;
         self.s.std = std;
         self.s.wpid = id;

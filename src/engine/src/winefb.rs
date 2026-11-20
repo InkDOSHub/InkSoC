@@ -481,6 +481,23 @@ impl Engine {
             "WINEUSERNAME=user",
             "windir=C:\\Windows",
         ];
+        // a 32-bit program sees the 32-bit folders, as under Windows' WoW64 (a 32-bit installer
+        // puts itself in "Program Files (x86)")
+        let vars: Vec<&str> = if self.s.wow64 {
+            vars.iter()
+                .map(|v| match *v {
+                    "CommonProgramFiles=C:\\Program Files\\Common Files" => "CommonProgramFiles=C:\\Program Files (x86)\\Common Files",
+                    "ProgramFiles=C:\\Program Files" => "ProgramFiles=C:\\Program Files (x86)",
+                    "PROCESSOR_ARCHITECTURE=AMD64" => "PROCESSOR_ARCHITECTURE=x86",
+                    v => v,
+                })
+                .chain(std::iter::once("PROCESSOR_ARCHITEW6432=AMD64"))
+                .collect()
+        } else {
+            vars.to_vec()
+        };
+        let mut vars = vars;
+        vars.sort_by_key(|v| v.to_ascii_uppercase()); // Windows keeps the block sorted
         let env: Vec<u16> = (vars.join("\0") + "\0\0").encode_utf16().collect();
         let eb = self.heap_alloc(2 * env.len() as u64, true);
         for (k, c) in env.iter().enumerate() {
