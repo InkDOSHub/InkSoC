@@ -1176,8 +1176,8 @@ fn call_census(e: &Engine, name: &str) {
             let (sn, sb) = e.s.files.spilled();
             let open = e.s.fs.handles.values().filter(|h| matches!(h, files::Handle::File { .. })).count();
             console(&format!(
-                "[mem] engine heap {} MB, files in memory {} MB, biggest {} ({} MB); spilled {} files {} MB, spill failures {}, big writes kept in memory {} (clean {}); open files {}\n",
-                heap_used() as u64 >> 20, total >> 20, big, n >> 20, sn, sb >> 20, e.s.files.spill_fails.get(), e.s.files.big_refused.get(), e.s.files.big_clean.get(), open
+                "[mem] engine heap {} MB, files in memory {} MB, biggest {} ({} MB); spilled {} files {} MB (spill file {} MB), spill failures {}, big writes kept in memory {} (clean {}); open files {}\n",
+                heap_used() as u64 >> 20, total >> 20, big, n >> 20, sn, sb >> 20, e.s.files.spill_end() >> 20, e.s.files.spill_fails.get(), e.s.files.big_refused.get(), e.s.files.big_clean.get(), open
             ));
         }
     });

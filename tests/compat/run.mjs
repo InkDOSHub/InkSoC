@@ -2,7 +2,8 @@
 // output (console.txt), screenshots, and result.json. Exits 1 when the case fails.
 //   node tests/compat/run.mjs <case> [downloads dir]
 import { createRequire } from 'node:module';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from './serve.mjs';
@@ -23,8 +24,12 @@ if (file && !existsSync(file)) { console.error('missing ' + file + ' (download i
 const fname = c.local ? c.local.split('/').pop() : c.file;
 const server = await serve(root, file ? { [fname]: file } : {});
 const base = `http://127.0.0.1:${server.address().port}`;
-const browser = await chromium.launch();
-const page = await (await browser.newContext({ viewport: { width: 1100, height: 800 } })).newPage();
+// a profile on disk, as a user's browser has: an incognito context keeps its storage in
+// memory with a small quota, too small for the spill file of a big installer
+const profile = mkdtempSync(join(tmpdir(), 'inksoc-profile-'));
+const browser = await chromium.launchPersistentContext(profile, { viewport: { width: 1100, height: 800 } });
+const page = browser.pages()[0] || (await browser.newPage());
+page.on('console', (m) => { if (/^\[swap\]/.test(m.text())) console.log(m.text()); });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 

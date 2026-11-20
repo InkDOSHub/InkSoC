@@ -48,6 +48,7 @@ onmessage = async (ev) => {
     return;
   }
   const buf = new Uint8Array(PAGE);
+  let writeErr = false;
   for (;;) {
     const s = Atomics.load(ctl, 0);
     if (s === 3) break;
@@ -55,7 +56,11 @@ onmessage = async (ev) => {
     const op = ctl[1], slot = ctl[2];
     if (op === 3 || op === 4) {
       const f = slot === SPILL ? spill : files[slot], n = ctl[5], at = (ctl[6] >>> 0) + ctl[7] * 4294967296;
-      if (op === 4) ctl[5] = f ? f.write(new Uint8Array(memory.buffer, ctl[3] >>> 0, n).slice(), { at }) : 0;
+      if (op === 4) {
+        // a full browser storage (QuotaExceededError) is a failed write, never a dead worker
+        try { ctl[5] = f ? f.write(new Uint8Array(memory.buffer, ctl[3] >>> 0, n).slice(), { at }) : 0; }
+        catch (e) { ctl[5] = 0; if (!writeErr) { writeErr = true; console.warn(`[swap] write of ${n} bytes at ${at} failed: ${e && e.name} ${e && e.message}`); } }
+      }
       else {
         const b = new Uint8Array(n), got = f ? f.read(b, { at }) : 0;
         new Uint8Array(memory.buffer, ctl[3] >>> 0, got).set(b.subarray(0, got));

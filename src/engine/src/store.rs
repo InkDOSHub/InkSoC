@@ -28,6 +28,11 @@ unsafe fn host_drive_write(_id: u32, _off: f64, _ptr: *const u8, _len: u32) -> u
 
 /// The host's spill file: closed program files too big to keep in memory.
 pub const SPILL: u32 = 0x7FFF_FFF0;
+/// Room on the spill file for a file growing to n bytes: n plus a quarter, at least 64 MB
+/// more. Doubling wasted hundreds of MB of the browser's storage on a 376 MB package.
+fn grow(n: u64) -> u64 {
+    n + (n / 4).max(64 << 20)
+}
 /// closed files from this size go to the spill file
 const SPILL_MIN: usize = 64 << 10;
 /// small closed files kept in memory, in all, before they go to the spill file too
@@ -115,7 +120,7 @@ impl Store {
                 return false;
             }
             let n = d.len() as u64;
-            let cap = (2 * end).max(64 << 20);
+            let cap = grow(end);
             let base = self.spill_at;
             if n > 0 && !self.spill_write(base, d) {
                 return false;
@@ -131,7 +136,7 @@ impl Store {
             base
         } else {
             // out of room: move the file to a bigger place at the end of the spill file
-            let cap = (2 * end).max(cap * 2);
+            let cap = grow(end).max(cap + (64 << 20));
             let to = self.spill_at;
             let mut buf = vec![0u8; PIECE];
             let mut at = 0u64;
@@ -155,7 +160,7 @@ impl Store {
     }
     /// Copies a file on disk, in pieces, to a new place on the spill file with room to grow.
     fn move_to_spill(&mut self, k: &str, id: u32, base: u64, size: u64, end: u64) -> bool {
-        let cap = (2 * end.max(size)).max(64 << 20);
+        let cap = grow(end.max(size));
         let to = self.spill_at;
         let mut buf = vec![0u8; PIECE];
         let mut at = 0u64;
@@ -172,6 +177,10 @@ impl Store {
         self.lazy().insert(k.to_string(), (SPILL, to, size));
         self.room().insert(k.to_string(), cap);
         true
+    }
+    /// End of the spill file: every place handed out so far, holes included (debug census).
+    pub fn spill_end(&self) -> u64 {
+        self.spill_at
     }
     /// (bytes of files in memory, the biggest one) for the debug census.
     pub fn spilled(&self) -> (u64, u64) {
