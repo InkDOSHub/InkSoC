@@ -51,7 +51,10 @@ await page.evaluate(async (n) => {
 }, exe);
 const first = await finish(300000);
 const list = (first.text.split(/Valid test names:/)[1] || '').split(/Finished \(|\nExit code|\[engine\]|\n\s*\n/)[0];
-const units = list.split(/\s+/).filter((w) => /^[a-z0-9_]+$/i.test(w));
+// UNITS (space separated) runs only those; QUERY adds page parameters (e.g. &winedebug=2)
+const only = (process.env.UNITS || '').split(/\s+/).filter(Boolean);
+const units = list.split(/\s+/).filter((w) => /^[a-z0-9_]+$/i.test(w) && (!only.length || only.includes(w)));
+const extra = (process.env.QUERY || '').replace(/^[^&]/, '&$&');
 log(`${units.length} units: ${units.join(' ')}`);
 writeFileSync(join(out, 'list.txt'), first.text);
 
@@ -60,7 +63,7 @@ const results = [];
 const SUM = /(\d+) tests? executed \((\d+) marked as todo, (?:\d+ as flaky, )?(\d+) failures?\), (\d+) skipped/;
 for (const u of units) {
   const s = Date.now();
-  await page.goto(base + '/?run=' + encodeURIComponent('C:\\InkSoC\\Downloads\\' + exe) + '&args=' + encodeURIComponent(u) + '&maxout=64');
+  await page.goto(base + '/?run=' + encodeURIComponent('C:\\InkSoC\\Downloads\\' + exe) + '&args=' + encodeURIComponent(u) + '&maxout=64' + extra);
   const r = await finish(+limit * 1000);
   const m = r.text.match(SUM);
   const res = { unit: u, end: r.end, seconds: Math.round((Date.now() - s) / 1000) };

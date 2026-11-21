@@ -11,6 +11,14 @@ on:
         description: 'DLLs to test, space separated (empty: tests/winetest/dlls.txt)'
         required: false
         default: ''
+      units:
+        description: 'Only these test units, space separated (debugging; skips the program corpus)'
+        required: false
+        default: ''
+      query:
+        description: 'Extra page parameters for each unit, e.g. &winedebug=2 (debugging)'
+        required: false
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -101,6 +109,9 @@ jobs:
           npm install --no-save --no-package-lock playwright@1.49.1
           npx playwright install --with-deps chromium
       - name: Run
+        env:
+          UNITS: ${{ github.event.inputs.units }}
+          QUERY: ${{ github.event.inputs.query }}
         run: node tests/winetest/run.mjs wt-bin "${{ matrix.dll }}" 150
       - if: always()
         uses: actions/upload-artifact@v4
@@ -124,4 +135,5 @@ jobs:
 
   # the whole program corpus (tests/compat), next to the conformance tests
   compat:
+    if: github.event.inputs.units == '' || github.event.inputs.units == null
     uses: ./.github/workflows/compat.yml
