@@ -473,7 +473,8 @@ impl Engine {
         c.of = f & 0x800 != 0;
     }
     pub(crate) fn unsupported(&mut self, b: &[u8; 16]) {
-        self.set_error(format!("unsupported instruction at 0x{:x}: {:02x?}", self.cpu.rip, &b[..8]));
+        let rip = self.cpu.rip;
+        self.raise_or_stop(rip, 0xC000_001D, &[], format!("unsupported instruction at 0x{:x}: {:02x?}", rip, &b[..8]));
     }
 }
 
@@ -784,9 +785,17 @@ fn step_raw(e: &mut Engine) {
         0x8F => {
             let m = modrm(&mut d, e, rex);
             let next = rip + d.p as u64;
+            // rsp moves only once the store worked, so a fault leaves it as it was
+            let sp = e.cpu.regs[4];
             let v = g!(e, e.pop());
             let ss = if e.cpu.mode32 { 32 } else { 64 };
-            g!(e, e.set(rm_loc(e, &m, next, ss, rex), ss, v));
+            let loc = rm_loc(e, &m, next, ss, rex);
+            let after = e.cpu.regs[4];
+            e.cpu.regs[4] = sp;
+            g!(e, e.set(loc, ss, v));
+            if !(m.md == 3 && m.rm == 4) {
+                e.cpu.regs[4] = after;
+            }
             e.cpu.rip = next;
         }
         0x90..=0x97 => {
@@ -1080,7 +1089,7 @@ fn step_raw(e: &mut Engine) {
             let sp = e.cpu.regs[4];
             let r1 = e.r32(sp);
             let r2 = e.r32(sp + 4);
-            e.set_error(format!("breakpoint at 0x{:x} (stack {:x} {:x})", rip, r1, r2));
+            e.raise_or_stop(rip, 0x8000_0003, &[0], format!("breakpoint at 0x{:x} (stack {:x} {:x})", rip, r1, r2));
         }
         0x9C => {
             let f = e.flags();
@@ -1118,6 +1127,10 @@ fn step_raw(e: &mut Engine) {
         0xF9 => {
             e.cpu.cf = true;
             e.cpu.rip = rip + d.p as u64;
+        }
+        0xF4 | 0xFA | 0xFB => {
+            // hlt, cli, sti: privileged in user mode
+            e.raise_or_stop(rip, 0xC000_0096, &[], format!("privileged instruction at 0x{:x}", rip));
         }
         0xFC => {
             e.cpu.df = false;

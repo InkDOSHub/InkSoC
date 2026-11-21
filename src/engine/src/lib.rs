@@ -785,7 +785,7 @@ impl Engine {
         self.cpu.jit_limit = 0;
     }
     /// Guest code of a 64-bit Windows program is running (not native code, Linux or WoW64).
-    fn seh_ok(&self) -> bool {
+    pub(crate) fn seh_ok(&self) -> bool {
         self.s.lx.is_none() && !self.cpu.mode32 && !(THUNK_BASE..THUNK_BASE + 0x10000).contains(&self.cpu.rip)
     }
     /// Starts ntdll's exception dispatcher for STATUS_ACCESS_VIOLATION at instruction `rip`
@@ -806,17 +806,40 @@ impl Engine {
         // the message shown when nobody handles it
         let saved = self.s.error.take();
         self.fault_stop(addr);
-        self.av.text = core::mem::replace(&mut self.s.error, saved);
+        let text = core::mem::replace(&mut self.s.error, saved);
+        self.raise_exc(rip, 0xC000_0005, &[kind, addr], text)
+    }
+    /// Raises an instruction exception (breakpoint, illegal or privileged instruction) at
+    /// `rip` when the program can take it; otherwise stops with `m`.
+    pub(crate) fn raise_or_stop(&mut self, rip: u64, code: u32, params: &[u64], m: String) {
+        let key = (rip, u64::MAX - code as u64);
+        if self.av.last == key {
+            self.av.repeat += 1;
+        } else {
+            self.av.last = key;
+            self.av.repeat = 0;
+        }
+        if !(self.seh_ok() && self.av.repeat <= 1000 && self.raise_exc(rip, code, params, Some(m.clone()))) {
+            self.set_error(m);
+        }
+    }
+    /// Raises a hardware exception (`code`, `params`) at `rip` through the program's SEH
+    /// handlers; `text` is shown if nobody handles it. False when it can't be raised.
+    pub(crate) fn raise_exc(&mut self, rip: u64, code: u32, params: &[u64], text: Option<String>) -> bool {
+        self.materialize();
+        self.cpu.rip = rip;
+        self.av.text = text;
         if unsafe { WINE_DEBUG } > 0 {
             console(&format!("[engine] first chance: {}\n", self.av.text.as_deref().unwrap_or("").lines().next().unwrap_or("")));
         }
         let c = self.context_bytes(rip);
         let mut r = vec![0u8; 0x98];
-        r[0..4].copy_from_slice(&0xC000_0005u32.to_le_bytes());
+        r[0..4].copy_from_slice(&code.to_le_bytes());
         r[16..24].copy_from_slice(&rip.to_le_bytes());
-        r[24..28].copy_from_slice(&2u32.to_le_bytes());
-        r[32..40].copy_from_slice(&kind.to_le_bytes());
-        r[40..48].copy_from_slice(&addr.to_le_bytes());
+        r[24..28].copy_from_slice(&(params.len() as u32).to_le_bytes());
+        for (k, p) in params.iter().enumerate() {
+            r[32 + 8 * k..40 + 8 * k].copy_from_slice(&p.to_le_bytes());
+        }
         let rsp = self.cpu.regs[4];
         self.exception_frame(&c, &r, rsp).is_some()
     }
