@@ -25,7 +25,9 @@ pub struct NPipe {
     pub open: [bool; 2],
     pub client_pid: u32,
     pub server_pid: u32,
-    /// a client of another process connected before the server's first ConnectNamedPipe
+    /// the next ConnectNamedPipe succeeds: a client came while the server waited in it (the
+    /// retried call must not report ERROR_PIPE_CONNECTED), or a client of another process
+    /// connected before the server's first ConnectNamedPipe
     pub early: bool,
 }
 
@@ -124,7 +126,7 @@ impl Engine {
             p.state = 1;
             p.open[1] = true;
             p.client_pid = pid;
-            p.early = !p.listening && pid != p.server_pid;
+            p.early = p.listening || pid != p.server_pid;
             p.listening = false;
         }
         let h = self.new_handle(Handle::NPipe { id, server: false, sync, alert: false });
@@ -418,7 +420,10 @@ impl Engine {
                 continue;
             };
             let done = if listen {
-                match self.s.fs.npipes.get(&id).map(|p| p.state) {
+                match self.s.fs.npipes.get_mut(&id).map(|p| {
+                    p.early = false;
+                    p.state
+                }) {
                     Some(1) => Some((OK, 0)),
                     Some(0) => None,
                     _ => Some((PIPE_BROKEN, 0)),
