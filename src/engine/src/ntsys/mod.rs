@@ -61,7 +61,7 @@ impl Engine {
         String::from_utf16_lossy(&v)
     }
     /// An LDR_DATA_TABLE_ENTRY for a module (made once, on demand).
-    fn ldr_entry(&mut self, base: u64) -> u64 {
+    pub(crate) fn ldr_entry(&mut self, base: u64) -> u64 {
         if let Some(&a) = self.s.ldr_entries.get(&base) {
             return a;
         }
@@ -84,6 +84,44 @@ impl Engine {
         self.w16(a + 0x6C, 1); // ObsoleteLoadCount
         self.s.ldr_entries.insert(base, a);
         a
+    }
+    /// Keeps PEB->Ldr (PEB_LDR_DATA) up to date: every loaded module gets its
+    /// LDR_DATA_TABLE_ENTRY linked, in load order, into the three module lists that
+    /// programs and Wine's ntdll walk (LdrEnumerateLoadedModules, CRT and protector
+    /// code looking up modules by hand).
+    pub(crate) fn ldr_link(&mut self) {
+        if self.s.wow64 {
+            return;
+        }
+        let mut ld = self.r64(crate::PEB + 0x18);
+        if ld == 0 {
+            ld = self.heap_alloc(0x58, true);
+            if ld == 0 {
+                return;
+            }
+            self.w32(ld, 0x58); // Length
+            self.w8(ld + 4, 1); // Initialized
+            for h in [0x10u64, 0x20, 0x30] {
+                self.w64(ld + h, ld + h);
+                self.w64(ld + h + 8, ld + h);
+            }
+            self.w64(crate::PEB + 0x18, ld);
+        }
+        let bases: Vec<u64> = self.s.modules.iter().map(|m| m.base).collect();
+        for b in bases {
+            let ent = self.ldr_entry(b);
+            if ent == 0 || self.r64(ent) != 0 {
+                continue; // already linked
+            }
+            for o in [0x10u64, 0x20, 0x30] {
+                let (head, link) = (ld + o, ent + o - 0x10);
+                let last = self.r64(head + 8);
+                self.w64(link, head);
+                self.w64(link + 8, last);
+                self.w64(last, link);
+                self.w64(head + 8, link);
+            }
+        }
     }
     /// Loads the CPU from a CONTEXT (registers, flags, rip, XMM).
     /// Starts ntdll's KiUserExceptionDispatcher for an exception raised with `rec` and `ctx`:

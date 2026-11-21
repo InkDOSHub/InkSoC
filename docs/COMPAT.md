@@ -41,7 +41,7 @@ Known causes still open:
 - kernel32 `locale` unit runs past `NlsValidateLocale` since #31. Engine `GetLocaleInfo` panicked on flag bits (fixed in #32); some formats are still missing.
 - kernel32 `heap` unit: `RtlWalkHeap`, `GetProcessHeaps` and `HeapValidate` are not real yet.
 - ntdll `exception` unit now finishes (hung before #30). Still failing: debug registers, single step (TF), WoW64 contexts.
-- Loader lock held in `LdrEnumerateLoadedModules`.
+- `PEB->Ldr` was NULL, so `LdrEnumerateLoadedModules` and any program walking the module lists crashed. Fixed in #32.
 - ntdll `pipe` and `sync` units deadlock; `threadpool` times out.
 - ntdll `file` unit access violations inside the test.
 - Missing: `NtAllocateReserveObject`, `NtSetIoCompletionEx`.
