@@ -25,6 +25,10 @@ pub struct NPipe {
     pub open: [bool; 2],
     pub client_pid: u32,
     pub server_pid: u32,
+    /// the next ConnectNamedPipe succeeds: a client came while the server waited in it (the
+    /// retried call must not report ERROR_PIPE_CONNECTED), or a client of another process
+    /// connected before the server's first ConnectNamedPipe
+    pub early: bool,
 }
 
 /// An I/O started on an overlapped pipe handle, finished when data (or a client) comes.
@@ -56,9 +60,20 @@ impl Engine {
             *set = on;
         }
     }
+    /// Marks a pipe handle opened with FILE_SYNCHRONOUS_IO_ALERT.
+    pub fn np_set_alert(&mut self, h: u64) {
+        if let Some(Handle::NPipe { alert, .. }) = self.s.fs.handles.get_mut(&h) {
+            *alert = true;
+        }
+    }
+    /// Synchronous pipe I/O: blocks until done; alertable handles also end on a user APC.
+    fn np_sync_wait(&mut self, h: u64, listen: bool) -> u64 {
+        let alert = matches!(self.s.fs.handles.get(&h), Some(Handle::NPipe { alert: true, .. }));
+        self.alertable_wait(crate::sched::W::NPipe { h, listen }, u64::MAX, alert)
+    }
     fn np_of(&self, h: u64) -> Option<(u64, usize, bool)> {
         match self.s.fs.handles.get(&h) {
-            Some(Handle::NPipe { id, server, sync }) => Some((*id, if *server { 0 } else { 1 }, *sync)),
+            Some(Handle::NPipe { id, server, sync, .. }) => Some((*id, if *server { 0 } else { 1 }, *sync)),
             _ => None,
         }
     }
@@ -71,11 +86,14 @@ impl Engine {
         let id = self.s.fs.np_next + 1;
         self.s.fs.np_next = id;
         let pid = self.s.wpid;
+        if unsafe { crate::WINE_DEBUG } > 0 {
+            crate::console(&format!("[inksoc] process {} creates pipe {:?}\n", pid, name));
+        }
         self.s.fs.npipes.insert(
             id,
             NPipe { name: name.to_string(), msg_type, msg_read: [msg_read, false], open: [true, false], server_pid: pid, ..Default::default() },
         );
-        self.new_handle(Handle::NPipe { id, server: true, sync })
+        self.new_handle(Handle::NPipe { id, server: true, sync, alert: false })
     }
     /// A pipe instance a client can take: not connected yet (one listening first).
     fn np_free(&self, name: &str) -> Option<u64> {
@@ -96,15 +114,22 @@ impl Engine {
 
     /// NtCreateFile on a pipe name: the client end of a free instance.
     pub fn np_connect(&mut self, name: &str, sync: bool) -> Result<u64, u64> {
-        let Some(id) = self.np_free(name) else { return Err(if self.np_exists(name) { PIPE_NOT_AVAILABLE } else { OBJECT_NAME_NOT_FOUND }) };
+        let Some(id) = self.np_free(name) else {
+            if unsafe { crate::WINE_DEBUG } > 0 {
+                let have: Vec<&str> = self.s.fs.npipes.values().map(|p| p.name.as_str()).collect();
+                crate::console(&format!("[inksoc] process {} finds no free pipe {:?} (pipes: {:?})\n", self.s.wpid, name, have));
+            }
+            return Err(if self.np_exists(name) { PIPE_NOT_AVAILABLE } else { OBJECT_NAME_NOT_FOUND });
+        };
         let pid = self.s.wpid;
         if let Some(p) = self.s.fs.npipes.get_mut(&id) {
             p.state = 1;
             p.open[1] = true;
             p.client_pid = pid;
+            p.early = p.listening || pid != p.server_pid;
             p.listening = false;
         }
-        let h = self.new_handle(Handle::NPipe { id, server: false, sync });
+        let h = self.new_handle(Handle::NPipe { id, server: false, sync, alert: false });
         self.np_poll();
         Ok(h)
     }
@@ -173,7 +198,7 @@ impl Engine {
                 }
                 st
             }
-            Err(PENDING) if sync => self.wait_on(crate::sched::W::NPipe { h, listen: false }, u64::MAX),
+            Err(PENDING) if sync => self.np_sync_wait(h, false),
             Err(PENDING) => {
                 self.iosb(iosb, PENDING, 0);
                 let pid = self.s.wpid;
@@ -286,6 +311,12 @@ impl Engine {
                     self.event_set(event, false);
                 }
                 let st = match self.s.fs.npipes.get_mut(&id) {
+                    // a child process that connected first (it raced its parent's ConnectNamedPipe,
+                    // which real process start-up times never lose): connected now, as if it waited
+                    Some(p) if p.state == 1 && p.early => {
+                        p.early = false;
+                        OK
+                    }
                     Some(p) if p.state == 1 => PIPE_CONNECTED,
                     Some(p) if p.state == 2 => PIPE_BROKEN,
                     Some(p) => {
@@ -302,7 +333,7 @@ impl Engine {
                     return Some(st);
                 }
                 if sync {
-                    return Some(self.wait_on(crate::sched::W::NPipe { h, listen: true }, u64::MAX));
+                    return Some(self.np_sync_wait(h, true));
                 }
                 self.iosb(iosb, PENDING, 0);
                 let pid = self.s.wpid;
@@ -314,6 +345,7 @@ impl Engine {
                 if let Some(p) = self.s.fs.npipes.get_mut(&id) {
                     p.state = 0;
                     p.listening = false;
+                    p.early = false;
                     p.buf = Default::default();
                     p.msgs = Default::default();
                     p.open[1] = false;
@@ -388,7 +420,10 @@ impl Engine {
                 continue;
             };
             let done = if listen {
-                match self.s.fs.npipes.get(&id).map(|p| p.state) {
+                match self.s.fs.npipes.get_mut(&id).map(|p| {
+                    p.early = false;
+                    p.state
+                }) {
                     Some(1) => Some((OK, 0)),
                     Some(0) => None,
                     _ => Some((PIPE_BROKEN, 0)),

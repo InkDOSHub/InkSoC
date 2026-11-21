@@ -77,6 +77,8 @@ pub enum Handle {
         id: u64,
         server: bool,
         sync: bool,
+        /// FILE_SYNCHRONOUS_IO_ALERT: a queued user APC ends its waits
+        alert: bool,
     },
 }
 

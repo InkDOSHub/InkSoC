@@ -18,6 +18,10 @@ on:
         description: 'One case of tests/compat/corpus.json (empty: all)'
         required: false
         default: ''
+      query:
+        description: 'Extra page parameters, e.g. &winedebug=1 (debugging)'
+        required: false
+        default: ''
   # the weekly run (weekly.yml) runs the whole corpus
   workflow_call:
 permissions:
@@ -99,6 +103,8 @@ jobs:
             ls -l "dl/$file"
           done
       - name: Run
+        env:
+          EXTRA_QUERY: ${{ github.event.inputs.query }}
         run: node tests/compat/run.mjs "${{ matrix.case }}" dl
       - if: always()
         uses: actions/upload-artifact@v4

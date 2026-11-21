@@ -539,8 +539,10 @@ async function runExec(d) {
     const exe = files.find((f) => f.name.toLowerCase() === (d.exe || '').toLowerCase());
     // a program on drive C: is still on disk: its first 4 KB tell
     const head = exe && (exe.data || (exe.handle && await (await exe.handle.getFile()).slice(0, 4096).arrayBuffer().catch(() => null)));
-    if (head && isPe32(head)) {
-      post('log', { text: '[engine] 32-bit program: loading the 32-bit Wine DLLs (45 MB the first time)\n' });
+    // a Windows Installer package may run 32-bit custom actions: msiexec starts SysWOW64\msiexec.exe for them
+    const msi = (d.exe || '').toLowerCase() === 'msiexec.exe' && /\.msi\b/i.test(d.cmd || '');
+    if ((head && isPe32(head)) || msi) {
+      post('log', { text: `[engine] ${msi ? 'installer package' : '32-bit program'}: loading the 32-bit Wine DLLs (45 MB the first time)\n` });
       const l32 = await fetch('bin/wine32/list.json?v=7').then((r) => r.json());
       const w32 = await Promise.all(l32.filter((n) => !have.has(n)).map(async (name) => ({ name, data: await fetch((name.startsWith('wine-') ? 'bin/wine/' : 'bin/wine32/') + name + '?v=2').then((r) => r.arrayBuffer()) })));
       files = files.concat(w32);

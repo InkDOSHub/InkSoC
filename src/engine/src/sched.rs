@@ -836,7 +836,7 @@ impl Engine {
     }
 
     /// A wait that queued user APCs end when `alert` (NtWaitFor*, NtDelayExecution).
-    fn alertable_wait(&mut self, w: W, ms: u64, alert: bool) -> u64 {
+    pub(crate) fn alertable_wait(&mut self, w: W, ms: u64, alert: bool) -> u64 {
         if alert && !self.s.sched.th[self.cur].apcs.is_empty() {
             return USER_APC;
         }
@@ -914,6 +914,14 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         // ---- NT-style waits and objects (for Wine's code) ----
         "RtlWaitOnAddress" | "WaitOnAddress" => {
             let (cmp, size) = (e.arg(1), e.arg(2) as u32);
+            if !matches!(size, 1 | 2 | 4 | 8) {
+                // STATUS_INVALID_PARAMETER / ERROR_INVALID_PARAMETER
+                if name == "WaitOnAddress" {
+                    e.set_last_error(87);
+                    return Some(0);
+                }
+                return Some(0xC000_000D);
+            }
             let val = match size {
                 1 => e.mmu.read8(cmp).map(|v| v as u64),
                 2 => e.mmu.read16(cmp).map(|v| v as u64),
