@@ -338,6 +338,7 @@ impl Engine {
     /// GetLocaleInfoEx, EnumTimeFormats and the like read a NULL locale table.
     /// Its place: DllMain (the entry's `jmp`) calls it right after `mov rcx, rbx`.
     fn wine_kernelbase_locale(&mut self, i: usize) {
+        if !self.s.files.contains_key("locale.nls") || !self.s.files.contains_key("sortdefault.nls") { return; }
         let (base, entry) = (self.s.modules[i].base, self.s.modules[i].entry);
         let mut j = [0u8; 5];
         if entry == 0 || self.mmu.read_bytes(entry, &mut j).is_err() || j[0] != 0xE9 { return; }
