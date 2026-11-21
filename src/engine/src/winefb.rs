@@ -251,6 +251,7 @@ impl Engine {
         }
         if file == "wine-kernelbase.dll" {
             self.wine_kernelbase_nls(i);
+            self.wine_kernelbase_locale(i);
         }
         Some(i)
     }
@@ -330,6 +331,24 @@ impl Engine {
         if self.mmu.read_bytes(a, &mut b).is_err() || b[..3] != [0x0F, 0xB7, 0x05] { return; }
         let d = i32::from_le_bytes(b[3..7].try_into().unwrap()) as i64;
         self.fill_nls_info((a as i64 + 7 + d) as u64);
+    }
+
+    /// Queues kernelbase's init_locale(module), the part of its skipped DllMain that
+    /// loads locale.nls and sets the default locales: without it NlsValidateLocale,
+    /// GetLocaleInfoEx, EnumTimeFormats and the like read a NULL locale table.
+    /// Its place: DllMain (the entry's `jmp`) calls it right after `mov rcx, rbx`.
+    fn wine_kernelbase_locale(&mut self, i: usize) {
+        let (base, entry) = (self.s.modules[i].base, self.s.modules[i].entry);
+        let mut j = [0u8; 5];
+        if entry == 0 || self.mmu.read_bytes(entry, &mut j).is_err() || j[0] != 0xE9 { return; }
+        let main = (entry as i64 + 5 + i32::from_le_bytes(j[1..5].try_into().unwrap()) as i64) as u64;
+        let mut b = [0u8; 0x80];
+        if self.mmu.read_bytes(main, &mut b).is_err() { return; }
+        let Some(k) = (0..b.len() - 8).find(|&k| b[k..k + 4] == [0x48, 0x89, 0xD9, 0xE8]) else { return };
+        let f = (main as i64 + (k + 8) as i64 + i32::from_le_bytes(b[k + 4..k + 8].try_into().unwrap()) as i64) as u64;
+        if self.s.modules[i].base <= f && f < self.s.modules[i].base + self.s.modules[i].size {
+            self.s.init_queue.push((f, base));
+        }
     }
 
     /// Per-thread blocks Wine's ntdll expects in the TEB (activation context stack).
