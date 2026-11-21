@@ -69,6 +69,16 @@ impl Registry {
         ] {
             vals.push((cv, n, if v.contains('%') { 2 } else { 1 }, sz(v)));
         }
+        // what 32-bit programs read there (WoW64 redirects HKLM\Software to Wow6432Node)
+        let cv32 = "\\Registry\\Machine\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion";
+        for (n, v) in [
+            ("ProgramFilesDir", "C:\\Program Files (x86)"),
+            ("ProgramFilesDir (x86)", "C:\\Program Files (x86)"),
+            ("ProgramW6432Dir", "C:\\Program Files"),
+            ("CommonFilesDir", "C:\\Program Files (x86)\\Common Files"),
+        ] {
+            vals.push((cv32, n, 1, sz(v)));
+        }
         // the Windows version, as Windows 10 22H2 reports it (installers check these)
         let nt = "\\Registry\\Machine\\Software\\Microsoft\\Windows NT\\CurrentVersion";
         for (n, v) in [
@@ -284,6 +294,22 @@ impl Engine {
         for part in name.split('\\').filter(|x| !x.is_empty()) {
             p.push('\\');
             p.push_str(&part.to_lowercase());
+        }
+        // a 32-bit program sees HKLM\Software through Wow6432Node where that view has the key
+        const SW: &str = "\\registry\\machine\\software\\";
+        if self.s.wow64 && p.starts_with(SW) && !p[SW.len()..].starts_with("wow6432node") {
+            let r = format!("{}wow6432node\\{}", SW, &p[SW.len()..]);
+            if self.s.fs.reg.keys.contains_key(&r) {
+                return Some(r);
+            }
+        }
+        // below a redirected key, a key only the 64-bit view has is still found there
+        const W: &str = "\\registry\\machine\\software\\wow6432node\\";
+        if self.s.wow64 && p.starts_with(W) && !self.s.fs.reg.keys.contains_key(&p) {
+            let r = format!("{}{}", SW, &p[W.len()..]);
+            if self.s.fs.reg.keys.contains_key(&r) {
+                return Some(r);
+            }
         }
         Some(p)
     }

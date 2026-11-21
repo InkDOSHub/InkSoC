@@ -18,7 +18,7 @@ Last run: 2026-11-21, after PR #27 (SEH). **22 of 30 pass.**
 | audacity-wx | fail | Unhandled access violation (null + 0x10) in lib-crashpad-configurer. |
 | winmerge-inno-mfc | fail | 32-bit (WoW64) SEH is not done. |
 | innosetup-delphi | fail | 32-bit (WoW64) SEH is not done. |
-| 7zip32 | fail | Installs outside `Program Files (x86)`. NSIS likely reads `ProgramFilesDir` from the registry (Wow6432Node). |
+| 7zip32 | fail | Installs outside `Program Files (x86)`: NSIS reads `ProgramFilesDir` from the registry. #33 adds the Wow6432Node view for 32-bit programs. |
 | keepassxc-qt-msi | fail | msiexec deadlock (pipe/sync). |
 | winrar | fail | Timeout. |
 | coreinfo | fail | Needs instructions the engine lacks (SSE2 path). |
