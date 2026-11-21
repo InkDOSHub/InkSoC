@@ -62,7 +62,7 @@ Known causes still open:
 | #33 | Wow6432Node registry view for 32-bit programs (`ProgramFilesDir` = `Program Files (x86)`). |
 | #34 | 32-bit (WoW64) exceptions reach the program's SEH handlers; `KEY_WOW64_64KEY`/`KEY_WOW64_32KEY` honored. |
 | #36 | Alertable pipe waits; `RtlWaitOnAddress` size check; 32-bit msiexec for .msi custom actions; `ConnectNamedPipe` after a waiting client. |
-| #37 | 82 more Wine DLLs loaded on demand (wtsapi32, cfgmgr32, DirectInput, XInput, MSVC 2010/2013 runtimes...); 32-bit Wine debug output; x87 `FBLD`/`FBSTP` (Delphi). |
+| #37 | 41 more Wine DLLs per architecture loaded on demand (wtsapi32, cfgmgr32, DirectInput, XInput, MSVC 2010/2013 runtimes...); 32-bit Wine debug output; x87 `FBLD`/`FBSTP` (Delphi). |
 | #38 | A child process gets its own program folder (image path, DLL search, `GetModuleFileName`). |
 
 ## Next
