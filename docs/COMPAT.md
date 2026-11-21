@@ -8,7 +8,7 @@ This page tracks how well the engine runs real Windows programs. It is updated a
 
 ## Program corpus
 
-Last run: 2026-11-21, after PR #34 (32-bit SEH). **22 of 29 finished pass**; libreoffice (passed in the previous run) was still running.
+Last run: 2026-11-21, after PR #37 (Wine DLLs on demand, x87 BCD). **23 of 30 pass** (22/29 before; libreoffice passes again).
 
 | Program | Status | Cause |
 |---|---|---|
@@ -16,18 +16,18 @@ Last run: 2026-11-21, after PR #34 (32-bit SEH). **22 of 29 finished pass**; lib
 | steam-setup, python-bench, node, sqlite, ripgrep, rclone-go, 7zr-bench, plink, jq, putty32, sumatra, everything, npp32-portable, rufus, nasm32 | pass | |
 | npp-nsis | pass | Fixed by PR #27 (access violations go to the program's SEH handlers). |
 | 7zip32 | pass | Fixed by #33/#34 (Wow6432Node registry view, KEY_WOW64_64KEY honored). |
-| libreoffice | pending | Passed in the previous run; still running at write time. |
+| libreoffice | pass | 400 MB MSI. |
+| innosetup-delphi | fail | Installs since #37/#38. Compil32 now stops at `BCryptImportKeyPair` (RSA keys are not implemented, 0xC0000002). |
+| winmerge-inno-mfc | fail | Inno installer; same class as innosetup-delphi. |
+| keepassxc-qt-msi | fail | Error 1627 inside msi's 32-bit custom action server. |
 | audacity-wx | fail | Unhandled access violation (null + 0x10) in lib-crashpad-configurer. |
-| winmerge-inno-mfc | fail | Installer now exits 0 (#34), but WinMergeU.exe is not at the expected path. |
-| innosetup-delphi | fail | Installer now exits 0 (#34), but Compil32.exe is not at the expected path. |
-| keepassxc-qt-msi | fail | msiexec deadlock (pipe/sync). |
 | winrar | fail | Timeout. |
 | coreinfo | fail | Needs instructions the engine lacks (SSE2 path). |
 | busybox64 | fail | Download URL returns 403. |
 
 ## Wine conformance tests
 
-Last run: 2026-11-21, after #34. Clean units (no failures) per DLL. 98.5% of all checks pass (98.4% before).
+Last run: 2026-11-21, after #37. Clean units (no failures) per DLL. 98.5% of all 7.38 million checks pass; 31/192 units clean.
 
 | DLL | Clean units | Checks passed | Week 1 (2026-11-20) |
 |---|---|---|---|
@@ -36,16 +36,19 @@ Last run: 2026-11-21, after #34. Clean units (no failures) per DLL. 98.5% of all
 | user32 | 3/24 | 99.6% | 2/24 |
 | gdi32 | 2/14 | 94.6% | 2/14 |
 | ucrtbase | 3/8 | 100.0% (55 failures) | 3/8 |
+| msvcrt | 4/13 | 99.5% | |
+| advapi32 | 2/12 | 99.4% | |
+| ole32 | 3/14 | 92.5% | |
+| shell32 | 2/19 | 89.2% | |
+| comctl32 | 1/29 | 97.1% | |
 
 Known causes still open:
 
-- kernel32 `locale` unit runs past `NlsValidateLocale` since #31. Engine `GetLocaleInfo` panicked on flag bits (fixed in #32); some formats are still missing.
+- Crashes from APIs that return NULL where Windows returns data (clipboard, dde, om, path, menu units then crash in `strcmp`/`strlen`).
+- GDI handle validation (gdiobj, cursoricon units: access violations on invalid handles).
 - kernel32 `heap` unit: `RtlWalkHeap`, `GetProcessHeaps` and `HeapValidate` are not real yet.
-- ntdll `exception` unit now finishes (hung before #30). Still failing: debug registers, single step (TF), WoW64 contexts.
-- `PEB->Ldr` was NULL, so `LdrEnumerateLoadedModules` and any program walking the module lists crashed. Fixed in #32.
-- ntdll `pipe` and `sync` units deadlock; `threadpool` times out.
-- ntdll `file` unit access violations inside the test.
-- Missing: `NtAllocateReserveObject`, `NtSetIoCompletionEx`.
+- ntdll `sync` (keyed events) and `pipe` deadlocks; `threadpool` times out.
+- ntdll `exception`: debug registers, single step (TF), WoW64 contexts.
 
 ## Fixed
 
@@ -58,11 +61,15 @@ Known causes still open:
 | #32 | `PEB->Ldr` module lists; `GetLocaleInfo` no longer panics on flag bits. |
 | #33 | Wow6432Node registry view for 32-bit programs (`ProgramFilesDir` = `Program Files (x86)`). |
 | #34 | 32-bit (WoW64) exceptions reach the program's SEH handlers; `KEY_WOW64_64KEY`/`KEY_WOW64_32KEY` honored. |
+| #36 | Alertable pipe waits; `RtlWaitOnAddress` size check; 32-bit msiexec for .msi custom actions; `ConnectNamedPipe` after a waiting client. |
+| #37 | 41 more Wine DLLs per architecture loaded on demand (wtsapi32, cfgmgr32, DirectInput, XInput, MSVC 2010/2013 runtimes...); 32-bit Wine debug output; x87 `FBLD`/`FBSTP` (Delphi). |
+| #38 | A child process gets its own program folder (image path, DLL search, `GetModuleFileName`). |
 
 ## Next
 
-1. pipe/sync deadlocks and msiexec: KeePassXC.
-2. Inno Setup install location (WinMerge, Inno Setup).
-3. Heap walk: `RtlWalkHeap`, `GetProcessHeaps`, `HeapValidate`.
-4. `GetCalendarInfoW` and the loader lock.
-5. New busybox64 download URL.
+1. bcrypt RSA keys (`BCryptImportKeyPair`): Inno Setup, WinMerge, any signed-update check.
+2. msi 32-bit custom actions (1627): KeePassXC.
+3. NULL-returning APIs that crash test units (clipboard, dde, path, menu).
+4. GDI handle validation.
+5. Heap walk: `RtlWalkHeap`, `GetProcessHeaps`, `HeapValidate`.
+6. New busybox64 download URL.
