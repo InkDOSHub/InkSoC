@@ -482,7 +482,7 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 e.s.fs.paths.insert(h, (k.clone(), opts & 0x1000 != 0));
                 return Some(OK);
             }
-            let exists = e.s.files.contains_key(&k);
+            let exists = e.want_file(&k);
             // FILE_SUPERSEDE 0, OPEN 1, CREATE 2, OPEN_IF 3, OVERWRITE 4, OVERWRITE_IF 5
             match disp {
                 1 | 4 if !exists => {

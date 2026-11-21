@@ -68,6 +68,7 @@ pub fn load_by_name(e: &mut Engine, name: &str) -> Result<usize, String> {
     }
     // a DLL the engine does not implement at all: Wine's, as program code
     if !NATIVE_DLLS.contains(&n.as_str()) {
+        e.want_file(&format!("wine-{}", n));
         if let Some(bytes) = e.s.files.get_copy(&format!("wine-{}", n)) {
             // window-system DLLs: their DllMain needs the graphics kernel, which console programs never use
             let gui = ["shell32.dll", "ole32.dll", "combase.dll", "imm32.dll", "winmm.dll", "setupapi.dll", "shcore.dll"].contains(&n.as_str());
