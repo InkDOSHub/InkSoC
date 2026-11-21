@@ -25,6 +25,8 @@ pub struct NPipe {
     pub open: [bool; 2],
     pub client_pid: u32,
     pub server_pid: u32,
+    /// a client of another process connected before the server's first ConnectNamedPipe
+    pub early: bool,
 }
 
 /// An I/O started on an overlapped pipe handle, finished when data (or a client) comes.
@@ -122,6 +124,7 @@ impl Engine {
             p.state = 1;
             p.open[1] = true;
             p.client_pid = pid;
+            p.early = !p.listening && pid != p.server_pid;
             p.listening = false;
         }
         let h = self.new_handle(Handle::NPipe { id, server: false, sync, alert: false });
@@ -306,6 +309,12 @@ impl Engine {
                     self.event_set(event, false);
                 }
                 let st = match self.s.fs.npipes.get_mut(&id) {
+                    // a child process that connected first (it raced its parent's ConnectNamedPipe,
+                    // which real process start-up times never lose): connected now, as if it waited
+                    Some(p) if p.state == 1 && p.early => {
+                        p.early = false;
+                        OK
+                    }
                     Some(p) if p.state == 1 => PIPE_CONNECTED,
                     Some(p) if p.state == 2 => PIPE_BROKEN,
                     Some(p) => {
@@ -334,6 +343,7 @@ impl Engine {
                 if let Some(p) = self.s.fs.npipes.get_mut(&id) {
                     p.state = 0;
                     p.listening = false;
+                    p.early = false;
                     p.buf = Default::default();
                     p.msgs = Default::default();
                     p.open[1] = false;
