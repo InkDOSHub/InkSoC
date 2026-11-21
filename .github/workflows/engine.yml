@@ -41,6 +41,8 @@ jobs:
           cd src/engine
           cargo build --release --target wasm32-unknown-unknown
           cp target/wasm32-unknown-unknown/release/inksoc.wasm ../../
+      - name: Unit tests (bcrypt signature math)
+        run: cd src/engine && cargo test --lib bcrypt
       - name: Build multi-thread WASM engine
         run: sh src/engine/build-mt.sh
       - name: Upload generated engine artifacts

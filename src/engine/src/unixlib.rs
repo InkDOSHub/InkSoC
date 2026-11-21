@@ -22,6 +22,7 @@ const CRYPT32: u64 = 4;
 pub const NTDLL: u64 = 5;
 /// the 32-bit ntdll's (WoW64: 32-bit structures)
 pub const NTDLL32: u64 = 6;
+const BCRYPT: u64 = 7;
 
 /// The variable ntdll exports for the dispatcher: a pointer to the native thunk.
 pub fn data_export(e: &mut Engine, dll: &str, name: &str) -> Option<u64> {
@@ -51,9 +52,10 @@ pub fn handle_of(e: &Engine, base: u64, wow64: bool) -> Option<u64> {
         "winepulse.drv" => AUDIO,
         "ws2_32.dll" => WS2,
         "crypt32.dll" => CRYPT32,
+        "bcrypt.dll" => BCRYPT,
         _ => return None,
     };
-    if wow64 && !matches!(h, WS2 | CRYPT32 | OPENGL) {
+    if wow64 && !matches!(h, WS2 | CRYPT32 | OPENGL | BCRYPT) {
         return None;
     }
     Some(h)
@@ -75,6 +77,7 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         AUDIO => e.audio_call(code, params),
         WS2 => e.ws2_call(code, params),
         CRYPT32 => crypt32_call(e, code, params),
+        BCRYPT => crate::bcrypt::call(e, code, params),
         NTDLL => match code {
             1 => unwind_builtin_dll(e, params),
             2 => {

@@ -35,6 +35,7 @@ mod wow64;
 mod audio;
 mod opengl;
 mod unixlib;
+mod bcrypt;
 mod net;
 
 use cpu::Cpu;
