@@ -97,8 +97,15 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             e.callback_return();
             return Some(crate::kernel32::NO_RETURN);
         }
-        "NtContinue" => {
+        // (context, alertable); Ex: (context, KCONTINUE_ARGUMENT* or a BOOLEAN)
+        "NtContinue" | "NtContinueEx" => {
+            let a1 = e.arg(1);
+            let alert = if name == "NtContinueEx" && a1 > 0xFFFF { e.r32(a1 + 4) & 1 != 0 } else { a1 as u8 != 0 };
             e.load_context(a0);
+            // alertable (KiUserApcDispatcher's): the next queued user APC first
+            if alert {
+                e.deliver_apc();
+            }
             return Some(crate::kernel32::NO_RETURN);
         }
         "NtRaiseException" => {

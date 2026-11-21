@@ -810,6 +810,18 @@ impl Engine {
         if unsafe { WINE_DEBUG } > 0 {
             console(&format!("[engine] first chance: {}\n", self.av.text.as_deref().unwrap_or("").lines().next().unwrap_or("")));
         }
+        let c = self.context_bytes(rip);
+        let mut r = vec![0u8; 0x98];
+        r[0..4].copy_from_slice(&0xC000_0005u32.to_le_bytes());
+        r[16..24].copy_from_slice(&rip.to_le_bytes());
+        r[24..28].copy_from_slice(&2u32.to_le_bytes());
+        r[32..40].copy_from_slice(&kind.to_le_bytes());
+        r[40..48].copy_from_slice(&addr.to_le_bytes());
+        let rsp = self.cpu.regs[4];
+        self.exception_frame(&c, &r, rsp).is_some()
+    }
+    /// A CONTEXT (0x4d0 bytes) of the current registers, at `rip`.
+    pub(crate) fn context_bytes(&mut self, rip: u64) -> Vec<u8> {
         let mut c = vec![0u8; 0x4d0];
         c[0x30..0x34].copy_from_slice(&0x0010_000Fu32.to_le_bytes()); // CONTEXT_FULL | SEGMENTS
         c[0x34..0x38].copy_from_slice(&0x1F80u32.to_le_bytes());
@@ -826,14 +838,7 @@ impl Engine {
         for k in 0..16 {
             c[0x1A0 + 16 * k..0x1B0 + 16 * k].copy_from_slice(&self.cpu.xmm[k].to_le_bytes());
         }
-        let mut r = vec![0u8; 0x98];
-        r[0..4].copy_from_slice(&0xC000_0005u32.to_le_bytes());
-        r[16..24].copy_from_slice(&rip.to_le_bytes());
-        r[24..28].copy_from_slice(&2u32.to_le_bytes());
-        r[32..40].copy_from_slice(&kind.to_le_bytes());
-        r[40..48].copy_from_slice(&addr.to_le_bytes());
-        let rsp = self.cpu.regs[4];
-        self.exception_frame(&c, &r, rsp).is_some()
+        c
     }
     /// Stops the program for an access violation, with what is known about where.
     pub fn fault_stop(&mut self, addr: u64) {
@@ -1234,7 +1239,12 @@ impl Engine {
         if self.s.error.is_some() || self.s.exited { return; }
         match r {
             Some(kernel32::NO_RETURN) | Some(sched::BLOCK) => {}
-            Some(v) => self.do_ret(v),
+            Some(v) => {
+                self.do_ret(v);
+                if v == sched::USER_APC && !self.s.sched.th.is_empty() {
+                    self.deliver_apc();
+                }
+            }
             None => {
                 // not native: Wine's own version, run as program code
                 let before = self.s.init_queue.len();

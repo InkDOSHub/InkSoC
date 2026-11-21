@@ -10,6 +10,8 @@ use crate::status::*;
 use crate::{eh, kernel32::NO_RETURN, Engine, PEB, RET_THREAD, TEB};
 
 const SLICE: u64 = 200_000; // instructions per turn
+/// STATUS_USER_APC: an alertable wait ended to run user APCs
+pub const USER_APC: u64 = 0xC0;
 const STILL_ACTIVE: u64 = 259;
 pub(crate) const WAIT_TIMEOUT: u64 = 258;
 const WAIT_FAILED: u64 = 0xFFFF_FFFF;
@@ -97,6 +99,9 @@ pub struct Thread {
     pub(crate) wait: Option<W>,
     deadline: f64,        // ms (host clock); infinity = no timeout
     pending: Option<u64>, // return value of the native call it was parked in
+    /// user APCs queued to the thread (function, 3 arguments), run in an alertable wait
+    apcs: std::collections::VecDeque<[u64; 4]>,
+    alertable: bool, // its wait is alertable: a queued APC ends it
     pub exit: u32,
     suspend: u32,
     on_core: u32,  // core whose registers hold this thread (NO_CORE = saved in cpu)
@@ -135,6 +140,8 @@ impl Engine {
             wait: None,
             deadline: f64::INFINITY,
             pending: None,
+            apcs: Default::default(),
+            alertable: false,
             exit: 0,
             suspend: 0,
             on_core: 0,
@@ -442,6 +449,7 @@ impl Engine {
         let t = &mut self.s.sched.th[self.cur];
         t.st = St::Wait;
         t.wait = Some(w);
+        t.alertable = false;
         t.deadline = if ms >= 0xFFFF_FFFF { f64::INFINITY } else { crate::now_ms() + ms as f64 };
         self.want_switch = true;
         BLOCK
@@ -499,6 +507,8 @@ impl Engine {
             wait: None,
             deadline: f64::INFINITY,
             pending: None,
+            apcs: Default::default(),
+            alertable: false,
             exit: STILL_ACTIVE as u32,
             suspend: suspended as u32,
             on_core: NO_CORE,
@@ -529,6 +539,8 @@ impl Engine {
             wait: None,
             deadline: f64::INFINITY,
             pending: None,
+            apcs: Default::default(),
+            alertable: false,
             exit: STILL_ACTIVE as u32,
             suspend: suspended as u32,
             on_core: NO_CORE,
@@ -557,6 +569,8 @@ impl Engine {
             wait: None,
             deadline: f64::INFINITY,
             pending: None,
+            apcs: Default::default(),
+            alertable: false,
             exit: 0,
             suspend: 0,
             on_core: NO_CORE,
@@ -813,8 +827,53 @@ impl Engine {
                 self.cpu.regs[0] = v;
             } else if v != RETRY {
                 self.do_ret(v);
+                if v == USER_APC {
+                    self.deliver_apc();
+                }
             }
         }
+        true
+    }
+
+    /// A wait that queued user APCs end when `alert` (NtWaitFor*, NtDelayExecution).
+    fn alertable_wait(&mut self, w: W, ms: u64, alert: bool) -> u64 {
+        if alert && !self.s.sched.th[self.cur].apcs.is_empty() {
+            return USER_APC;
+        }
+        let r = self.wait_on(w, ms);
+        if r == BLOCK {
+            self.s.sched.th[self.cur].alertable = alert;
+        }
+        r
+    }
+
+    /// Runs the thread's next user APC through ntdll's KiUserApcDispatcher, which calls it
+    /// and then NtContinue (alertable: the next one) back to the current state. False when
+    /// none is queued.
+    pub(crate) fn deliver_apc(&mut self) -> bool {
+        if self.cur == usize::MAX || self.cpu.mode32 || self.s.lx.is_some() {
+            return false;
+        }
+        let Some(nt) = crate::pe::find_module(self, "wine-ntdll.dll").map(|i| self.s.modules[i].base) else { return false };
+        let Some(disp) = crate::pe::export_addr(self, nt, "KiUserApcDispatcher") else { return false };
+        let Some([f, a1, a2, a3]) = self.s.sched.th[self.cur].apcs.pop_front() else { return false };
+        let rip = self.cpu.rip;
+        let mut c = self.context_bytes(rip);
+        for (k, v) in [a1, a2, a3, f].into_iter().enumerate() {
+            c[8 * k..8 * k + 8].copy_from_slice(&v.to_le_bytes());
+        }
+        let rsp = self.cpu.regs[4];
+        // Wine's layout: CONTEXT, CONTEXT_EX (empty), the KCONTINUE_ARGUMENT that it passes
+        // to NtContinueEx (flag: test alert = run the next APC), then a machine frame
+        let st = ((rsp & !15) - 0x540) & !15;
+        self.zero_n(st, 0x540);
+        let _ = self.mmu.write_bytes(st, &c);
+        self.w32(st + 0x4f4, 1); // KCONTINUE_FLAG_TEST_ALERT
+        for (k, v) in [rip, 0x33, self.flags(), rsp, 0x2b].into_iter().enumerate() {
+            self.w64(st + 0x510 + 8 * k as u64, v);
+        }
+        self.cpu.regs[4] = st;
+        self.cpu.rip = disp;
         true
     }
 
@@ -951,7 +1010,8 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "NtWaitForSingleObject" => {
             let p = e.arg(2);
             let ms = nt_timeout(e, p);
-            e.wait_on(W::Objs { hs: vec![a0], all: false }, ms)
+            let alert = e.arg(1) as u8 != 0;
+            e.alertable_wait(W::Objs { hs: vec![a0], all: false }, ms, alert)
         }
         "NtWaitForMultipleObjects" => {
             let p = e.arg(1);
@@ -959,23 +1019,48 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             let all = e.arg(2) as u32 == 0; // WaitAllObject = 0
             let tp = e.arg(4);
             let ms = nt_timeout(e, tp);
-            e.wait_on(W::Objs { hs, all }, ms)
+            let alert = e.arg(3) as u8 != 0;
+            e.alertable_wait(W::Objs { hs, all }, ms, alert)
         }
         "NtDelayExecution" => {
             let p = e.arg(1);
             let ms = nt_timeout(e, p);
-            if ms == 0 {
+            let alert = a0 as u8 != 0;
+            if alert && !e.s.sched.th[e.cur].apcs.is_empty() {
+                USER_APC
+            } else if ms == 0 {
                 e.want_switch = true;
                 0
             } else {
-                e.wait_on(W::Sleep, ms)
+                e.alertable_wait(W::Sleep, ms, alert)
             }
         }
         "NtYieldExecution" => {
             e.want_switch = true;
             0
         }
-        "NtTestAlert" => 0, // no user APCs are queued
+        // user APCs queued to the thread run now (on the way back from the call)
+        "NtTestAlert" => if e.s.sched.th[e.cur].apcs.is_empty() { 0 } else { USER_APC },
+        // (thread, function, argument 1, 2, 3); Ex: (thread, reserve or flags, function, ...)
+        "NtQueueApcThread" | "NtQueueApcThreadEx" | "NtQueueApcThreadEx2" => {
+            let k = match name { "NtQueueApcThread" => 1, "NtQueueApcThreadEx" => 2, _ => 3 };
+            let apc = [e.arg(k), e.arg(k + 1), e.arg(k + 2), e.arg(k + 3)];
+            let Some(i) = e.thread_of(a0) else { return Some(INVALID_HANDLE) };
+            let t = &mut e.s.sched.th[i];
+            if t.st == St::Done {
+                return Some(0xC000_004B); // STATUS_THREAD_IS_TERMINATING
+            }
+            t.apcs.push_back(apc);
+            // a thread in an alertable wait wakes up to run it
+            if t.st == St::Wait && t.alertable {
+                t.st = St::Ready;
+                t.wait = None;
+                t.alertable = false;
+                t.pending = Some(USER_APC);
+                crate::lock::kick();
+            }
+            0
+        }
         // a named object: create returns the existing one (STATUS_OBJECT_NAME_EXISTS), open finds it
         "NtOpenMutant" | "NtOpenEvent" | "NtOpenSemaphore" => {
             let n = obj_name(e);
