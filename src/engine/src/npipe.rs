@@ -82,6 +82,9 @@ impl Engine {
         let id = self.s.fs.np_next + 1;
         self.s.fs.np_next = id;
         let pid = self.s.wpid;
+        if unsafe { crate::WINE_DEBUG } > 0 {
+            crate::console(&format!("[inksoc] process {} creates pipe {:?}\n", pid, name));
+        }
         self.s.fs.npipes.insert(
             id,
             NPipe { name: name.to_string(), msg_type, msg_read: [msg_read, false], open: [true, false], server_pid: pid, ..Default::default() },
@@ -107,7 +110,13 @@ impl Engine {
 
     /// NtCreateFile on a pipe name: the client end of a free instance.
     pub fn np_connect(&mut self, name: &str, sync: bool) -> Result<u64, u64> {
-        let Some(id) = self.np_free(name) else { return Err(if self.np_exists(name) { PIPE_NOT_AVAILABLE } else { OBJECT_NAME_NOT_FOUND }) };
+        let Some(id) = self.np_free(name) else {
+            if unsafe { crate::WINE_DEBUG } > 0 {
+                let have: Vec<&str> = self.s.fs.npipes.values().map(|p| p.name.as_str()).collect();
+                crate::console(&format!("[inksoc] process {} finds no free pipe {:?} (pipes: {:?})\n", self.s.wpid, name, have));
+            }
+            return Err(if self.np_exists(name) { PIPE_NOT_AVAILABLE } else { OBJECT_NAME_NOT_FOUND });
+        };
         let pid = self.s.wpid;
         if let Some(p) = self.s.fs.npipes.get_mut(&id) {
             p.state = 1;
