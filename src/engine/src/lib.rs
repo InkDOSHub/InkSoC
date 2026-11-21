@@ -786,7 +786,7 @@ impl Engine {
     }
     /// Guest code of a 64-bit Windows program is running (not native code, Linux or WoW64).
     pub(crate) fn seh_ok(&self) -> bool {
-        self.s.lx.is_none() && !self.cpu.mode32 && !(THUNK_BASE..THUNK_BASE + 0x10000).contains(&self.cpu.rip)
+        self.s.lx.is_none() && (!self.cpu.mode32 || self.s.wow64) && !(THUNK_BASE..THUNK_BASE + 0x10000).contains(&self.cpu.rip)
     }
     /// Starts ntdll's exception dispatcher for STATUS_ACCESS_VIOLATION at instruction `rip`
     /// (kind: 0 read, 1 write, 8 execute). False when it cannot (no ntdll, no stack room,
@@ -832,6 +832,9 @@ impl Engine {
         if unsafe { WINE_DEBUG } > 0 {
             console(&format!("[engine] first chance: {}\n", self.av.text.as_deref().unwrap_or("").lines().next().unwrap_or("")));
         }
+        if self.cpu.mode32 {
+            return self.raise_exc32(rip, code, params);
+        }
         let c = self.context_bytes(rip);
         let mut r = vec![0u8; 0x98];
         r[0..4].copy_from_slice(&code.to_le_bytes());
@@ -842,6 +845,57 @@ impl Engine {
         }
         let rsp = self.cpu.regs[4];
         self.exception_frame(&c, &r, rsp).is_some()
+    }
+    /// A 32-bit program's exception (WoW64): what Wine's wow64 call_user_exception_dispatcher
+    /// does. Below the 32-bit stack go the record and context pointers, an EXCEPTION_RECORD32
+    /// and an I386_CONTEXT; the 32-bit ntdll's KiUserExceptionDispatcher then runs its
+    /// handlers and goes back through NtContinue.
+    fn raise_exc32(&mut self, eip: u64, code: u32, params: &[u64]) -> bool {
+        let nt = self.s.wow64_ntdll;
+        let Some(disp) = (if nt != 0 { pe::export_addr(self, nt, "KiUserExceptionDispatcher") } else { None }) else { return false };
+        const CTX: u64 = 0x2CC;
+        const REC: u64 = 0x50;
+        let esp = self.cpu.regs[4] & 0xFFFF_FFFC;
+        let st = (esp - (8 + REC + CTX)) & !15;
+        if self.mmu.write8(st, 0).is_err() || self.mmu.write8(esp - 1, 0).is_err() {
+            return false;
+        }
+        let (rec, ctx) = (st + 8, st + 8 + REC);
+        self.zero_n(st, 8 + REC + CTX);
+        self.w32(st, rec as u32);
+        self.w32(st + 4, ctx as u32);
+        // EXCEPTION_RECORD32
+        self.w32(rec, code);
+        self.w32(rec + 12, eip as u32);
+        self.w32(rec + 16, params.len() as u32);
+        for (k, p) in params.iter().enumerate() {
+            self.w32(rec + 20 + 4 * k as u64, *p as u32);
+        }
+        // I386_CONTEXT (CONTEXT_I386_FULL | FLOATING_POINT | EXTENDED_REGISTERS)
+        self.w32(ctx, 0x1002F);
+        self.w32(ctx + 0x1C, 0x27F); // FloatSave.ControlWord
+        self.w32(ctx + 0x24, 0xFFFF); // TagWord: empty
+        for (o, v) in [(0x8Cu64, 0x2Bu32), (0x90, 0x53), (0x94, 0x2B), (0x98, 0x2B), (0xBC, 0x23), (0xC8, 0x2B)] {
+            self.w32(ctx + o, v);
+        }
+        let r = self.cpu.regs;
+        for (o, k) in [(0x9Cu64, 7usize), (0xA0, 6), (0xA4, 3), (0xA8, 2), (0xAC, 1), (0xB0, 0), (0xB4, 5), (0xC4, 4)] {
+            self.w32(ctx + o, r[k] as u32);
+        }
+        self.w32(ctx + 0xB8, eip as u32);
+        let fl = self.flags() as u32 | 0x202;
+        self.w32(ctx + 0xC0, fl);
+        let x = ctx + 0xCC; // ExtendedRegisters: FXSAVE layout
+        let fcw = self.cpu.fcw;
+        self.w16(x, fcw);
+        self.w32(x + 24, 0x1F80);
+        for k in 0..8 {
+            let v = self.cpu.xmm[k].to_le_bytes();
+            let _ = self.mmu.write_bytes(x + 160 + 16 * k as u64, &v);
+        }
+        self.cpu.regs[4] = st;
+        self.cpu.rip = disp;
+        true
     }
     /// A CONTEXT (0x4d0 bytes) of the current registers, at `rip`.
     pub(crate) fn context_bytes(&mut self, rip: u64) -> Vec<u8> {
