@@ -194,7 +194,9 @@ fn map_case(v: &[u16], flags: u32) -> Vec<u16> {
 
 /// GetLocaleInfo answers for the fixed en-US locale.
 fn locale_info(t: u32) -> Option<String> {
-    Some(match t & 0x0FFF_FFFF & !0x8000_0000 {
+    // the high bits are flags (NOUSEROVERRIDE, USE_CP_ACP, RETURN_NUMBER, GENITIVE)
+    let t = t & 0x0FFF_FFFF;
+    Some(match t {
         0x01 => "0409".into(), // LOCALE_ILANGUAGE
         0x02 | 0x1001 => "English (United States)".into(),
         0x03 | 0x59 => "en".into(), // LOCALE_SABBREVLANGNAME (ENU in reality), SISO639LANGNAME
@@ -221,6 +223,8 @@ fn locale_info(t: u32) -> Option<String> {
         0x1F => "M/d/yyyy".into(), // SSHORTDATE
         0x20 => "dddd, MMMM d, yyyy".into(),
         0x1003 => "h:mm:ss tt".into(), // STIMEFORMAT
+        0x79 => "h:mm tt".into(),       // SSHORTTIME
+        0x1006 => "MMMM yyyy".into(),   // SYEARMONTH
         0x28 => "AM".into(),
         0x29 => "PM".into(),
         0x2A..=0x30 => ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][(t - 0x2A) as usize].into(),

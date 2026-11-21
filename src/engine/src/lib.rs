@@ -1132,6 +1132,7 @@ impl Engine {
 
     /// Runs the next pending DllMain, or the program entry when none is left.
     pub(crate) fn next_init(&mut self) {
+        self.ldr_link();
         self.cpu.regs[4] = self.s.stack_top;
         if !self.s.init_queue.is_empty() {
             let (entry, base) = self.s.init_queue.remove(0);

@@ -38,10 +38,10 @@ Last run: 2026-11-21. Clean units (no failures) per DLL. 98.4% of all checks pas
 
 Known causes still open:
 
-- kernelbase locale table never loaded (its DllMain is skipped): `NlsValidateLocale` reads NULL. Fix in PR #31.
+- kernel32 `locale` unit runs past `NlsValidateLocale` since #31. Engine `GetLocaleInfo` panicked on flag bits (fixed in #32); some formats are still missing.
 - kernel32 `heap` unit: `RtlWalkHeap`, `GetProcessHeaps` and `HeapValidate` are not real yet.
 - ntdll `exception` unit now finishes (hung before #30). Still failing: debug registers, single step (TF), WoW64 contexts.
-- Loader lock held in `LdrEnumerateLoadedModules`.
+- `PEB->Ldr` was NULL, so `LdrEnumerateLoadedModules` and any program walking the module lists crashed. Fixed in #32.
 - ntdll `pipe` and `sync` units deadlock; `threadpool` times out.
 - ntdll `file` unit access violations inside the test.
 - Missing: `NtAllocateReserveObject`, `NtSetIoCompletionEx`.
@@ -53,6 +53,7 @@ Known causes still open:
 | #27 | Hardware access violations reach the program's SEH handlers, also from JIT code. |
 | #28 | User APCs (`NtQueueApcThread`, alertable waits, `KiUserApcDispatcher`). |
 | #30 | `pop` to memory keeps rsp on a fault (ntdll `exception` unit hung). int3, hlt/cli/sti and unknown opcodes raise SEH exceptions. `HeapReAlloc` keeps blocks in place. |
+| #31 | kernelbase loads its locale tables (`locale.nls`, `sortdefault.nls`) for 64-bit programs. |
 
 ## Next
 

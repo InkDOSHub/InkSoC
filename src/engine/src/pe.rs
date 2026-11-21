@@ -263,6 +263,8 @@ fn link_module(e: &mut Engine, name: &str, m: Mapped, is_exe: bool) -> Result<us
     if name == "gdi32.dll" || name == "wine-gdi32.dll" { e.gdi_init(); }
     let idx = e.s.modules.len();
     e.s.modules.push(Module { name: name.to_string(), base, size: image_size, entry: if entry_rva != 0 { base + entry_rva } else { 0 }, exports, native: false, fwd });
+    // after start-up (PEB->Ldr exists), a DLL joins the loader's module lists at once
+    if e.r64(crate::PEB + 0x18) != 0 { e.ldr_link(); }
 
     // Static TLS (__declspec(thread)): one slot per image in the TEB's TLS array.
     // Taken before the imports load, so the exe gets slot 0 as on Windows (optimized
