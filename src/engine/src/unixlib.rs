@@ -18,6 +18,8 @@ const OPENGL: u64 = 1;
 const AUDIO: u64 = 2;
 const WS2: u64 = 3;
 const CRYPT32: u64 = 4;
+/// ntdll's own Unix side (set in its __wine_unixlib_handle).
+pub const NTDLL: u64 = 5;
 
 /// The variable ntdll exports for the dispatcher: a pointer to the native thunk.
 pub fn data_export(e: &mut Engine, dll: &str, name: &str) -> Option<u64> {
@@ -71,8 +73,27 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         AUDIO => e.audio_call(code, params),
         WS2 => e.ws2_call(code, params),
         CRYPT32 => crypt32_call(e, code, params),
+        NTDLL => match code {
+            1 => unwind_builtin_dll(e, params),
+            _ => NOT_IMPLEMENTED,
+        },
         _ => NOT_IMPLEMENTED,
     })
+}
+
+/// ntdll's unwinder reached a frame outside any PE module: (type, DISPATCHER_CONTEXT*,
+/// CONTEXT*). Here that is the engine's own code (a native call, or the thread's start), so
+/// the walk ends there: the frame becomes the top of the stack (TEB StackBase), which
+/// ends the handler search (unhandled) instead of reading on into the engine's frames.
+fn unwind_builtin_dll(e: &mut Engine, params: u64) -> u64 {
+    let (disp, ctx) = (e.r64(params + 8), e.r64(params + 16));
+    let base = e.r64(e.cpu.gs_base + 8);
+    e.w64(ctx + 0x98, base);
+    e.w64(ctx + 0xF8, 0);
+    e.w64(disp + 24, base); // EstablisherFrame
+    e.w64(disp + 48, 0); // LanguageHandler
+    e.w64(disp + 56, 0); // HandlerData
+    OK
 }
 
 /// crypt32's Unix side: process attach and detach, and the trusted root certificates
