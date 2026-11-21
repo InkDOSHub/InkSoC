@@ -502,7 +502,7 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         }
         "HeapReAlloc" => {
             let (f, p, n) = (e.arg(1), e.arg(2), e.arg(3));
-            e.heap_realloc(p, n, f & 8 != 0)
+            e.heap_realloc(p, n, f & 8 != 0, f & 0x10 != 0)
         }
         "HeapSize" => {
             let p = e.arg(2);

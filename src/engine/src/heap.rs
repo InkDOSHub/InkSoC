@@ -15,6 +15,7 @@ pub struct Heap {
     bump_end: u64,
     sizes: HashMap<u64, u64>, // block -> requested size (for HeapSize / ReAlloc)
     large: HashMap<u64, u64>, // block -> region size
+    cap: HashMap<u64, u64>,   // block -> bytes it really has (its class, or the region)
 }
 
 fn class(size: u64) -> usize { (size.max(16).next_power_of_two().trailing_zeros() - 4) as usize }
@@ -25,6 +26,7 @@ impl Engine {
             let Some(a) = self.alloc(size) else { return 0 };
             self.s.heap.large.insert(a, size);
             self.s.heap.sizes.insert(a, size);
+            self.s.heap.cap.insert(a, crate::mmu::round_up_64k(size).unwrap_or(size));
             return a;
         }
         let c = class(size);
@@ -44,28 +46,38 @@ impl Engine {
             a // fresh arena memory is already zero
         };
         self.s.heap.sizes.insert(a, size);
+        self.s.heap.cap.insert(a, csize);
         a
     }
 
     pub fn heap_free(&mut self, a: u64) -> bool {
         let Some(size) = self.s.heap.sizes.remove(&a) else { return false };
+        let cap = self.s.heap.cap.remove(&a).unwrap_or(size);
         if self.s.heap.large.remove(&a).is_some() {
             self.mmu.release_region(a);
         } else {
-            self.s.heap.free[class(size)].push(a);
+            self.s.heap.free[class(cap)].push(a);
         }
         true
     }
 
     pub fn heap_size(&self, a: u64) -> u64 { self.s.heap.sizes.get(&a).copied().unwrap_or(u64::MAX) }
 
-    pub fn heap_realloc(&mut self, a: u64, size: u64, zero: bool) -> u64 {
+    /// HeapReAlloc: the block stays where it is while the new size fits the bytes it has
+    /// (shrinking, or growing back); `in_place` (HEAP_REALLOC_IN_PLACE_ONLY) fails otherwise.
+    pub fn heap_realloc(&mut self, a: u64, size: u64, zero: bool, in_place: bool) -> u64 {
         let old = self.heap_size(a);
         if old == u64::MAX { return 0; }
-        if size <= MAX_SMALL && old <= MAX_SMALL && class(size) == class(old) {
+        let cap = self.s.heap.cap.get(&a).copied().unwrap_or(old);
+        if size <= cap && (in_place || size >= cap / 2 || self.s.heap.large.contains_key(&a)) {
             if zero && size > old { for i in old..size { self.w8(a + i, 0); } }
             self.s.heap.sizes.insert(a, size);
+            if let Some(r) = self.s.heap.large.get_mut(&a) { *r = size; }
             return a;
+        }
+        if in_place {
+            self.set_last_error(8); // ERROR_NOT_ENOUGH_MEMORY
+            return 0;
         }
         let n = self.heap_alloc(size, zero);
         if n == 0 { return 0; }

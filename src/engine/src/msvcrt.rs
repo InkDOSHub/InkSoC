@@ -395,7 +395,7 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             if a0 == 0 {
                 e.heap_alloc(a1, false)
             } else {
-                e.heap_realloc(a0, a1, false)
+                e.heap_realloc(a0, a1, false, false)
             }
         }
         "free" => {
