@@ -20,6 +20,8 @@ const WS2: u64 = 3;
 const CRYPT32: u64 = 4;
 /// ntdll's own Unix side (set in its __wine_unixlib_handle).
 pub const NTDLL: u64 = 5;
+/// the 32-bit ntdll's (WoW64: 32-bit structures)
+pub const NTDLL32: u64 = 6;
 
 /// The variable ntdll exports for the dispatcher: a pointer to the native thunk.
 pub fn data_export(e: &mut Engine, dll: &str, name: &str) -> Option<u64> {
@@ -75,10 +77,29 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         CRYPT32 => crypt32_call(e, code, params),
         NTDLL => match code {
             1 => unwind_builtin_dll(e, params),
+            2 => {
+                let (s, n) = (e.r64(params), e.r32(params + 8));
+                dbg_write(e, s, n)
+            }
+            _ => NOT_IMPLEMENTED,
+        },
+        NTDLL32 => match code {
+            2 => {
+                let (s, n) = (e.r32(params) as u64, e.r32(params + 4));
+                dbg_write(e, s, n)
+            }
             _ => NOT_IMPLEMENTED,
         },
         _ => NOT_IMPLEMENTED,
     })
+}
+
+/// __wine_dbg_write(str, len): Wine's debug output, to the console.
+fn dbg_write(e: &mut Engine, s: u64, len: u32) -> u64 {
+    let mut v = vec![0u8; len.min(8192) as usize];
+    let _ = e.mmu.read_bytes(s, &mut v);
+    crate::console(&String::from_utf8_lossy(&v));
+    len as u64
 }
 
 /// ntdll's unwinder reached a frame outside any PE module: (type, DISPATCHER_CONTEXT*,
