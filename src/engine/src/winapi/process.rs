@@ -43,7 +43,9 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             } else {
                 cmd.split_whitespace().next().unwrap_or("").to_string()
             };
-            let mut exe = crate::pe::norm(first.rsplit(['\\', '/']).next().unwrap_or(&first));
+            // C:\Windows\SysWOW64\x.exe is Wine's 32-bit x.exe (msiexec for 32-bit custom actions)
+            let wow = crate::files::key_of(&first).filter(|k| k.starts_with("wine32-") && e.s.files.contains_key(k));
+            let mut exe = wow.unwrap_or_else(|| crate::pe::norm(first.rsplit(['\\', '/']).next().unwrap_or(&first)));
             if !e.s.files.contains_key(&exe) && !exe.ends_with(".exe") {
                 exe.push_str(".exe");
             }

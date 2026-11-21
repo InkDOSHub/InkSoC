@@ -428,6 +428,11 @@ fn create_user_process(e: &mut Engine) -> u64 {
     let std = [e.r64(params + 0x20), e.r64(params + 0x28), e.r64(params + 0x30)];
     let raw = image;
     let image = crate::pe::norm(&raw);
+    // C:\Windows\SysWOW64\x.exe is Wine's 32-bit x.exe, not the 64-bit one of the same name
+    let image = match crate::files::key_of(&raw).filter(|k| k.starts_with("wine32-") && e.s.files.contains_key(k)) {
+        Some(k) => k,
+        None => image,
+    };
     if unsafe { crate::WINE_DEBUG } > 0 { crate::console(&format!("[inksoc] CreateProcess {:?} ({}): {:?}\n", raw, image, cmd)); }
     // a program at a full path (one an installer has just written, like
     // C:\Program Files\Steam\steamservice.exe): found by its path, run by its name, as the
