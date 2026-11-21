@@ -28,6 +28,7 @@ pub struct Cpu {
     pub lz_b: u64,
     pub lz_r: u64,
     pub jit_limit: u64, // JIT loops stop when icount reaches this
+    pub jfault: u32,    // a JIT memory access faulted: the block leaves at the faulting instruction
     // x87 stack (as f64), top index, control and status words
     pub fpu: [crate::f80::F80; 8],
     pub ftop: u8,
@@ -59,6 +60,7 @@ impl Cpu {
             lz_b: 0,
             lz_r: 0,
             jit_limit: 0,
+            jfault: 0,
             fpu: [crate::f80::F80::ZERO; 8],
             ftop: 0,
             fcw: 0x37F,
@@ -574,6 +576,7 @@ pub extern "C" fn ophist(i: u32) -> f64 {
 fn step_raw(e: &mut Engine) {
     let mut buf = [0u8; 16];
     let rip = e.cpu.rip;
+    e.ins_rip = rip;
     tryf!(e, e.mmu.fetch16(rip, &mut buf), rip);
     let mut d = Dec { b: &buf, p: 0 };
     let mut rex = 0u8;

@@ -90,23 +90,32 @@ impl Engine {
     /// below the context's stack go the context, its (empty) CONTEXT_EX, the record and a
     /// machine frame (Wine's exc_stack_layout, 0x5c0 bytes).
     pub(crate) fn user_exception(&mut self, rec: u64, ctx: u64) -> Option<u64> {
-        let nt = crate::pe::find_module(self, "wine-ntdll.dll").map(|i| self.s.modules[i].base)?;
-        let disp = crate::pe::export_addr(self, nt, "KiUserExceptionDispatcher")?;
-        let rsp = self.r64(ctx + 0x98) & !15;
-        let st = (rsp - 0x5c0) & !63;
         let mut c = vec![0u8; 0x4d0];
         let _ = self.mmu.read_bytes(ctx, &mut c);
         let mut r = vec![0u8; 0x98];
         let _ = self.mmu.read_bytes(rec, &mut r);
+        let rsp = self.r64(ctx + 0x98);
+        self.exception_frame(&c, &r, rsp)
+    }
+    /// The frame for KiUserExceptionDispatcher below stack pointer `rsp`, from a CONTEXT `c`
+    /// and an EXCEPTION_RECORD `r`; None when there is no ntdll or the stack is not writable.
+    pub(crate) fn exception_frame(&mut self, c: &[u8], r: &[u8], rsp: u64) -> Option<u64> {
+        let nt = crate::pe::find_module(self, "wine-ntdll.dll").map(|i| self.s.modules[i].base)?;
+        let disp = crate::pe::export_addr(self, nt, "KiUserExceptionDispatcher")?;
+        let st = ((rsp & !15) - 0x5c0) & !63;
+        if self.mmu.write8(st, 0).is_err() || self.mmu.write8(st + 0x5bf, 0).is_err() {
+            return None;
+        }
         self.zero_n(st, 0x5c0);
-        let _ = self.mmu.write_bytes(st, &c);
+        let _ = self.mmu.write_bytes(st, c);
         let flags = self.r32(st + 0x30) & !0x40; // no XSTATE part
         self.w32(st + 0x30, flags);
-        let _ = self.mmu.write_bytes(st + 0x4f0, &r);
-        let (rip, sp) = (self.r64(ctx + 0xF8), self.r64(ctx + 0x98));
+        let _ = self.mmu.write_bytes(st + 0x4f0, r);
+        let rd = |o: usize| u64::from_le_bytes(c[o..o + 8].try_into().unwrap());
+        let (rip, sp) = (rd(0xF8), rd(0x98));
         self.w64(st + 0x590, rip);
         self.w64(st + 0x598, 0x33);
-        let fl = self.r32(ctx + 0x44) as u64;
+        let fl = u32::from_le_bytes(c[0x44..0x48].try_into().unwrap()) as u64;
         self.w64(st + 0x5a0, fl);
         self.w64(st + 0x5a8, sp);
         self.w64(st + 0x5b0, 0x2b);

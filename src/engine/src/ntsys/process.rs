@@ -237,6 +237,14 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "NtTerminateProcess" => {
             let code = e.arg(1) as u32;
             if a0 == 0 || a0 == u64::MAX {
+                // the end of an access violation that nobody handled (ntdll's last-chance
+                // filter ends the process with its code): stop with the engine's message
+                if code == 0xC000_0005 {
+                    if let Some(t) = e.av.text.take() {
+                        e.unhandled(t);
+                        return Some(crate::kernel32::NO_RETURN);
+                    }
+                }
                 e.exit_process(code);
                 return Some(crate::kernel32::NO_RETURN);
             }

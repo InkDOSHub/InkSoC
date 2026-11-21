@@ -165,8 +165,7 @@ pub extern "C" fn jit_rd(a: u64, size: u32) -> u64 {
     match e.mmu.read_sized(a, size) {
         Ok(v) => v,
         Err(_) => {
-            e.fault(a);
-            e.cpu.jit_limit = 0;
+            e.fault_jit(a, false);
             0
         }
     }
@@ -176,8 +175,7 @@ pub extern "C" fn jit_rd(a: u64, size: u32) -> u64 {
 pub extern "C" fn jit_wr(a: u64, v: u64, size: u32) {
     let e = crate::eng();
     if e.mmu.write_sized(a, size, v).is_err() {
-        e.fault(a);
-        e.cpu.jit_limit = 0;
+        e.fault_jit(a, true);
     }
 }
 
@@ -572,6 +570,7 @@ struct G {
     need: Vec<bool>,         // per block: reads the flags before writing them
     cur: usize,              // index of the block being emitted
     hints: Vec<(usize, u8)>, // branch hints: code position of an `if`, 1 = usually taken, 0 = rarely
+    ins: (u64, u32),         // the instruction being emitted: its rip and how many came before it
 }
 
 macro_rules! off {
@@ -648,6 +647,20 @@ impl G {
     fn call(&mut self, f: u32) {
         self.b(CALL);
         self.u(f as u64);
+    }
+    /// After a slow-path memory access: when it faulted, leave with the state before the
+    /// instruction (registers, flags, rip), so the program's exception handler sees it.
+    fn fault_check(&mut self) {
+        self.i32c(0);
+        self.mem(I32LOAD, 2, self.cpu + off!(jfault));
+        self.if_hint(VOID, false);
+        self.flush();
+        self.exit_flags();
+        let (rip, n) = self.ins;
+        self.set_rip_const(rip);
+        self.add_icount(n);
+        self.b(RET);
+        self.b(END);
     }
 
     // cpu struct fields (absolute addresses as load/store offsets from 0)
@@ -858,6 +871,7 @@ impl G {
         self.get(a);
         self.i32c(size as i32);
         self.call(F_RD);
+        self.fault_check();
         self.b(END);
     }
 
@@ -914,6 +928,7 @@ impl G {
         self.get(v);
         self.i32c(size as i32);
         self.call(F_WR);
+        self.fault_check();
         self.b(END);
     }
 
@@ -2179,6 +2194,7 @@ impl G {
         self.call(F_RD);
         self.simd(0x1E);
         self.b(1);
+        self.fault_check();
         self.b(END);
     }
     /// Stores xmm r at address local `a`.
@@ -2204,6 +2220,7 @@ impl G {
         self.mem(I64LOAD, 3, xa + 8);
         self.i32c(64);
         self.call(F_WR);
+        self.fault_check();
         self.b(END);
     }
     /// Inside an `if`: runs instruction i in the interpreter and leaves the module.
@@ -3137,6 +3154,7 @@ fn compile(e: &mut Engine, rip: u64) -> Option<Vec<u8>> {
         lic,
         need,
         hints: Vec::new(),
+        ins: (0, 0),
         cur: 0,
     };
     if lic {
@@ -3209,6 +3227,7 @@ fn emit_block(g: &mut G, b: Block) {
     let mut cut = false; // out of locals: leave the region (an edge the region's analysis did not see)
     for (k, i) in list.iter().enumerate() {
         let n = k as u32 + 1;
+        g.ins = (i.rip, k as u32);
         if g.ntmp > MAX_LOCALS - 40 {
             end_rip = Some(i.rip);
             cut = true;

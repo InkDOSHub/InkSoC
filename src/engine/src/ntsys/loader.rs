@@ -113,6 +113,13 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 }
             }
             let code = e.r32(a0) as u64;
+            // an access violation that nobody handled: the engine's own message for it
+            if code == ACCESS_VIOLATION {
+                if let Some(t) = e.av.text.take() {
+                    e.unhandled(t);
+                    return Some(crate::kernel32::NO_RETURN);
+                }
+            }
             let at = e.r64(a0 + 16);
             let info = e.r64(a0 + 32);
             let msg = match code {
