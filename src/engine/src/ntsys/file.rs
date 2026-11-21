@@ -424,6 +424,9 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 let opts = if name == "NtCreateFile" { e.arg(8) as u32 } else { e.arg(5) as u32 };
                 return Some(match e.np_connect(&pn, opts & 0x30 != 0) {
                     Ok(h) => {
+                        if opts & 0x10 != 0 {
+                            e.np_set_alert(h);
+                        }
                         e.w64(a0, h);
                         e.iosb(iosb, OK, 1);
                         OK
@@ -543,6 +546,9 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             let Some(pn) = crate::npipe::pipe_name(&nm).filter(|n| !n.is_empty()) else { return Some(OBJECT_NAME_INVALID) }; // OBJECT_NAME_INVALID
             let (iosb, opts, ty, rm) = (e.arg(3), e.arg(6) as u32, e.arg(7) as u32, e.arg(8) as u32);
             let h = e.np_create(&pn, ty & 1 != 0, rm & 1 != 0, opts & 0x30 != 0);
+            if opts & 0x10 != 0 {
+                e.np_set_alert(h);
+            }
             e.w64(a0, h);
             e.iosb(iosb, OK, 2); // FILE_CREATED
             OK

@@ -56,9 +56,20 @@ impl Engine {
             *set = on;
         }
     }
+    /// Marks a pipe handle opened with FILE_SYNCHRONOUS_IO_ALERT.
+    pub fn np_set_alert(&mut self, h: u64) {
+        if let Some(Handle::NPipe { alert, .. }) = self.s.fs.handles.get_mut(&h) {
+            *alert = true;
+        }
+    }
+    /// Synchronous pipe I/O: blocks until done; alertable handles also end on a user APC.
+    fn np_sync_wait(&mut self, h: u64, listen: bool) -> u64 {
+        let alert = matches!(self.s.fs.handles.get(&h), Some(Handle::NPipe { alert: true, .. }));
+        self.alertable_wait(crate::sched::W::NPipe { h, listen }, u64::MAX, alert)
+    }
     fn np_of(&self, h: u64) -> Option<(u64, usize, bool)> {
         match self.s.fs.handles.get(&h) {
-            Some(Handle::NPipe { id, server, sync }) => Some((*id, if *server { 0 } else { 1 }, *sync)),
+            Some(Handle::NPipe { id, server, sync, .. }) => Some((*id, if *server { 0 } else { 1 }, *sync)),
             _ => None,
         }
     }
@@ -75,7 +86,7 @@ impl Engine {
             id,
             NPipe { name: name.to_string(), msg_type, msg_read: [msg_read, false], open: [true, false], server_pid: pid, ..Default::default() },
         );
-        self.new_handle(Handle::NPipe { id, server: true, sync })
+        self.new_handle(Handle::NPipe { id, server: true, sync, alert: false })
     }
     /// A pipe instance a client can take: not connected yet (one listening first).
     fn np_free(&self, name: &str) -> Option<u64> {
@@ -104,7 +115,7 @@ impl Engine {
             p.client_pid = pid;
             p.listening = false;
         }
-        let h = self.new_handle(Handle::NPipe { id, server: false, sync });
+        let h = self.new_handle(Handle::NPipe { id, server: false, sync, alert: false });
         self.np_poll();
         Ok(h)
     }
@@ -173,7 +184,7 @@ impl Engine {
                 }
                 st
             }
-            Err(PENDING) if sync => self.wait_on(crate::sched::W::NPipe { h, listen: false }, u64::MAX),
+            Err(PENDING) if sync => self.np_sync_wait(h, false),
             Err(PENDING) => {
                 self.iosb(iosb, PENDING, 0);
                 let pid = self.s.wpid;
@@ -302,7 +313,7 @@ impl Engine {
                     return Some(st);
                 }
                 if sync {
-                    return Some(self.wait_on(crate::sched::W::NPipe { h, listen: true }, u64::MAX));
+                    return Some(self.np_sync_wait(h, true));
                 }
                 self.iosb(iosb, PENDING, 0);
                 let pid = self.s.wpid;

@@ -40,9 +40,12 @@ const con = async () => earlier + ((await page.textContent('#con').catch(() => '
 const shots = [];
 const shot = async (n) => { const p = `${shots.length}-${n}.png`; await page.screenshot({ path: join(out, p) }); shots.push(p); };
 
+// extra page parameters from the workflow input (debugging), e.g. &winedebug=1
+const extra = (process.env.EXTRA_QUERY || '').replace(/^[?&]/, '');
+const query = (c.query || '') + (extra ? ((c.query || '').includes('?') ? '&' : '?') + extra : '');
 let failed = null;
 try {
-  await page.goto(base + '/' + (c.query || ''));
+  await page.goto(base + '/' + query);
   if (file) {
     await page.evaluate(async (n) => {
       const b = await (await fetch('/extra/' + n)).blob();
@@ -59,7 +62,7 @@ try {
     else if (op === 'shot') await shot(a);
     else if (op === 'run') {
       earlier = await con();
-      await page.goto(base + '/?run=' + encodeURIComponent(a) + (b ? '&args=' + encodeURIComponent(b) : '') + (c.query.includes('winedebug') ? '&winedebug=2' : ''));
+      await page.goto(base + '/?run=' + encodeURIComponent(a) + (b ? '&args=' + encodeURIComponent(b) : '') + (query.includes('winedebug') ? '&winedebug=2' : ''));
     } else if (op === 'until') {
       const re = new RegExp(a), end = Date.now() + b;
       while (!re.test(await con())) {
