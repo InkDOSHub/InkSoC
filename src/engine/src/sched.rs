@@ -1048,6 +1048,9 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             if apc[0] == 0 {
                 return Some(0xC000_000D); // STATUS_INVALID_PARAMETER
             }
+            if apc[0] == 0 {
+                return Some(0xC000_000D); // STATUS_INVALID_PARAMETER
+            }
             let Some(i) = e.thread_of(a0) else { return Some(INVALID_HANDLE) };
             let t = &mut e.s.sched.th[i];
             if t.st == St::Done {
@@ -1277,9 +1280,6 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             None => u32::MAX as u64,
         },
         "NtSuspendThread" | "NtResumeThread" => {
-            if apc[0] == 0 {
-                return Some(0xC000_000D); // STATUS_INVALID_PARAMETER
-            }
             let Some(i) = e.thread_of(a0) else { return Some(INVALID_HANDLE) };
             let t = &mut e.s.sched.th[i];
             let prev = t.suspend;
