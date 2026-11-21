@@ -262,6 +262,16 @@ impl Engine {
             if n.starts_with('#') {
                 continue;
             }
+            // ntdll's own Unix calls (the unwinder's, for frames outside any PE module)
+            if n == "__wine_unix_call_dispatcher" {
+                let t = self.thunk("ntdll.dll", "__wine_unix_call");
+                self.w64(a, t);
+                continue;
+            }
+            if n == "__wine_unixlib_handle" {
+                self.w64(a, crate::unixlib::NTDLL);
+                continue;
+            }
             if let Some(native) = redirect(&n) {
                 let t = self.thunk("ntdll.dll", &native);
                 let mut code = vec![0x48, 0xB8];

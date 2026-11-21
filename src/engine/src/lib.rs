@@ -100,7 +100,22 @@ pub struct Engine {
     pub slice: u64,        // instructions left in this thread's turn
     pub idle_ms: f64,
     pub(crate) not_mine: bool,      // set by a native module that has no case for the called name
+    /// Start of the instruction the interpreter is running (0 while native code runs): the
+    /// address an access violation reports.
+    pub ins_rip: u64,
+    pub av: Av,
     pub s: &'static mut Shared,
+}
+
+/// Access violations that go to the program's exception handlers.
+#[derive(Default)]
+pub struct Av {
+    pub addr: u64,      // the address a JIT block faulted on (cpu.jfault set)
+    pub write: bool,
+    last: (u64, u64),   // (rip, address) of the last one and how often it came in a row
+    repeat: u32,
+    /// The message for the last one, shown if nobody handles it.
+    pub text: Option<String>,
 }
 
 /// Everything the cores share (used under the engine lock with several cores).
@@ -298,7 +313,7 @@ pub extern "C" fn init(pool_mb: u32, target_mb: u32) {
         ENGINE = Some(Engine {
             mmu: Mmu::new(pool_mb as usize, target_mb as u64),
             cpu: Cpu::new(), eh: Default::default(), jit: Default::default(),
-            core: 0, cur: 0, want_switch: false, slice: 0, idle_ms: 0.0, not_mine: false,
+            core: 0, cur: 0, want_switch: false, slice: 0, idle_ms: 0.0, not_mine: false, ins_rip: 0, av: Default::default(),
             s: SHARED.as_mut().unwrap(),
         });
     }
@@ -345,7 +360,7 @@ pub extern "C" fn core_init(id: u32) {
         ENGINE = Some(Engine {
             mmu: mmu0.new_core(id),
             cpu: Cpu::new(), eh: Default::default(), jit,
-            core: id, cur: usize::MAX, want_switch: true, slice: 0, idle_ms: 0.0, not_mine: false,
+            core: id, cur: usize::MAX, want_switch: true, slice: 0, idle_ms: 0.0, not_mine: false, ins_rip: 0, av: Default::default(),
             s: SHARED.as_mut().unwrap(),
         });
     }
@@ -559,6 +574,12 @@ pub extern "C" fn run(budget: u32) -> i32 {
                 let before = e.cpu.icount;
                 e.cpu.jit_limit = before + lim;
                 jit::call(f);
+                if e.cpu.jfault != 0 {
+                    // a memory access of the block faulted: the block left at that instruction
+                    e.cpu.jfault = 0;
+                    let (a, w, rip) = (e.av.addr, e.av.write, e.cpu.rip);
+                    if !e.raise_av(rip, a, w as u64) { e.fault_stop(a); }
+                }
                 let n = e.cpu.icount - before;
                 #[cfg(feature = "prof")]
                 { jit::prof::add(0xB0000000, 1); jit::prof::add(0xB0000001, n); jit::prof::add(f, n); }
@@ -739,7 +760,83 @@ pub extern "C" fn guest_read32(addr: u64) -> u32 {
 struct Found { a: u64, end: u64, next: u64, gap: bool }
 
 impl Engine {
+    /// An access violation of the running program. In 64-bit Windows code it goes to the
+    /// program's exception handlers (as on Windows); elsewhere, or when that fails, it stops
+    /// the program.
     pub fn fault(&mut self, addr: u64) {
+        if self.seh_ok() && self.ins_rip != 0 {
+            let rip = self.ins_rip;
+            if self.raise_av(rip, addr, if addr == rip { 8 } else { 0 }) {
+                return;
+            }
+        }
+        self.fault_stop(addr);
+    }
+    /// A JIT memory access faulted: the block leaves at the faulting instruction (it checks
+    /// cpu.jfault) and `run` raises the exception there.
+    pub fn fault_jit(&mut self, addr: u64, write: bool) {
+        if self.seh_ok() {
+            self.av.addr = addr;
+            self.av.write = write;
+            self.cpu.jfault = 1;
+            return;
+        }
+        self.fault_stop(addr);
+        self.cpu.jit_limit = 0;
+    }
+    /// Guest code of a 64-bit Windows program is running (not native code, Linux or WoW64).
+    fn seh_ok(&self) -> bool {
+        self.s.lx.is_none() && !self.cpu.mode32 && !(THUNK_BASE..THUNK_BASE + 0x10000).contains(&self.cpu.rip)
+    }
+    /// Starts ntdll's exception dispatcher for STATUS_ACCESS_VIOLATION at instruction `rip`
+    /// (kind: 0 read, 1 write, 8 execute). False when it cannot (no ntdll, no stack room,
+    /// or the same fault keeps coming back).
+    pub(crate) fn raise_av(&mut self, rip: u64, addr: u64, kind: u64) -> bool {
+        if self.av.last == (rip, addr) {
+            self.av.repeat += 1;
+            if self.av.repeat > 1000 {
+                return false;
+            }
+        } else {
+            self.av.last = (rip, addr);
+            self.av.repeat = 0;
+        }
+        self.materialize();
+        self.cpu.rip = rip;
+        // the message shown when nobody handles it
+        let saved = self.s.error.take();
+        self.fault_stop(addr);
+        self.av.text = core::mem::replace(&mut self.s.error, saved);
+        if unsafe { WINE_DEBUG } > 0 {
+            console(&format!("[engine] first chance: {}\n", self.av.text.as_deref().unwrap_or("").lines().next().unwrap_or("")));
+        }
+        let mut c = vec![0u8; 0x4d0];
+        c[0x30..0x34].copy_from_slice(&0x0010_000Fu32.to_le_bytes()); // CONTEXT_FULL | SEGMENTS
+        c[0x34..0x38].copy_from_slice(&0x1F80u32.to_le_bytes());
+        for (o, v) in [(0x38usize, 0x33u16), (0x3A, 0x2B), (0x3C, 0x2B), (0x3E, 0x53), (0x40, 0x2B), (0x42, 0x2B)] {
+            c[o..o + 2].copy_from_slice(&v.to_le_bytes());
+        }
+        c[0x44..0x48].copy_from_slice(&(self.flags() as u32 | 0x202).to_le_bytes());
+        for k in 0..16 {
+            c[0x78 + 8 * k..0x80 + 8 * k].copy_from_slice(&self.cpu.regs[k].to_le_bytes());
+        }
+        c[0xF8..0x100].copy_from_slice(&rip.to_le_bytes());
+        c[0x100..0x102].copy_from_slice(&self.cpu.fcw.to_le_bytes());
+        c[0x118..0x11C].copy_from_slice(&0x1F80u32.to_le_bytes());
+        for k in 0..16 {
+            c[0x1A0 + 16 * k..0x1B0 + 16 * k].copy_from_slice(&self.cpu.xmm[k].to_le_bytes());
+        }
+        let mut r = vec![0u8; 0x98];
+        r[0..4].copy_from_slice(&0xC000_0005u32.to_le_bytes());
+        r[16..24].copy_from_slice(&rip.to_le_bytes());
+        r[24..28].copy_from_slice(&2u32.to_le_bytes());
+        r[32..40].copy_from_slice(&kind.to_le_bytes());
+        r[40..48].copy_from_slice(&addr.to_le_bytes());
+        let rsp = self.cpu.regs[4];
+        self.exception_frame(&c, &r, rsp).is_some()
+    }
+    /// Stops the program for an access violation, with what is known about where.
+    pub fn fault_stop(&mut self, addr: u64) {
         let mut m = format!("access violation at 0x{:x} (rip 0x{:x})", addr, self.cpu.rip);
         // inside a DLL that a loader mapped as a section (WoW64's 32-bit ones): name it
         let rip = self.cpu.rip;
@@ -759,6 +856,13 @@ impl Engine {
         }
         if unsafe { WINE_DEBUG } > 1 { { let iat = self.mmu.read64(0x7a406000).unwrap_or(1); console(&format!("[fault] tid {} pid {} {} region {:x?} wow64cpu iat {:x}\n", self.cur_tid(), self.s.wpid, m, self.mmu.region_of(addr), iat)); } }
         self.set_error(m);
+    }
+    /// Stops the program for an exception nobody handled, with the message made when it came.
+    pub(crate) fn unhandled(&mut self, t: String) {
+        let _g = lock::lock();
+        if self.s.error.is_none() {
+            self.s.error = Some(t);
+        }
     }
     /// Stops the program with a message (the first error wins).
     pub fn set_error(&mut self, m: String) {
@@ -1075,6 +1179,7 @@ impl Engine {
     }
 
     fn call_native(&mut self) {
+        self.ins_rip = 0;
         match self.cpu.rip {
             RET_EXIT => { let c = self.cpu.regs[0] as u32; self.exit_process(c); return; }
             RET_INIT => { self.next_init(); return; }
