@@ -16,8 +16,8 @@ Last run: 2026-11-21, after PR #27 (SEH). **22 of 30 pass.**
 | steam-setup, libreoffice, python-bench, node, sqlite, ripgrep, rclone-go, 7zr-bench, plink, jq, putty32, sumatra, everything, npp32-portable, rufus, nasm32 | pass | |
 | npp-nsis | pass | Fixed by PR #27 (access violations go to the program's SEH handlers). |
 | audacity-wx | fail | Unhandled access violation (null + 0x10) in lib-crashpad-configurer. |
-| winmerge-inno-mfc | fail | 32-bit (WoW64) SEH is not done. |
-| innosetup-delphi | fail | 32-bit (WoW64) SEH is not done. |
+| winmerge-inno-mfc | fail | 32-bit (WoW64) SEH, added in #34. |
+| innosetup-delphi | fail | 32-bit (WoW64) SEH, added in #34. |
 | 7zip32 | fail | Installs outside `Program Files (x86)`: NSIS reads `ProgramFilesDir` from the registry. #33 adds the Wow6432Node view for 32-bit programs. |
 | keepassxc-qt-msi | fail | msiexec deadlock (pipe/sync). |
 | winrar | fail | Timeout. |

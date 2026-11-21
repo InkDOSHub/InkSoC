@@ -279,7 +279,7 @@ fn utf16(s: &str) -> Vec<u8> {
 
 impl Engine {
     /// Full lowercase key path of an OBJECT_ATTRIBUTES (root key handle + relative name).
-    fn key_path(&mut self, oa: u64) -> Option<String> {
+    fn key_path(&mut self, oa: u64, access: u32) -> Option<String> {
         let root = self.r64(oa + 8);
         let name = self.oa_name(oa);
         let base = if root != 0 {
@@ -295,9 +295,12 @@ impl Engine {
             p.push('\\');
             p.push_str(&part.to_lowercase());
         }
-        // a 32-bit program sees HKLM\Software through Wow6432Node where that view has the key
+        // a 32-bit program sees HKLM\Software through Wow6432Node where that view has the key,
+        // unless it asks for the 64-bit view (KEY_WOW64_64KEY: NSIS $PROGRAMFILES64, Inno's
+        // 64-bit installs); KEY_WOW64_32KEY asks for the 32-bit view from any program
         const SW: &str = "\\registry\\machine\\software\\";
-        if self.s.wow64 && p.starts_with(SW) && !p[SW.len()..].starts_with("wow6432node") {
+        let view32 = (self.s.wow64 && access & 0x100 == 0) || access & 0x200 != 0;
+        if view32 && p.starts_with(SW) && !p[SW.len()..].starts_with("wow6432node") {
             let r = format!("{}wow6432node\\{}", SW, &p[SW.len()..]);
             if self.s.fs.reg.keys.contains_key(&r) {
                 return Some(r);
@@ -305,7 +308,7 @@ impl Engine {
         }
         // below a redirected key, a key only the 64-bit view has is still found there
         const W: &str = "\\registry\\machine\\software\\wow6432node\\";
-        if self.s.wow64 && p.starts_with(W) && !self.s.fs.reg.keys.contains_key(&p) {
+        if (self.s.wow64 || access & 0x100 != 0) && p.starts_with(W) && !self.s.fs.reg.keys.contains_key(&p) {
             let r = format!("{}{}", SW, &p[W.len()..]);
             if self.s.fs.reg.keys.contains_key(&r) {
                 return Some(r);
@@ -417,7 +420,8 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "NtCreateKey" | "NtOpenKey" | "NtOpenKeyEx" | "NtOpenKeyTransacted" | "NtOpenKeyTransactedEx" => {
             // (handle*, access, attributes, ...); NtCreateKey: (.., title index, class, options, disposition*)
             let oa = e.arg(2);
-            let Some(p) = e.key_path(oa) else { return Some(INVALID_HANDLE) };
+            let access = e.arg(1) as u32;
+            let Some(p) = e.key_path(oa, access) else { return Some(INVALID_HANDLE) };
             if name == "NtCreateKey" {
                 let new = e.s.fs.reg.create(&p);
                 let disp = e.arg(6);
