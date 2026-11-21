@@ -531,6 +531,10 @@ async function runExec(d) {
     const have = new Set(files.map((f) => f.name.toLowerCase()));
     const wine = await Promise.all(list.filter((n) => !have.has(n)).map(async (name) => ({ name, data: await fetch('bin/wine/' + name + '?v=3').then((r) => r.arrayBuffer()) })));
     files = files.concat(wine);
+    // kernelbase's locale data (locale names, formats, sorting), shared with the 32-bit set
+    const nls = ['locale.nls', 'sortdefault.nls'].filter((n) => !have.has(n));
+    files = files.concat(await Promise.all(nls.map(async (name) => ({ name, data: await fetch('bin/wine32/' + name + '?v=2').then((r) => r.arrayBuffer()) }))));
+    nls.forEach((n) => have.add(n));
     // a 32-bit program (PE32, i386) also needs Wine's 32-bit DLLs and the WoW64 layer
     const exe = files.find((f) => f.name.toLowerCase() === (d.exe || '').toLowerCase());
     // a program on drive C: is still on disk: its first 4 KB tell

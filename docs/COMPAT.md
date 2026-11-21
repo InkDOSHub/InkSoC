@@ -38,7 +38,9 @@ Last run: 2026-11-21. Clean units (no failures) per DLL. 98.4% of all checks pas
 
 Known causes still open:
 
-- kernelbase `GetCalendarInfoW` access violation (locale).
+- kernelbase locale table never loaded (its DllMain is skipped): `NlsValidateLocale` reads NULL. Fix in PR #31.
+- kernel32 `heap` unit: `RtlWalkHeap`, `GetProcessHeaps` and `HeapValidate` are not real yet.
+- ntdll `exception` unit now finishes (hung before #30). Still failing: debug registers, single step (TF), WoW64 contexts.
 - Loader lock held in `LdrEnumerateLoadedModules`.
 - ntdll `pipe` and `sync` units deadlock; `threadpool` times out.
 - ntdll `file` unit access violations inside the test.
