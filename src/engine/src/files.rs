@@ -139,6 +139,12 @@ pub fn set_home(win: &str) {
         HOME_WIN = w;
     }
 }
+impl crate::Engine {
+    /// Folder of the running program (a child started from another folder has its own).
+    pub fn image_dir(&self) -> String {
+        if self.s.image_dir.contains(':') { self.s.image_dir.clone() } else { home_win() }
+    }
+}
 #[allow(static_mut_refs)]
 pub fn home_win() -> String {
     unsafe {

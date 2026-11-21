@@ -127,8 +127,9 @@ impl Engine {
         let std = self.s.std;
         for (k, h) in std.iter().enumerate() { self.w32(p + 0x18 + 4 * k as u64, *h as u32); }
         self.us32(p + 0x24, &format!("{}\\", crate::files::home_win()));
-        self.us32(p + 0x30, &format!("{};C:\\Windows\\SysWOW64", crate::files::home_win()));
-        self.us32(p + 0x38, &format!("{}\\{}", crate::files::home_win(), name));
+        let dir = self.image_dir();
+        self.us32(p + 0x30, &format!("{};C:\\Windows\\SysWOW64", dir));
+        self.us32(p + 0x38, &format!("{}\\{}", dir, name));
         self.us32(p + 0x40, cmd);
         let env = self.s.env_block;
         let pp = self.r64(PEB + 0x20);

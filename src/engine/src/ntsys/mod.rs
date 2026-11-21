@@ -71,7 +71,8 @@ impl Engine {
         self.w64(a + 0x30, base);
         self.w64(a + 0x38, entry);
         self.w32(a + 0x40, size as u32);
-        for (off, text) in [(0x48u64, format!("C:\\Windows\\System32\\{}", name)), (0x58, name)] {
+        let full = if base == self.s.exe_base { format!("{}\\{}", self.image_dir(), name) } else { format!("C:\\Windows\\System32\\{}", name) };
+        for (off, text) in [(0x48u64, full), (0x58, name)] {
             let w: Vec<u16> = text.encode_utf16().collect();
             let b = self.heap_alloc(2 * w.len() as u64 + 2, true);
             for (k, c) in w.iter().enumerate() {

@@ -623,6 +623,7 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "GetModuleFileNameA" | "GetModuleFileNameW" => {
             let (buf, n) = (e.arg(1), e.arg(2));
             let path = match e.module_by_handle(a0) {
+                Some(i) if e.s.modules[i].base == e.s.exe_base => format!("{}\\{}", e.image_dir(), e.s.modules[i].name),
                 Some(i) => format!("{}\\{}", crate::files::home_win(), e.s.modules[i].name),
                 None => {
                     e.set_last_error(126);

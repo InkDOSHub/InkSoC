@@ -474,8 +474,9 @@ impl Engine {
         self.w64(p + 0x28, std[1]);
         self.w64(p + 0x30, std[2]);
         us(self, p + 0x38, &format!("{}\\", crate::files::home_win()));
-        us(self, p + 0x50, &format!("{};C:\\Windows\\System32", crate::files::home_win()));
-        us(self, p + 0x60, &format!("{}\\{}", crate::files::home_win(), exe));
+        let dir = self.image_dir();
+        us(self, p + 0x50, &format!("{};C:\\Windows\\System32", dir));
+        us(self, p + 0x60, &format!("{}\\{}", dir, exe));
         let cmd = self.read_wstr(self.s.cmdline.1, 32768);
         us(self, p + 0x70, &cmd);
         // the usual Windows variables (installers read ProgramFiles / ProgramW6432 for their default folder)
