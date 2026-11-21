@@ -448,7 +448,7 @@ fn create_user_process(e: &mut Engine) -> u64 {
         if unsafe { crate::WINE_DEBUG } > 0 { crate::console(&format!("[inksoc] CreateProcess: {} not found\n", image)); }
         return 0xC000_0034; // OBJECT_NAME_NOT_FOUND
     };
-    let (pid, tid, th) = match e.create_process(&image, &cmd, env, std, tflags & 1 != 0) {
+    let (pid, tid, th) = match e.create_process(&image, raw.rsplit_once('\\').map_or("", |(d, _)| d), &cmd, env, std, tflags & 1 != 0) {
         Ok(r) => r,
         Err(m) => {
             crate::console(&format!("[inksoc] CreateProcess {}: {}\n", image, m));

@@ -35,6 +35,7 @@ pub struct ProcSave {
     std: [u64; 3],
     user_shared: bool,
     dll_dirs: Vec<String>,
+    image_dir: String,
     images: HashMap<u64, u64>,
     image_files: HashMap<u64, String>,
     image_slots: HashMap<String, u64>,
@@ -75,6 +76,7 @@ impl Engine {
         swap(&mut s.std, &mut p.std);
         swap(&mut s.user_shared, &mut p.user_shared);
         swap(&mut s.dll_dirs, &mut p.dll_dirs);
+        swap(&mut s.image_dir, &mut p.image_dir);
         swap(&mut s.images, &mut p.images);
         swap(&mut s.image_files, &mut p.image_files);
         swap(&mut s.image_slots, &mut p.image_slots);
@@ -153,7 +155,7 @@ impl Engine {
 
     /// CreateProcess: loads `exe` in a new address space with its own PEB and
     /// main thread. Returns (process id, thread id, thread handle).
-    pub fn create_process(&mut self, exe: &str, cmd: &str, env: Vec<u16>, std: [u64; 3], suspended: bool) -> Result<(u32, u32, u64), String> {
+    pub fn create_process(&mut self, exe: &str, dir: &str, cmd: &str, env: Vec<u16>, std: [u64; 3], suspended: bool) -> Result<(u32, u32, u64), String> {
         let bytes = self.s.files.get_copy(exe).ok_or_else(|| format!("{} not found", exe))?;
         let parent = self.s.wpid;
         // the GDI handle table: every process sees it at the same place (shared memory in
@@ -173,6 +175,9 @@ impl Engine {
         self.s.wow64 = wow; // before the process parameters: a 32-bit program sees the 32-bit folders
         self.s.next_dll = 0x0000_7FF0_0000_0000;
         self.s.std = std;
+        // the program's own folder: its path for GetModuleFileName, and searched for its DLLs
+        self.s.image_dir = dir.trim_end_matches('\\').to_string();
+        if let Some(k) = crate::files::key_of(dir).filter(|k| !k.is_empty()) { self.s.dll_dirs.push(k); }
         self.s.wpid = id;
         self.mmu.set_asid(id);
         let saved_cpu = std::mem::replace(&mut self.cpu, crate::cpu::Cpu::new());

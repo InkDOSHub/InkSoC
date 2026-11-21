@@ -80,7 +80,7 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                     std[k] = e.r64(si + 80 + 8 * k as u64);
                 }
             }
-            match e.create_process(&exe, &cmd, env, std, flags & 4 != 0) {
+            match e.create_process(&exe, "", &cmd, env, std, flags & 4 != 0) {
                 Ok((pid, tid, th)) => {
                     let ph = e.new_handle(crate::files::Handle::Process { pid });
                     e.w64(pi, ph);
