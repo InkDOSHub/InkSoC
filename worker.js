@@ -135,6 +135,8 @@ async function runEngine({ files, exe, cmd, poolMb, targetMb, poke, jit, shared,
       post('log', { text: t });
     },
     host_epoch_ms: () => Date.now(),
+    host_fetch: (p, n) => lazyFetch(new TextDecoder().decode(new Uint8Array(mem.buffer, p >>> 0, n).slice())),
+    host_fetch_copy: (p) => { new Uint8Array(mem.buffer, p >>> 0, lazyDll.length).set(lazyDll); lazyDll = null; },
     host_random: (p, n) => { const v = new Uint8Array(mem.buffer, p >>> 0, n); for (let i = 0; i < n; i += 65536) { const b = new Uint8Array(Math.min(65536, n - i)); crypto.getRandomValues(b); v.set(b, i); } },
     host_swap_write: (slot, p) => {
       const t = performance.now();
@@ -653,3 +655,20 @@ onmessage = (ev) => {
   const go = { exec: runExec, opfs: opfsLatency, calibrate, hold, 'tex-init': texInit, 'tex-get': texGet, 'tex-done': texDone }[d.type];
   if (go) go(d).catch((e) => post('done', { ok: false, error: String(e && e.message || e) }));
 };
+
+// Wine DLLs not loaded up front (rarely used ones): fetched the first time a program needs one
+// (a synchronous request: the engine waits for it); store.rs want_file
+let lazyDll = null;
+const lazyMiss = new Set();
+function lazyFetch(name) {
+  if (lazyMiss.has(name)) return 0;
+  try {
+    const r = new XMLHttpRequest();
+    r.open('GET', (name.startsWith('wine32-') ? 'bin/wine32/' : 'bin/wine/') + name + '?v=1', false);
+    r.responseType = 'arraybuffer';
+    r.send();
+    if (r.status === 200 && r.response && r.response.byteLength) { lazyDll = new Uint8Array(r.response); return lazyDll.length; }
+  } catch (e) { /* offline or blocked: the program sees the DLL as missing */ }
+  lazyMiss.add(name);
+  return 0;
+}

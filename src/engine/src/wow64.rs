@@ -103,6 +103,7 @@ impl Engine {
         let (exe, _, _) = pe::map_image(self, bytes, None)?;
         self.s.exe_base = exe;
         self.s.wow64_ntdll = ntdll32;
+        self.wow64_debug(ntdll32);
 
         // LdrSystemDllInitBlock of both ntdlls (what Wine's Unix side fills)
         let nt64 = pe::find_module(self, "wine-ntdll.dll").map(|i| self.s.modules[i].base).unwrap_or(0);
@@ -158,5 +159,34 @@ impl Engine {
         self.s.exe_entry = init_thunk;
         self.s.wow64_ctx = ctx;
         Ok(())
+    }
+
+    /// Wine's 32-bit debug channels: its ntdll prints through its own Unix call (the
+    /// engine's NTDLL32 handle) and reads the channel table after the 32-bit PEB
+    /// (sorted names, then the default flags), like WINEDEBUG fills it.
+    fn wow64_debug(&mut self, ntdll32: u64) {
+        if let Some(a) = pe::export_addr(self, ntdll32, "__wine_unixlib_handle") {
+            self.w64(a, crate::unixlib::NTDLL32);
+        }
+        let level = unsafe { crate::WINE_DEBUG }.min(3);
+        if level == 0 {
+            return;
+        }
+        #[allow(static_mut_refs)]
+        let mut chans: Vec<String> = if level == 3 { unsafe { crate::WINE_TRACE.clone() } } else { Vec::new() };
+        chans.sort();
+        chans.dedup();
+        let table = PEB32 + 0x1000;
+        let mut at = table;
+        for c in &chans {
+            self.w8(at, 15);
+            for (k, b) in c.bytes().take(14).enumerate() {
+                self.w8(at + 1 + k as u64, b);
+            }
+            at += 16;
+        }
+        // the default: fixme+err (1), +warn (2), +trace (3, unless only some channels are traced)
+        let def = if level == 3 && !chans.is_empty() { 7 } else { (2u8 << level) - 1 };
+        self.w8(at, def);
     }
 }

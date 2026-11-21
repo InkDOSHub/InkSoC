@@ -33,7 +33,7 @@ impl Engine {
             || n.starts_with("api-ms-win-")
             || n.starts_with("ext-ms-")
             || self.s.files.contains_key(&n)
-            || self.s.files.contains_key(&format!("wine-{}", n))
+            || self.want_file(&format!("wine-{}", n))
             || crate::files::key_of(name).map_or(false, |k| self.s.files.contains_key(&k))
             || self.s.dll_dirs.iter().any(|d| self.s.files.contains_key(&format!("{}\\{}", d, n)));
         if !known {

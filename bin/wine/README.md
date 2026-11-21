@@ -20,3 +20,7 @@ Wine
 The engine hands it to crypt32 the way Wine's Unix side hands over the system's
 roots, so programs that check HTTPS certificates with CryptoAPI trust the same
 authorities as a browser.
+
+Loaded on demand: `wine-*.dll` files that are not in `list.json` (for example `wtsapi32`,
+`msvcr120`, `dinput8`, `rsaenh`) are fetched the first time a program needs one (worker.js
+`lazyFetch`, engine `want_file`), so they cost nothing until used.

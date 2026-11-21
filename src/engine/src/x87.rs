@@ -268,6 +268,53 @@ pub fn x87(e: &mut Engine, d: &mut Dec, rip: u64, rex: u8, op: u8) {
                     e.fpop();
                 }
             }
+            (0xDF, 4) => {
+                // fbld: 18 packed BCD digits, sign in byte 9
+                let mut b = [0u8; 10];
+                if e.mmu.read_bytes(a, &mut b).is_err() {
+                    e.fault(a);
+                    return;
+                }
+                let mut n: i64 = 0;
+                for i in (0..9).rev() {
+                    n = n * 100 + ((b[i] >> 4) & 15) as i64 * 10 + (b[i] & 15) as i64;
+                }
+                if b[9] & 0x80 != 0 {
+                    n = -n;
+                }
+                e.fpush(F80::from_i64(n));
+            }
+            (0xDF, 6) => {
+                // fbstp: round per RC, store packed BCD, pop
+                let mut b = [0u8; 10];
+                let r = e.st(0).to_i64(e.rc());
+                match r {
+                    Some(v) if v.unsigned_abs() < 1_000_000_000_000_000_000 => {
+                        let mut m = v.unsigned_abs();
+                        for x in b.iter_mut().take(9) {
+                            let lo = (m % 10) as u8;
+                            m /= 10;
+                            let hi = (m % 10) as u8;
+                            m /= 10;
+                            *x = hi << 4 | lo;
+                        }
+                        if v < 0 {
+                            b[9] = 0x80;
+                        }
+                    }
+                    _ => {
+                        // packed BCD indefinite
+                        b[7] = 0xC0;
+                        b[8] = 0xFF;
+                        b[9] = 0xFF;
+                    }
+                }
+                if e.mmu.write_bytes(a, &b).is_err() {
+                    e.fault(a);
+                    return;
+                }
+                e.fpop();
+            }
             (0xDF, 5) => {
                 let v = F80::from_i64(rd!(read64) as i64);
                 e.fpush(v);

@@ -494,3 +494,40 @@ impl std::ops::Index<&String> for Store {
         self.get(k).expect("file")
     }
 }
+
+// Wine DLLs the page does not load up front (bin/wine/wine-<name>, bin/wine32/wine32-<name>):
+// fetched the first time a program opens or loads one. host_fetch returns the size (0: none),
+// then host_fetch_copy copies it.
+#[cfg(not(test))]
+#[link(wasm_import_module = "env")]
+extern "C" {
+    fn host_fetch(name: *const u8, len: u32) -> u32;
+    fn host_fetch_copy(ptr: *mut u8);
+}
+#[cfg(test)]
+unsafe fn host_fetch(_name: *const u8, _len: u32) -> u32 {
+    0
+}
+#[cfg(test)]
+unsafe fn host_fetch_copy(_ptr: *mut u8) {}
+
+impl crate::Engine {
+    /// True when `key` is a file now: a Wine DLL that was not loaded up front comes from the page.
+    pub(crate) fn want_file(&mut self, key: &str) -> bool {
+        if self.s.files.contains_key(key) {
+            return true;
+        }
+        let k = key.to_ascii_lowercase();
+        if !(k.starts_with("wine-") || k.starts_with("wine32-")) || k.contains('\\') || !(k.ends_with(".dll") || k.ends_with(".drv")) {
+            return false;
+        }
+        let n = unsafe { host_fetch(k.as_ptr(), k.len() as u32) };
+        if n == 0 {
+            return false;
+        }
+        let mut v = vec![0u8; n as usize];
+        unsafe { host_fetch_copy(v.as_mut_ptr()) };
+        self.s.files.insert(k, v);
+        true
+    }
+}

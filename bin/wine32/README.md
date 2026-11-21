@@ -17,3 +17,7 @@ come along; opengl32's unix calls reach the engine with 32-bit structures (4-byt
 
 Wine is free software under the GNU Lesser General Public License 2.1 or later
 (https://www.winehq.org/license). Source: https://dl.winehq.org/wine/source/11.0/
+
+Loaded on demand: the `wine32-*.dll` files that are not in `list.json` (for example
+`wtsapi32`, `msvcr120`, `dinput8`, `xinput1_3`) are fetched the first time a program needs
+one (worker.js `lazyFetch`, engine `want_file`), so they cost nothing until used.
