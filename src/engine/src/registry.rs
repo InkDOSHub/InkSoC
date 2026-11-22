@@ -157,6 +157,37 @@ impl Registry {
                 }
             }
         }
+        self.wine_registrations();
+    }
+    /// What wineboot writes when it registers Wine's DLLs (tools/winereg.py takes it from
+    /// their .rgs resources): the COM classes CoCreateInstance finds by CLSID (ShellLink,
+    /// the GIT, file dialogs...), interfaces and type libraries, MIME types, time zones and
+    /// the NLS tables. Values already there are kept.
+    fn wine_registrations(&mut self) {
+        let mut cur = String::new();
+        for line in include_str!("winereg.txt").lines() {
+            if let Some(k) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+                cur = format!("\\Registry\\Machine\\{}", k);
+                self.create(&cur);
+                continue;
+            }
+            let mut f = line.splitn(3, '\t');
+            let (Some(n), Some(t), Some(v)) = (f.next(), f.next(), f.next()) else { continue };
+            let (t, d) = match t {
+                "d" => (4, v.parse::<u32>().unwrap_or(0).to_le_bytes().to_vec()),
+                "b" => (3, (0..v.len() / 2).filter_map(|i| u8::from_str_radix(&v[2 * i..2 * i + 2], 16).ok()).collect()),
+                _ => {
+                    let mut d = utf16(v);
+                    d.extend_from_slice(&[0, 0]);
+                    (1, d)
+                }
+            };
+            if let Some(k) = self.keys.get_mut(&cur.to_lowercase()) {
+                if !k.values.iter().any(|(m, _, _)| m.eq_ignore_ascii_case(n)) {
+                    k.values.push((n.to_string(), t, d));
+                }
+            }
+        }
     }
     /// The trusted root certificates (roots.der, DER one after another) as Wine's crypt32
     /// keeps them once imported: HKLM\...\SystemCertificates\Root\Certificates\<SHA-1>
