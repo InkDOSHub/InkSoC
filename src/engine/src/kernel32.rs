@@ -454,8 +454,8 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             0
         }
 
-        // ---- TLS / FLS (64 slots in the TEB) ----
-        "TlsAlloc" | "FlsAlloc" => match (0..64).find(|i| e.s.tls_used & (1 << i) == 0) {
+        // ---- TLS (64 slots in the TEB); FLS is Wine's own (ntdll RtlFls*, per fiber) ----
+        "TlsAlloc" => match (0..64).find(|i| e.s.tls_used & (1 << i) == 0) {
             Some(i) => {
                 e.s.tls_used |= 1 << i;
                 e.w64(e.cpu.gs_base + 0x1480 + 8 * i, 0);
@@ -463,13 +463,13 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             }
             None => 0xFFFF_FFFF,
         },
-        "TlsFree" | "FlsFree" => {
+        "TlsFree" => {
             if a0 < 64 {
                 e.s.tls_used &= !(1 << a0);
             }
             1
         }
-        "TlsGetValue" | "FlsGetValue" => {
+        "TlsGetValue" => {
             e.set_last_error(0);
             if a0 < 64 {
                 e.r64(e.cpu.gs_base + 0x1480 + 8 * a0)
@@ -477,7 +477,7 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 0
             }
         }
-        "TlsSetValue" | "FlsSetValue" => {
+        "TlsSetValue" => {
             let v = e.arg(1);
             if a0 < 64 {
                 e.w64(e.cpu.gs_base + 0x1480 + 8 * a0, v);
