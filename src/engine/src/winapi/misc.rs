@@ -141,7 +141,18 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             }
             0
         }
-        "FlsGetValue2" => e.r64(e.cpu.gs_base + 0x1480 + 8 * a0.min(63)),
+        "FlsGetValue2" => {
+            // Wine's TEB_FLS_DATA (TEB+0x17C8): LIST_ENTRY, then 8 chunks of 0x10 << i
+            // slots; slot 0 of each chunk is reserved
+            let fls = e.r64(e.cpu.gs_base + 0x17C8);
+            let (mut i, mut c) = (a0, 0u64);
+            while c < 8 && i >= 0x10 << c {
+                i -= 0x10 << c;
+                c += 1;
+            }
+            let chunk = if fls == 0 || c >= 8 { 0 } else { e.r64(fls + 0x10 + 8 * c) };
+            if chunk == 0 { 0 } else { e.r64(chunk + 8 * (i + 1)) }
+        }
         "TlsGetValue2" => e.r64(e.cpu.gs_base + 0x1480 + 8 * a0.min(63)),
         "EventRegister" | "EventUnregister" | "EventSetInformation" | "EventWriteTransfer" | "EventWrite" => 0,
         "OutputDebugStringW" => {
