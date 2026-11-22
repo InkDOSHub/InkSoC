@@ -8,26 +8,27 @@ This page tracks how well the engine runs real Windows programs. It is updated a
 
 ## Program corpus
 
-Last run: 2026-11-21, after PR #37 (Wine DLLs on demand, x87 BCD). **23 of 30 pass** (22/29 before; libreoffice passes again).
+Last run: 2026-11-22, after PR #41 (bcrypt keys, COM registrations). **23 of 30 pass**, plus nasm32, which passes when its download works: in this run its download step failed, and the program never ran. Inno Setup passes since #40.
 
 | Program | Status | Cause |
 |---|---|---|
 | cmd, winemine, 7zip, python, putty64 | pass (gate) | |
-| steam-setup, python-bench, node, sqlite, ripgrep, rclone-go, 7zr-bench, plink, jq, putty32, sumatra, everything, npp32-portable, rufus, nasm32 | pass | |
+| steam-setup, python-bench, node, sqlite, ripgrep, rclone-go, 7zr-bench, plink, jq, putty32, sumatra, everything, npp32-portable, rufus | pass | |
+| nasm32 | pass | Last run: the CI download step failed, not the engine. |
 | npp-nsis | pass | Fixed by PR #27 (access violations go to the program's SEH handlers). |
 | 7zip32 | pass | Fixed by #33/#34 (Wow6432Node registry view, KEY_WOW64_64KEY honored). |
 | libreoffice | pass | 400 MB MSI. |
-| innosetup-delphi | fail | Installs since #37/#38. Compil32 now stops at `BCryptImportKeyPair` (RSA keys are not implemented, 0xC0000002). |
-| winmerge-inno-mfc | fail | Inno installer; same class as innosetup-delphi. |
-| keepassxc-qt-msi | fail | Error 1627 inside msi's 32-bit custom action server. |
+| innosetup-delphi | pass | Fixed by #37 (x87 BCD), #38 (child program folder), #40 (bcrypt RSA keys). |
+| winmerge-inno-mfc | fail | The installer finishes; WinMergeU.exe, which it then starts, crashes at its first window (rip inside imm32's data section: a bad call target). |
+| keepassxc-qt-msi | fail | Error 1627: msi's 32-bit custom action DLL thread never runs. |
 | audacity-wx | fail | Unhandled access violation (null + 0x10) in lib-crashpad-configurer. |
 | winrar | fail | Timeout. |
-| coreinfo | fail | Needs instructions the engine lacks (SSE2 path). |
+| coreinfo | fail | "Error getting processor information" (processor topology queries). |
 | busybox64 | fail | Download URL returns 403. |
 
 ## Wine conformance tests
 
-Last run: 2026-11-21, after #37. Clean units (no failures) per DLL. 98.5% of all 7.38 million checks pass; 31/192 units clean.
+Last run: 2026-11-22, after #41. Clean units (no failures) per DLL. 98.5% of 7.39 million checks pass; **32/192 units clean** (31 before #41). With the COM classes registered, more units get further: advapi32 now runs 4244 checks (321 before), ole32 and shell32 run about 1000 more.
 
 | DLL | Clean units | Checks passed | Week 1 (2026-11-20) |
 |---|---|---|---|
@@ -37,9 +38,9 @@ Last run: 2026-11-21, after #37. Clean units (no failures) per DLL. 98.5% of all
 | gdi32 | 2/14 | 94.6% | 2/14 |
 | ucrtbase | 3/8 | 100.0% (55 failures) | 3/8 |
 | msvcrt | 4/13 | 99.5% | |
-| advapi32 | 2/12 | 99.4% | |
-| ole32 | 3/14 | 92.5% | |
-| shell32 | 2/19 | 89.2% | |
+| advapi32 | 2/12 | 83.0% of 4244 (99.4% of 321 before) | |
+| ole32 | 3/14 | 92.7% | |
+| shell32 | 3/19 | 87.9% | |
 | comctl32 | 1/29 | 97.1% | |
 
 Known causes still open:
@@ -48,7 +49,7 @@ Known causes still open:
 - GDI handle validation (gdiobj, cursoricon units: access violations on invalid handles).
 - kernel32 `heap` unit: `RtlWalkHeap`, `GetProcessHeaps` and `HeapValidate` are not real yet.
 - ntdll `sync` (keyed events) and `pipe` deadlocks; `threadpool` times out.
-- ntdll `exception`: debug registers, single step (TF), WoW64 contexts.
+- advapi32: `SystemFunction001/007/032` (cryptsp, cryptbase) not implemented.
 
 ## Fixed
 
@@ -64,12 +65,15 @@ Known causes still open:
 | #36 | Alertable pipe waits; `RtlWaitOnAddress` size check; 32-bit msiexec for .msi custom actions; `ConnectNamedPipe` after a waiting client. |
 | #37 | 41 more Wine DLLs per architecture loaded on demand (wtsapi32, cfgmgr32, DirectInput, XInput, MSVC 2010/2013 runtimes...); 32-bit Wine debug output; x87 `FBLD`/`FBSTP` (Delphi). |
 | #38 | A child process gets its own program folder (image path, DLL search, `GetModuleFileName`). |
+| #40 | bcrypt RSA and ECC keys without GnuTLS: import, export, RSA PKCS#1/PSS and ECDSA P-256/384/521 verification (Inno Setup). |
+| #41 | Registrations that wineboot writes, taken from the Wine DLLs' `.rgs` resources: COM classes (`CoCreateInstance` no longer fails with `REGDB_E_CLASSNOTREG`), interfaces, type libraries, MIME types, time zones, NLS tables. |
+| #42 | win32u input contexts (imm32's default context was NULL); empty rectangle intersections no longer panic in `ExtTextOut`. |
 
 ## Next
 
-1. bcrypt RSA keys (`BCryptImportKeyPair`): Inno Setup, WinMerge, any signed-update check.
+1. WinMergeU crash at first window (bad call target in imm32's data).
 2. msi 32-bit custom actions (1627): KeePassXC.
 3. NULL-returning APIs that crash test units (clipboard, dde, path, menu).
 4. GDI handle validation.
 5. Heap walk: `RtlWalkHeap`, `GetProcessHeaps`, `HeapValidate`.
-6. New busybox64 download URL.
+6. coreinfo processor topology; new busybox64 download URL.
