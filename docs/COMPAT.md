@@ -8,7 +8,7 @@ This page tracks how well the engine runs real Windows programs. It is updated a
 
 ## Program corpus
 
-Last run: 2026-11-22, after PR #42 (input contexts). **24 of 30 pass.** Inno Setup passes since #40.
+Last run: 2026-11-22, after PR #46 (clipboard). **24 of 30 pass**, unchanged since #42. Inno Setup passes since #40.
 
 | Program | Status | Cause |
 |---|---|---|
@@ -28,7 +28,7 @@ Last run: 2026-11-22, after PR #42 (input contexts). **24 of 30 pass.** Inno Set
 
 ## Wine conformance tests
 
-Last run: 2026-11-22, after #42 (comctl32, gdi32, shell32 and user32 re-run; the other DLLs as after #41). Clean units (no failures) per DLL. 98.5% of 7.39 million checks pass; **32/192 units clean** (31 before #41). comctl32 misc no longer stops with an engine panic. With the COM classes registered, more units get further: advapi32 now runs 4244 checks (321 before), ole32 and shell32 run about 1000 more.
+Last run: 2026-11-22, after #46 (all DLLs re-run). Same score as after #42; #44 and #46 let gdi32, ole32 and user32's clipboard unit run further before stopping. Clean units (no failures) per DLL. 98.5% of 7.40 million checks pass; **32/192 units clean** (31 before #41). comctl32 misc no longer stops with an engine panic. With the COM classes registered, more units get further: advapi32 now runs 4244 checks (321 before), ole32 and shell32 run about 1000 more.
 
 | DLL | Clean units | Checks passed | Week 1 (2026-11-20) |
 |---|---|---|---|
@@ -39,13 +39,14 @@ Last run: 2026-11-22, after #42 (comctl32, gdi32, shell32 and user32 re-run; the
 | ucrtbase | 3/8 | 100.0% (55 failures) | 3/8 |
 | msvcrt | 4/13 | 99.5% | |
 | advapi32 | 2/12 | 83.0% of 4244 (99.4% of 321 before) | |
-| ole32 | 3/14 | 92.7% | |
+| ole32 | 3/14 | 93.5% | |
 | shell32 | 3/19 | 87.9% | |
-| comctl32 | 1/29 | 96.9% of 19593 (590 more checks run) | |
+| comctl32 | 1/29 | 97.3% of 25031 | |
 
 Known causes still open:
 
-- Crashes from APIs that return NULL where Windows returns data (clipboard, dde, om, path, menu units then crash in `strcmp`/`strlen`).
+- Crashes from APIs that return NULL where Windows returns data (dde, om, path, menu units then crash in `strcmp`/`strlen`).
+- user32 clipboard: rendering on request (`WM_RENDERFORMAT`) and bitmap/metafile synthesis are not done yet.
 - kernel32 `heap` unit: `RtlWalkHeap`, `GetProcessHeaps` and `HeapValidate` are not real yet.
 - ntdll `sync` (keyed events) and `pipe` deadlocks; `threadpool` times out.
 - advapi32: `SystemFunction001/007/032` (cryptsp, cryptbase) not implemented.
@@ -68,11 +69,13 @@ Known causes still open:
 | #41 | Registrations that wineboot writes, taken from the Wine DLLs' `.rgs` resources: COM classes (`CoCreateInstance` no longer fails with `REGDB_E_CLASSNOTREG`), interfaces, type libraries, MIME types, time zones, NLS tables. |
 | #42 | win32u input contexts (imm32's default context was NULL); empty rectangle intersections no longer panic in `ExtTextOut`. |
 | #44 | The whole GDI handle table is committed: gdi32's lookup of an unused or bogus handle no longer faults (gdiobj, cursoricon, shlfileop). |
+| #46 | A clipboard shared by every process (copy and paste failed before): data with win32u's per-process cache, CF_TEXT/CF_UNICODETEXT/CF_OEMTEXT/CF_LOCALE synthesis, format enumeration and names, viewer chain, format listeners. |
+| #47 | Clipboard ownership as wineserver has it (a thread that ends releases it); class names, window messages, clipboard formats and window properties share one case-insensitive global atom table. |
 
 ## Next
 
 1. WinMergeU crash at first window (bad call target in imm32's data).
 2. msi 32-bit custom actions (1627): KeePassXC.
-3. NULL-returning APIs that crash test units (clipboard, dde, path, menu).
+3. NULL-returning APIs that crash test units (dde, path, menu).
 4. Heap walk: `RtlWalkHeap`, `GetProcessHeaps`, `HeapValidate`.
 5. coreinfo processor topology; new busybox64 download URL.
