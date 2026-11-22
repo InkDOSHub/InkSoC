@@ -23,4 +23,6 @@ authorities as a browser.
 
 Loaded on demand: `wine-*.dll` files that are not in `list.json` (for example `wtsapi32`,
 `msvcr120`, `dinput8`, `rsaenh`) are fetched the first time a program needs one (worker.js
-`lazyFetch`, engine `want_file`), so they cost nothing until used.
+`lazyFetch`, engine `want_file`), so they cost nothing until used. This includes the older
+Visual C++ runtimes (msvcr70-110, msvcp60-110, vcomp, atl), msxml3/6, vbscript, jscript,
+scrrun, cryptsp/cryptbase/cryptnet/cryptui, XAudio2 2.7-2.9, d3dx9_36 and d3dcompiler_43.
