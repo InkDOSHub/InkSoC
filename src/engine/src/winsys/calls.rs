@@ -1070,8 +1070,15 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             // (atom, UNICODE_STRING*): a class atom's name (user32 turns MAKEINTATOM class names into strings)
             e.register_builtins();
             let (atom, us) = (a0 as u16, ar[1]);
-            let Some(i) = e.find_class("", atom) else { return Some(0) };
-            let n = e.s.win.classes[i].name.clone();
+            let n = match e.find_class("", atom) {
+                Some(i) => e.s.win.classes[i].name.clone(),
+                // global atoms (registered clipboard formats, RegisterWindowMessage)
+                None if atom >= 0xC000 => match e.s.atoms.get((atom - 0xC000) as usize) {
+                    Some(n) => n.clone(),
+                    None => return Some(0),
+                },
+                None => return Some(0),
+            };
             let buf = e.r64(us + 8);
             let max = e.r16(us + 2) as usize / 2;
             let k = e.put_w(buf, &n, max);
@@ -1086,8 +1093,6 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
             9 => now_ms() as u32 as u64,
             _ => 0,
         },
-        "NtUserIsClipboardFormatAvailable" | "NtUserOpenClipboard" | "NtUserCloseClipboard" | "NtUserEmptyClipboard" => 0,
-        "NtUserGetClipboardSequenceNumber" => 1,
         "NtUserMessageBeep" | "NtUserFlashWindowEx" => 1,
         "NtUserGetWindowPlacement" => {
             let p = ar[1];
@@ -1264,11 +1269,6 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "NtUserIsTouchWindow" => 0,
         "NtUserRedrawFrame" => 1,
         "NtUserGetControlBrush" | "NtUserGetControlColor" => e.sys_brush(15),
-        "NtUserCountClipboardFormats"
-        | "NtUserGetPriorityClipboardFormat"
-        | "NtUserGetClipboardOwner"
-        | "NtUserGetClipboardViewer"
-        | "NtUserGetOpenClipboardWindow" => 0,
         "NtUserWaitForInputIdle" => 0,
         "NtUserExcludeUpdateRgn" => 1,
         "NtUserSetShellWindowEx" | "NtUserSetProgmanWindow" | "NtUserSetTaskmanWindow" => 1,
@@ -1292,6 +1292,7 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "NtUserCloseWindow" | "NtUserOpenIcon" => 1,
         "NtUserSelectPalette" => return crate::wingdi::call(e, name),
         "NtUserRealizePalette" => 0,
+        _ if name.contains("Clipboard") => return e.clip_call(name, &ar).or(Some(0)),
         _ if name.contains("InputContext") || name == "NtUserBuildHimcList" || name == "NtUserDisableThreadIme" => {
             return e.imc_call(name, &ar);
         }
