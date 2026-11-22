@@ -8,13 +8,13 @@ This page tracks how well the engine runs real Windows programs. It is updated a
 
 ## Program corpus
 
-Last run: 2026-11-22, after PR #41 (bcrypt keys, COM registrations). **23 of 30 pass**, plus nasm32, which passes when its download works: in this run its download step failed, and the program never ran. Inno Setup passes since #40.
+Last run: 2026-11-22, after PR #42 (input contexts). **24 of 30 pass.** Inno Setup passes since #40.
 
 | Program | Status | Cause |
 |---|---|---|
 | cmd, winemine, 7zip, python, putty64 | pass (gate) | |
 | steam-setup, python-bench, node, sqlite, ripgrep, rclone-go, 7zr-bench, plink, jq, putty32, sumatra, everything, npp32-portable, rufus | pass | |
-| nasm32 | pass | Last run: the CI download step failed, not the engine. |
+| nasm32 | pass | |
 | npp-nsis | pass | Fixed by PR #27 (access violations go to the program's SEH handlers). |
 | 7zip32 | pass | Fixed by #33/#34 (Wow6432Node registry view, KEY_WOW64_64KEY honored). |
 | libreoffice | pass | 400 MB MSI. |
@@ -28,7 +28,7 @@ Last run: 2026-11-22, after PR #41 (bcrypt keys, COM registrations). **23 of 30 
 
 ## Wine conformance tests
 
-Last run: 2026-11-22, after #41. Clean units (no failures) per DLL. 98.5% of 7.39 million checks pass; **32/192 units clean** (31 before #41). With the COM classes registered, more units get further: advapi32 now runs 4244 checks (321 before), ole32 and shell32 run about 1000 more.
+Last run: 2026-11-22, after #42 (comctl32, gdi32, shell32 and user32 re-run; the other DLLs as after #41). Clean units (no failures) per DLL. 98.5% of 7.39 million checks pass; **32/192 units clean** (31 before #41). comctl32 misc no longer stops with an engine panic. With the COM classes registered, more units get further: advapi32 now runs 4244 checks (321 before), ole32 and shell32 run about 1000 more.
 
 | DLL | Clean units | Checks passed | Week 1 (2026-11-20) |
 |---|---|---|---|
@@ -41,12 +41,11 @@ Last run: 2026-11-22, after #41. Clean units (no failures) per DLL. 98.5% of 7.3
 | advapi32 | 2/12 | 83.0% of 4244 (99.4% of 321 before) | |
 | ole32 | 3/14 | 92.7% | |
 | shell32 | 3/19 | 87.9% | |
-| comctl32 | 1/29 | 97.1% | |
+| comctl32 | 1/29 | 96.9% of 19593 (590 more checks run) | |
 
 Known causes still open:
 
 - Crashes from APIs that return NULL where Windows returns data (clipboard, dde, om, path, menu units then crash in `strcmp`/`strlen`).
-- GDI handle validation (gdiobj, cursoricon units: access violations on invalid handles).
 - kernel32 `heap` unit: `RtlWalkHeap`, `GetProcessHeaps` and `HeapValidate` are not real yet.
 - ntdll `sync` (keyed events) and `pipe` deadlocks; `threadpool` times out.
 - advapi32: `SystemFunction001/007/032` (cryptsp, cryptbase) not implemented.
@@ -68,12 +67,12 @@ Known causes still open:
 | #40 | bcrypt RSA and ECC keys without GnuTLS: import, export, RSA PKCS#1/PSS and ECDSA P-256/384/521 verification (Inno Setup). |
 | #41 | Registrations that wineboot writes, taken from the Wine DLLs' `.rgs` resources: COM classes (`CoCreateInstance` no longer fails with `REGDB_E_CLASSNOTREG`), interfaces, type libraries, MIME types, time zones, NLS tables. |
 | #42 | win32u input contexts (imm32's default context was NULL); empty rectangle intersections no longer panic in `ExtTextOut`. |
+| #44 | The whole GDI handle table is committed: gdi32's lookup of an unused or bogus handle no longer faults (gdiobj, cursoricon, shlfileop). |
 
 ## Next
 
 1. WinMergeU crash at first window (bad call target in imm32's data).
 2. msi 32-bit custom actions (1627): KeePassXC.
 3. NULL-returning APIs that crash test units (clipboard, dde, path, menu).
-4. GDI handle validation.
-5. Heap walk: `RtlWalkHeap`, `GetProcessHeaps`, `HeapValidate`.
-6. coreinfo processor topology; new busybox64 download URL.
+4. Heap walk: `RtlWalkHeap`, `GetProcessHeaps`, `HeapValidate`.
+5. coreinfo processor topology; new busybox64 download URL.
