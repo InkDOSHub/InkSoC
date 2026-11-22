@@ -298,6 +298,7 @@ pub struct Win {
     pub imc_of: HashMap<u64, u64>,
     /// each thread's default input context, for WoW64 threads (others keep it in the TEB)
     pub imc_default: HashMap<u32, u64>,
+    pub clip: clipboard::Clip,
 }
 
 use crate::now_ms;
@@ -305,6 +306,7 @@ use crate::now_ms;
 mod callback;
 mod calls;
 mod class;
+mod clipboard;
 mod input;
 mod menu;
 mod message;
