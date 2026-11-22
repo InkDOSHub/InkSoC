@@ -34,8 +34,11 @@ impl Engine {
             return;
         }
         let Some(t) = self.reserve(0x10000 * 24) else { return };
-        // the stock objects use the first FIRST+24 entries: commit them before any write
-        if !self.prepare_write(t, 24 * (FIRST as u64 + 24)) {
+        // the whole table is readable, as in Windows: gdi32 looks up any handle it is given
+        // (an invalid one too) in its slot, and an uncommitted slot was an access violation.
+        // Pages still get RAM only when touched. The stock objects use the first FIRST+24
+        // entries: those are made resident before any write.
+        if self.mmu.commit_in_region(t, 0x10000 * 24).is_err() || !self.prepare_write(t, 24 * (FIRST as u64 + 24)) {
             self.unreserve(t, 0x10000 * 24);
             return;
         }

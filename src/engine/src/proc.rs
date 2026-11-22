@@ -184,8 +184,11 @@ impl Engine {
         let mut gdi_ok = true;
         if gt != 0 {
             self.mmu.add_reserved(gt, 0x10000 * 24);
-            // only the pages of the copied entries are committed; if they cannot be, the child is not started
-            gdi_ok = self.prepare_write(gt, gdi_tab.len() as u64) && self.mmu.write_bytes(gt, &gdi_tab).is_ok();
+            // the whole table is committed (readable for any handle; RAM only where touched) and
+            // the copied entries written; if that fails, the child is not started
+            gdi_ok = self.mmu.commit_in_region(gt, 0x10000 * 24).is_ok()
+                && self.prepare_write(gt, gdi_tab.len() as u64)
+                && self.mmu.write_bytes(gt, &gdi_tab).is_ok();
         }
         let r = if gdi_ok {
             self.boot_child(exe, cmd, &bytes, &env)
