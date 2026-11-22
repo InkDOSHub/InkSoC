@@ -524,6 +524,9 @@ pub extern "C" fn start() -> i32 {
     if let Some(k) = files::key_of(&raw) {
         if let Some(i) = k.rfind('\\') { let d = k[..i].to_string(); if !e.s.dll_dirs.contains(&d) { e.s.dll_dirs.push(d); } }
     }
+    for (k, v) in files::sxs_manifests() {
+        if !e.s.files.contains_key(&k) { e.s.files.insert(k, v); }
+    }
     if let Some(d) = e.s.files.get("roots.der").cloned() {
         e.s.fs.reg.seed_roots(&d);
     }

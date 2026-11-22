@@ -201,6 +201,18 @@ pub fn case_of(path: &str) -> Option<String> {
             // 32-bit system DLLs are stored as wine32-<name>
             return Some(format!("wine32-{}", parts[parts.len() - 1]));
         }
+        // side-by-side assemblies: the manifests folder is real (Wine's activation contexts
+        // search it); an assembly's own DLL is the system DLL (x86_ = the 32-bit one)
+        else if parts.len() > 2 && parts[0].eq_ignore_ascii_case("windows") && parts[1].eq_ignore_ascii_case("winsxs") {
+            if parts[2].eq_ignore_ascii_case("manifests") {
+                return Some(format!("C:\\{}", parts.join("\\")));
+            }
+            let last = parts[parts.len() - 1];
+            if parts.len() > 3 && parts[2].len() > 4 && parts[2][..4].eq_ignore_ascii_case("x86_") {
+                return Some(format!("wine32-{}", last));
+            }
+            return Some(last.to_string());
+        }
         // (Windows Installer keeps its own copies of packages in C:\Windows\Installer: real files)
         else if parts.first().map_or(false, |c| c.eq_ignore_ascii_case("windows"))
             && !parts.get(1).map_or(false, |c| c.eq_ignore_ascii_case("installer") && parts.len() > 2)
@@ -1227,4 +1239,24 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
 /// map one byte to one character (Latin-1; US-ASCII 20127 stops at 0x7F).
 fn single_byte_cp(cp: u32) -> bool {
     !matches!(cp, 0..=3 | 65000 | 65001)
+}
+
+/// Wine's comctl32 holds both the 5.8 and the 6.0 controls; programs that ask for
+/// Microsoft.Windows.Common-Controls 6.0 in their manifest find it in C:\Windows\winsxs.
+pub fn sxs_manifests() -> Vec<(String, Vec<u8>)> {
+    ["x86", "amd64"]
+        .iter()
+        .map(|arch| {
+            let id = format!("{}_microsoft.windows.common-controls_6595b64144ccf1df_6.0.2600.2982_none_deadbeef", arch);
+            let xml = format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
+<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\">\n\
+  <assemblyIdentity type=\"win32\" name=\"Microsoft.Windows.Common-Controls\" version=\"6.0.2600.2982\" processorArchitecture=\"{}\" publicKeyToken=\"6595b64144ccf1df\" language=\"*\"/>\n\
+  <file name=\"comctl32.dll\"/>\n\
+</assembly>\n",
+                arch
+            );
+            (format!("c:\\windows\\winsxs\\manifests\\{}.manifest", id), xml.into_bytes())
+        })
+        .collect()
 }
