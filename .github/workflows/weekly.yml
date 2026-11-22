@@ -132,6 +132,15 @@ jobs:
           path: results
           merge-multiple: true
       - run: node tests/winetest/summary.mjs results >> "$GITHUB_STEP_SUMMARY"
+      # the short triage report (tests/winetest/triage.mjs) is what gets read first
+      - run: |
+          node tests/winetest/triage.mjs results > triage.md
+          cat triage.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: triage
+          path: triage.md
+          retention-days: 90
 
   # the whole program corpus (tests/compat), next to the conformance tests
   compat:
