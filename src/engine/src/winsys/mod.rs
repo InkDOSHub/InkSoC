@@ -87,8 +87,11 @@ impl Rect {
     pub fn empty(&self) -> bool {
         self.r <= self.l || self.b <= self.t
     }
+    /// The overlap; when there is none, an empty rectangle with r >= l and b >= t (callers
+    /// fill rows l..r for t..b: a negative width made the slice panic in ExtTextOut)
     pub fn inter(&self, o: &Rect) -> Rect {
-        Rect::new(self.l.max(o.l), self.t.max(o.t), self.r.min(o.r), self.b.min(o.b))
+        let (l, t) = (self.l.max(o.l), self.t.max(o.t));
+        Rect::new(l, t, self.r.min(o.r).max(l), self.b.min(o.b).max(t))
     }
     pub fn union(&self, o: &Rect) -> Rect {
         if self.empty() {
