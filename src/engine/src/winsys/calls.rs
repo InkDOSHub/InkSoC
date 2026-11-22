@@ -109,6 +109,7 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 3 => h,
                 5 => e.wnd(h).map_or(0, |w| if w.style & WS_CHILD != 0 { w.parent } else { w.owner }),
                 6 => 0x12,
+                7 => e.win_imc(h),
                 9 => e.wnd(h).map_or(0, |w| w.text.encode_utf16().count() as u64),
                 10 => (e.wnd(h).is_some() || h == DESKTOP) as u64,
                 11 => e.wnd(h).map_or(0, |w| (w.style & WS_DISABLED == 0) as u64),
@@ -1291,6 +1292,9 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "NtUserCloseWindow" | "NtUserOpenIcon" => 1,
         "NtUserSelectPalette" => return crate::wingdi::call(e, name),
         "NtUserRealizePalette" => 0,
+        _ if name.contains("InputContext") || name == "NtUserBuildHimcList" || name == "NtUserDisableThreadIme" => {
+            return e.imc_call(name, &ar);
+        }
         _ => {
             if !e.s.win.unknown.contains(name) {
                 e.s.win.unknown.insert(name.to_string());
