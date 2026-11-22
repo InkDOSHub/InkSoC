@@ -8,12 +8,12 @@ This page tracks how well the engine runs real Windows programs. It is updated a
 
 ## Program corpus
 
-Last run: 2026-11-22, after PR #46 (clipboard). **24 of 30 pass**, unchanged since #42. Inno Setup passes since #40.
+Last run: 2026-11-22, after PR #50. **25 of 30 pass** (24 after #46). busybox64 passes again. Inno Setup passes since #40.
 
 | Program | Status | Cause |
 |---|---|---|
 | cmd, winemine, 7zip, python, putty64 | pass (gate) | |
-| steam-setup, python-bench, node, sqlite, ripgrep, rclone-go, 7zr-bench, plink, jq, putty32, sumatra, everything, npp32-portable, rufus | pass | |
+| busybox64, steam-setup, python-bench, node, sqlite, ripgrep, rclone-go, 7zr-bench, plink, jq, putty32, sumatra, everything, npp32-portable, rufus | pass | |
 | nasm32 | pass | |
 | npp-nsis | pass | Fixed by PR #27 (access violations go to the program's SEH handlers). |
 | 7zip32 | pass | Fixed by #33/#34 (Wow6432Node registry view, KEY_WOW64_64KEY honored). |
@@ -24,11 +24,10 @@ Last run: 2026-11-22, after PR #46 (clipboard). **24 of 30 pass**, unchanged sin
 | audacity-wx | fail | Unhandled access violation (null + 0x10) in lib-crashpad-configurer. |
 | winrar | fail | Timeout. |
 | coreinfo | fail | "Error getting processor information" (processor topology queries). |
-| busybox64 | fail | Download URL returns 403. |
 
 ## Wine conformance tests
 
-Last run: 2026-11-22, after #46 (all DLLs re-run). Same score as after #42; #44 and #46 let gdi32, ole32 and user32's clipboard unit run further before stopping. Clean units (no failures) per DLL. 98.5% of 7.40 million checks pass; **32/192 units clean** (31 before #41). comctl32 misc no longer stops with an engine panic. With the COM classes registered, more units get further: advapi32 now runs 4244 checks (321 before), ole32 and shell32 run about 1000 more.
+Last run: 2026-11-22, after #51 (user32 and kernel32 re-run; other DLLs after #50). **34/192 units clean** (32 after #46): advapi32 `crypt_lmhash` and `crypt_md4` are clean with the DLLs from #49. user32's clipboard unit now runs 54,802 checks when run alone. kernel32 `fiber` gets past fiber creation (#50, #51) but still crashes later (FLS checks fail, then a null call). Clean units (no failures) per DLL. 98.5% of 7.40 million checks pass; comctl32 misc no longer stops with an engine panic. With the COM classes registered, more units get further: advapi32 now runs 4244 checks (321 before), ole32 and shell32 run about 1000 more.
 
 | DLL | Clean units | Checks passed | Week 1 (2026-11-20) |
 |---|---|---|---|
@@ -38,7 +37,7 @@ Last run: 2026-11-22, after #46 (all DLLs re-run). Same score as after #42; #44 
 | gdi32 | 2/14 | 94.6% | 2/14 |
 | ucrtbase | 3/8 | 100.0% (55 failures) | 3/8 |
 | msvcrt | 4/13 | 99.5% | |
-| advapi32 | 2/12 | 83.0% of 4244 (99.4% of 321 before) | |
+| advapi32 | 4/12 | 83.3% of 4330 (99.4% of 321 before) | |
 | ole32 | 3/14 | 93.5% | |
 | shell32 | 3/19 | 87.9% | |
 | comctl32 | 1/29 | 97.3% of 25031 | |
@@ -49,7 +48,7 @@ Known causes still open:
 - user32 clipboard: rendering on request (`WM_RENDERFORMAT`) and bitmap/metafile synthesis are not done yet.
 - kernel32 `heap` unit: `RtlWalkHeap`, `GetProcessHeaps` and `HeapValidate` are not real yet.
 - ntdll `sync` (keyed events) and `pipe` deadlocks; `threadpool` times out.
-- advapi32: `SystemFunction001/007/032` (cryptsp, cryptbase) not implemented.
+- kernel32 `fiber`: fiber local storage (FLS) checks fail, then a call through a null pointer.
 
 ## Fixed
 
@@ -71,11 +70,15 @@ Known causes still open:
 | #44 | The whole GDI handle table is committed: gdi32's lookup of an unused or bogus handle no longer faults (gdiobj, cursoricon, shlfileop). |
 | #46 | A clipboard shared by every process (copy and paste failed before): data with win32u's per-process cache, CF_TEXT/CF_UNICODETEXT/CF_OEMTEXT/CF_LOCALE synthesis, format enumeration and names, viewer chain, format listeners. |
 | #47 | Clipboard ownership as wineserver has it (a thread that ends releases it); class names, window messages, clipboard formats and window properties share one case-insensitive global atom table. |
+| #49 | 63 more Wine DLLs per architecture on demand: older MSVC runtimes (msvcr70–110, msvcp60–110), msxml3/6, vbscript, jscript, scrrun, cryptsp/cryptbase, XAudio2, d3dx9_36, d3dcompiler_43 and more. |
+| #50 | x64 activation context stack has the Windows layout (fibers crashed at creation). |
+| #51 | `ProcessThreadStackAllocation` reserves a stack (fiber stacks). |
 
 ## Next
 
-1. WinMergeU crash at first window (bad call target in imm32's data).
-2. msi 32-bit custom actions (1627): KeePassXC.
-3. NULL-returning APIs that crash test units (dde, path, menu).
-4. Heap walk: `RtlWalkHeap`, `GetProcessHeaps`, `HeapValidate`.
-5. coreinfo processor topology; new busybox64 download URL.
+1. kernel32 `fiber`: FLS and the null call.
+2. WinMergeU crash at first window (bad call target in imm32's data).
+3. msi 32-bit custom actions (1627): KeePassXC.
+4. NULL-returning APIs that crash test units (dde, path, menu).
+5. Heap walk: `RtlWalkHeap`, `GetProcessHeaps`, `HeapValidate`.
+6. coreinfo processor topology.
