@@ -84,6 +84,28 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
             }
             OK
         }
+        // ProcessThreadStackAllocation: ntdll's RtlCreateUserStack (fibers, threads it starts)
+        // gets the address space for a stack; PROCESS_STACK_ALLOCATION_INFORMATION (ReserveSize,
+        // ZeroBits, StackBase), or the _EX form with 16 bytes before it
+        "NtSetInformationProcess" if e.arg(1) as u32 == 0x29 => {
+            let (buf, len) = (e.arg(2), e.arg(3) as u32);
+            let info = match len {
+                0x18 => buf,
+                0x28 => buf + 0x10,
+                _ => return Some(INFO_LENGTH_MISMATCH),
+            };
+            let size = e.r64(info);
+            if size == 0 || size > 1 << 32 {
+                return Some(INVALID_PARAMETER);
+            }
+            match e.reserve(size) {
+                Some(a) => {
+                    e.w64(info + 16, a);
+                    OK
+                }
+                None => NO_MEMORY,
+            }
+        }
         "NtSetInformationProcess" | "NtSetInformationThread" | "NtSetInformationObject" => OK,
         "NtQueryInformationThread" => {
             let (class, buf, len, ret) = (e.arg(1) as u32, e.arg(2), e.arg(3) as u32 as u64, e.arg(4));
