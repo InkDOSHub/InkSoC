@@ -57,10 +57,8 @@ impl Engine {
         if k < 0x10000 {
             return k;
         }
-        let n = self.read_wstr(k, 256).to_lowercase();
-        let w = &mut self.s.win;
-        let a = w.props_atoms.len() as u16;
-        *w.props_atoms.entry(n).or_insert(0xC100 + a) as u64
+        let n = self.read_wstr(k, 256);
+        self.global_atom(&n) as u64
     }
     pub(crate) fn wnd(&self, h: u64) -> Option<&Wnd> {
         self.s.win.wins.get(&full(h))

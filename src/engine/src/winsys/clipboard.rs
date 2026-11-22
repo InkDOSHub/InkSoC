@@ -67,6 +67,22 @@ impl Engine {
         }
     }
 
+    /// A thread that ends with the clipboard open closes it (wineserver's cleanup_clipboard_thread).
+    fn clip_release_dead(&mut self) {
+        let Some((p, t)) = self.s.win.clip.open else { return };
+        let alive = self.s.sched.th.iter().any(|x| x.wpid == p && x.id == t && x.st != crate::sched::St::Done)
+            && !self.s.pinfo.get(&p).is_some_and(|i| i.exit.is_some());
+        if alive {
+            return;
+        }
+        if self.s.win.clip.seqno != self.s.win.clip.open_seqno {
+            self.clip_synthesize();
+        }
+        let c = &mut self.s.win.clip;
+        c.open = None;
+        c.open_win = 0;
+    }
+
     fn clip_ids(&self) -> Vec<u32> {
         self.s.win.clip.formats.iter().map(|f| f.id).collect()
     }
@@ -75,22 +91,22 @@ impl Engine {
     pub(crate) fn clip_call(&mut self, name: &str, ar: &[u64]) -> Option<u64> {
         let pid = self.s.wpid;
         let tid = self.cur_tid();
+        self.clip_release_dead();
         Some(match name {
             "NtUserOpenClipboard" => {
-                let c = &self.s.win.clip;
-                if let Some((p, t)) = c.open {
-                    let gone = self.s.pinfo.get(&p).is_some_and(|i| i.exit.is_some());
-                    if (p, t) != (pid, tid) && !gone {
-                        self.set_last_error(5); // ERROR_ACCESS_DENIED
-                        return Some(0);
-                    }
-                }
+                // wineserver: open by another window fails; the same window may take it over from
+                // another thread
+                let h = full(ar[0]);
                 let c = &mut self.s.win.clip;
-                if c.open != Some((pid, tid)) {
+                if c.open.is_some() && c.open_win != h {
+                    self.set_last_error(5); // ERROR_ACCESS_DENIED
+                    return Some(0);
+                }
+                if c.open.is_none() {
                     c.open_seqno = c.seqno;
                 }
                 c.open = Some((pid, tid));
-                c.open_win = full(ar[0]);
+                c.open_win = h;
                 1
             }
             "NtUserCloseClipboard" => {
@@ -141,7 +157,7 @@ impl Engine {
                     x.handles.push((pid, h));
                     return Some(0);
                 }
-                if !self.clip_mine() {
+                if !self.clip_mine() || f == 0 {
                     return Some(NOT_OPEN);
                 }
                 let (data, size) = if p != 0 { (self.r64(p), self.r64(p + 8)) } else { (0, 0) };
