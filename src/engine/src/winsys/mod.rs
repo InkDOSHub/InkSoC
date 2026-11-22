@@ -262,7 +262,6 @@ pub struct Win {
     pub wins: HashMap<u64, Wnd>,
     pub tops: Vec<u64>, // top-level windows, back to front
     next_hwnd: u64,
-    next_atom: u16,
     pub queues: HashMap<u32, Queue>,
     /// results of cross-thread SendMessage calls, by id, until the sender picks them up
     pub replies: HashMap<u64, u64>,
@@ -290,7 +289,6 @@ pub struct Win {
     pub popup: Option<Popup>,
     pub last_click: (f64, i32, i32, u64),
     pub dirty: bool,
-    pub props_atoms: HashMap<String, u16>,
     /// input contexts (HIMC): client pointer (imm32's data) and owner thread
     pub imcs: HashMap<u64, (u64, u32)>,
     next_imc: u64,

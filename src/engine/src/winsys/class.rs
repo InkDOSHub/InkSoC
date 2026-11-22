@@ -12,20 +12,23 @@ impl Engine {
         self.s.win.classes.iter().position(|c| (c.builtin || c.pid == me) && if atom != 0 { c.atom == atom } else { c.name == n })
     }
 
-    pub(super) fn add_class(&mut self, c: Class) -> u16 {
-        let w = &mut self.s.win;
-        if w.next_atom == 0 {
-            w.next_atom = 0xC000;
+    /// The global atom of a name (NtAddAtom's table): class names, window messages, clipboard
+    /// formats and window properties share it, as they do in Windows.
+    pub(crate) fn global_atom(&mut self, n: &str) -> u16 {
+        if let Some(i) = self.s.atoms.iter().position(|a| a.eq_ignore_ascii_case(n)) {
+            return 0xC000 + i as u16;
         }
+        self.s.atoms.push(n.to_string());
+        0xBFFF + self.s.atoms.len() as u16
+    }
+
+    pub(super) fn add_class(&mut self, c: Class) -> u16 {
         let atom = match c.name.as_str() {
             "#32770" => 0x8002,
             "#32768" => 0x8000,
             "#32769" => 0x8001,
             "#32772" => 0x8004,
-            _ => {
-                w.next_atom += 1;
-                w.next_atom
-            }
+            _ => self.global_atom(&c.name),
         };
         let pid = self.s.wpid;
         let w = &mut self.s.win;

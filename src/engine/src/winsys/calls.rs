@@ -1259,9 +1259,7 @@ pub fn call(e: &mut Engine, name: &str) -> Option<u64> {
         "NtUserTranslateAccelerator" => 0,
         "NtUserRegisterWindowMessage" => {
             let (n, _) = e.ustr(a0);
-            let w = &mut e.s.win;
-            let k = w.props_atoms.len() as u16;
-            *w.props_atoms.entry(n).or_insert(0xC100 + k) as u64
+            e.global_atom(&n) as u64
         }
         "NtUserGetRawInputDeviceList" | "NtUserGetRegisteredRawInputDevices" | "NtUserGetRawInputData" | "NtUserGetRawInputBuffer" => 0,
         "NtUserRegisterRawInputDevices" => 1,
