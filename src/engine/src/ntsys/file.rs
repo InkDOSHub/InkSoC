@@ -136,6 +136,7 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 4 => 40,
                 5 => 24,
                 14 => 8,
+                20 => 8,
                 35 => 8,
                 18 => 104,
                 6 => 8,
@@ -175,6 +176,10 @@ pub(super) fn call(e: &mut Engine, name: &str) -> Option<u64> {
                 5 => std_(e, buf),
                 14 => {
                     e.w64(buf, pos);
+                }
+                // FileEndOfFileInformation: Wine reads a manifest's size this way
+                20 => {
+                    e.w64(buf, size);
                 }
                 35 => {
                     e.w32(buf, attr);
