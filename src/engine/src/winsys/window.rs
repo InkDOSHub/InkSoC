@@ -231,6 +231,7 @@ impl Engine {
     /// Removes a window without messages (failed creation).
     pub(super) fn destroy_now(&mut self, h: u64) {
         let Some(w) = self.s.win.wins.remove(&h) else { return };
+        self.s.win.imc_of.remove(&h);
         if w.parent != 0 {
             if let Some(p) = self.s.win.wins.get_mut(&w.parent) {
                 p.children.retain(|&c| c != h);

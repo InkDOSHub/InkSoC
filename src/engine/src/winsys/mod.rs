@@ -288,6 +288,13 @@ pub struct Win {
     pub last_click: (f64, i32, i32, u64),
     pub dirty: bool,
     pub props_atoms: HashMap<String, u16>,
+    /// input contexts (HIMC): client pointer (imm32's data) and owner thread
+    pub imcs: HashMap<u64, (u64, u32)>,
+    next_imc: u64,
+    /// windows given another input context than their thread's default (0: none)
+    pub imc_of: HashMap<u64, u64>,
+    /// each thread's default input context, for WoW64 threads (others keep it in the TEB)
+    pub imc_default: HashMap<u32, u64>,
 }
 
 use crate::now_ms;
@@ -306,4 +313,101 @@ pub use calls::call;
 /// Window handles are used with and without the upper 16 bits.
 pub fn full(h: u64) -> u64 {
     h & 0xFFFF_FFFF
+}
+
+impl crate::Engine {
+    /// win32u's input contexts (imm32 keeps its data behind them; NtUserCreateInputContext
+    /// returning 0 left it with a NULL context it then used, on the first window).
+    pub(crate) fn imc_create(&mut self, client: u64) -> u64 {
+        let tid = self.cur_tid();
+        let w = &mut self.s.win;
+        w.next_imc += 1;
+        let h = 0x00E0_0000 + w.next_imc * 4;
+        w.imcs.insert(h, (client, tid));
+        h
+    }
+    /// The thread's default input context (ntuser_thread_info.default_imc, in the TEB at
+    /// Win32ClientInfo, where imm32 also reads and sets it), made on first use.
+    pub(crate) fn imc_default(&mut self) -> u64 {
+        let tid = self.cur_tid();
+        let at = self.cpu.gs_base + 0x800 + 52;
+        let have = if self.s.wow64 { self.s.win.imc_default.get(&tid).copied().unwrap_or(0) } else { self.ur32(at) as u64 };
+        if have != 0 && self.s.win.imcs.contains_key(&have) {
+            return have;
+        }
+        let h = self.imc_create(0);
+        if self.s.wow64 {
+            self.s.win.imc_default.insert(tid, h);
+        } else {
+            self.w32(at, h as u32);
+        }
+        h
+    }
+    pub(crate) fn imc_call(&mut self, name: &str, ar: &[u64]) -> Option<u64> {
+        const AICR_FAILED: u64 = 2;
+        Some(match name {
+            "NtUserCreateInputContext" => self.imc_create(ar[0]),
+            "NtUserDestroyInputContext" => self.s.win.imcs.remove(&(ar[0] & 0xFFFF_FFFF)).is_some() as u64,
+            "NtUserUpdateInputContext" => match (self.s.win.imcs.get_mut(&(ar[0] & 0xFFFF_FFFF)), ar[1] as u32) {
+                (Some(c), 0) => {
+                    c.0 = ar[2];
+                    1
+                }
+                _ => 0,
+            },
+            "NtUserQueryInputContext" => match (self.s.win.imcs.get(&(ar[0] & 0xFFFF_FFFF)), ar[1] as u32) {
+                (Some(c), 0) => c.0,
+                (Some(c), 1) => c.1 as u64,
+                _ => 0,
+            },
+            "NtUserAssociateInputContext" => {
+                let (h, ctx, flags) = (ar[0] & 0xFFFF_FFFF, ar[1] & 0xFFFF_FFFF, ar[2] as u32);
+                let ctx = match flags {
+                    0x10 => self.imc_default(), // IACE_DEFAULT
+                    0 | 0x20 => ctx,            // IACE_IGNORENOCONTEXT
+                    _ => return Some(AICR_FAILED),
+                };
+                let tid = self.cur_tid();
+                if ctx != 0 && self.s.win.imcs.get(&ctx).map_or(true, |c| c.1 != tid) {
+                    return Some(AICR_FAILED);
+                }
+                let Some(owner) = self.s.win.wins.get(&h).map(|w| w.tid) else { return Some(AICR_FAILED) };
+                if ctx != 0 && owner != tid {
+                    return Some(AICR_FAILED);
+                }
+                let old = self.win_imc(h);
+                if flags != 0x20 || old != 0 {
+                    self.s.win.imc_of.insert(h, ctx);
+                }
+                (old != ctx && self.s.win.focus == h) as u64 // AICR_FOCUS_CHANGED
+            }
+            "NtUserBuildHimcList" => {
+                let (tid, count, buf, size) = (ar[0] as u32, ar[1] as usize, ar[2], ar[3]);
+                let list: Vec<u64> =
+                    self.s.win.imcs.iter().filter(|(_, c)| tid == 0 || c.1 == tid).map(|(h, _)| *h).take(count).collect();
+                let step = if self.s.wow64 { 4 } else { 8 };
+                for (i, h) in list.iter().enumerate() {
+                    if step == 4 {
+                        self.w32(buf + 4 * i as u64, *h as u32);
+                    } else {
+                        self.w64(buf + 8 * i as u64, *h);
+                    }
+                }
+                if size != 0 {
+                    self.w32(size, list.len() as u32);
+                }
+                0
+            }
+            "NtUserDisableThreadIme" => 1,
+            _ => return None,
+        })
+    }
+    /// The input context of a window: its own, else its thread's default one.
+    pub(crate) fn win_imc(&mut self, h: u64) -> u64 {
+        match self.s.win.imc_of.get(&h) {
+            Some(c) => *c,
+            None if self.s.win.wins.contains_key(&h) => self.imc_default(),
+            None => 0,
+        }
+    }
 }
