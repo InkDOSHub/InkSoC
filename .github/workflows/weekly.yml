@@ -1,10 +1,10 @@
-# Weekly compatibility run (Thursdays 18:00 São Paulo): Wine's own conformance tests for the
+# Weekly compatibility run (Thursdays 14:00 São Paulo): Wine's own conformance tests for the
 # core DLLs run in the engine (tests/winetest), then the program corpus (tests/compat).
 # Results come back as the job summary and artifacts.
 name: weekly
 on:
   schedule:
-    - cron: '0 21 * * 4'
+    - cron: '0 17 * * 4'
   workflow_dispatch:
     inputs:
       dlls:
