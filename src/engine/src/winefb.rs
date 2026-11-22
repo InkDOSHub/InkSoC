@@ -354,9 +354,11 @@ impl Engine {
 
     /// Per-thread blocks Wine's ntdll expects in the TEB (activation context stack).
     pub fn teb_extras(&mut self, teb: u64) {
+        // ACTIVATION_CONTEXT_STACK: ActiveFrame, FrameListCache (an empty list), Flags,
+        // NextCookieSequenceNumber, StackId
         let a = self.heap_alloc(0x40, true);
-        self.w64(a + 0x18, a + 0x18); // FrameListCache: empty list
-        self.w64(a + 0x20, a + 0x18);
+        self.w64(a + 0x8, a + 0x8);
+        self.w64(a + 0x10, a + 0x8);
         self.w64(teb + 0x2C8, a);
     }
 
