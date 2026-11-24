@@ -1,7 +1,7 @@
 // InkSoC engine: PE32+ loader, x86-64 interpreter (integer + SSE/SSE2),
 // 64-bit page table over a fixed pool of real RAM with swap to OPFS, our own
 // kernel32, and a bridge to "Wine side" C code compiled to wasm.
-// License: GPL-3.0-or-later.
+// License: MIT.
 #![cfg_attr(target_feature = "atomics", feature(thread_local, stdarch_wasm_atomic_wait))]
 
 mod cpu;
